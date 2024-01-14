@@ -1,0 +1,38 @@
+{
+    "name": "@tstelzer/perf-metrics-core",
+    "version": "0.0.1-alpha.1",
+    "type": "module",
+    "license": "MIT",
+    "sideEffects": [],
+    "publishConfig": {
+        "directory": "dist"
+    },
+    "tags": ["typescript", "performance", "confusion-matrix", "metrics"],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/tstelzer/performance-metrics.git"
+    },
+    "scripts": {
+        "build": "tsc --build tsconfig.build.json",
+        "build-cjs": "babel build/esm --plugins @babel/transform-export-namespace-from --plugins @babel/transform-modules-commonjs --out-dir build/cjs --source-maps",
+        "clean": "rm -rf build dist .tsbuildinfo",
+        "prepare": "node build/esm/src/build.js",
+        "build-all": "pnpm run clean && pnpm run build && pnpm run build-cjs && pnpm run prepare"
+    },
+    "devDependencies": {
+        "@creative-introvert/eslint-config": "^0.3.2",
+        "@creative-introvert/prettier-config": "^0.2.0",
+        "@babel/cli": "^7.23.4",
+        "@babel/core": "^7.23.6",
+        "@babel/plugin-transform-export-namespace-from": "^7.23.4",
+        "@babel/plugin-transform-modules-commonjs": "^7.23.3",
+        "@types/node": "^20",
+        "app-root-path": "^3.1.0",
+        "type-fest": "^4.8.2",
+        "typescript": "^5.3.2"
+    },
+    "dependencies": {
+        "@effect/schema": "^0.59.1",
+        "effect": "2.0.3"
+    }
+}

@@ -1,0 +1,24 @@
+# package management
+node_modules
+.corepack
+
+.cache
+
+# typescript
+**/*.tsbuildinfo
+
+# infrastructure
+.env*
+!.envrc
+!.env.example
+build
+dist
+
+*.log*
+
+# nixos
+.direnv
+
+.npmrc
+.git
+.rollup.cache

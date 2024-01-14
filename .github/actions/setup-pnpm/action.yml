@@ -1,0 +1,25 @@
+name: setup-pnpm
+
+runs:
+  using: "composite"
+  steps:
+    - uses: pnpm/action-setup@v2
+      id: pnpm-install
+      with:
+        version: 8.1.1
+        run_install: false
+    - name: create pnpm cache directory
+      id: pnpm-cache
+      shell: bash
+      run: |
+        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+    - uses: actions/cache@v3
+      name: setup pnpm cache
+      with:
+        path: ${{ env.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-store-
+    - name: install dependencies
+      run: pnpm install --frozen-lockfile
+      shell: bash
