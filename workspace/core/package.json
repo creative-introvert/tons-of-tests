@@ -16,8 +16,8 @@
         "build": "tsc --build tsconfig.build.json",
         "build-cjs": "babel build/esm --plugins @babel/transform-export-namespace-from --plugins @babel/transform-modules-commonjs --out-dir build/cjs --source-maps",
         "clean": "rm -rf build dist .tsbuildinfo",
-        "prepare": "node build/esm/src/build.js",
-        "build-all": "pnpm run clean && pnpm run build && pnpm run build-cjs && pnpm run prepare"
+        "prepublish": "node build/esm/src/build.js",
+        "build-all": "pnpm run clean && pnpm run build && pnpm run build-cjs && pnpm run prepublish"
     },
     "devDependencies": {
         "@creative-introvert/eslint-config": "^0.3.2",
