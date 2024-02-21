@@ -3,6 +3,8 @@
     "include": ["src"],
     "compilerOptions": {
         "types": ["node"],
-        "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo"
+        "declarationDir": "build/dts",
+        "tsBuildInfoFile": "build/.tsbuildinfo",
+        "outDir": "build/esm"
     }
 }

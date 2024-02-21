@@ -2,6 +2,9 @@
     "private": true,
     "license": "MIT",
     "packageManager": "pnpm@8.12.1",
+    "scripts": {
+        "start": "tsc --build && node --max-old-space-size=8192 --enable-source-maps ./workspace/core/build/esm/src/index.js"
+    },
     "devDependencies": {
         "@typescript-eslint/eslint-plugin": "^6.12.0",
         "@typescript-eslint/parser": "^6.12.0",

@@ -1,0 +1,12 @@
+{
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "declarationDir": "build/dts",
+        "tsBuildInfoFile": "build/.tsbuildinfo",
+        "outDir": "build/esm"
+    },
+    "references": [
+        { "path": "./workspace/core"}
+    ],
+    "include": ["workspace/*/src/**/*.ts"]
+}

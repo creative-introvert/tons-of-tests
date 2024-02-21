@@ -1,57 +1,47 @@
 import {createHash} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
 
+import * as P from './prelude.js';
 import * as Classification from './Classification.js';
 import {DuplicateTestCase} from './Error.js';
 
-export type Literal = string | number | boolean | null;
-export type Json = Literal | {[key: string]: Json} | Json[];
-
 export type ID = string;
-export type Feature = string;
-// TODO: Option
-export type Value = Json | undefined;
 
-export type Case<K extends Feature, T extends Json> = Record<K, Json> & {
-    input: T;
+export type TestCase<I, O> = {
+    input: I;
+    expected: O;
+    tags: string[];
 };
 
-export type Result<K extends Feature, T extends Json> = {
+export type TestResult<I, O> = {
     id: ID;
-    feature: K;
-    input: T;
-    output?: Value;
-    expected?: Value;
-    equals: boolean;
-    classificationLabel: Classification.Label;
+    input: I;
+    output: O;
+    expected: O;
+    feature: string | undefined;
+    tags: string[];
+    isEqual: boolean;
+    classifiedAs: Classification.Label;
 };
 
-export type FunctionUnderTest<K extends Feature, T extends Json> = (
-    input: T,
-) => Record<K, Value>;
+export type Program<I, O> = (input: I) => O;
 
-export type Run<K extends Feature, T extends Json> = {
-    features: readonly K[];
-    testResultsById: Record<ID, Record<K, Result<K, T>>>;
+export type TestRun<I, O> = {
+    testResultsByFeatureById: Record<ID, Record<string, TestResult<I, O>>>;
     testResultIds: ID[];
-    statsByFeature: Record<
-        K,
-        {
-            [Classification.Label.TP]: number;
-            [Classification.Label.TN]: number;
-            [Classification.Label.FP]: number;
-            [Classification.Label.FN]: number;
-            precision: number;
-            recall: number;
-        }
-    >;
+    statsByFeature: Record<string, Stats>;
 };
 
-export type Diff<K extends Feature> = {
-    feature: K;
-    TP: number;
-    TN: number;
-    FP: number;
-    FN: number;
+export type Stats = Record<Classification.Label, number> & {
+    precision: number;
+    recall: number;
+};
+
+const Stats = {
+    empty: (): Stats => ({TP: 0, TN: 0, FP: 0, FN: 0, precision: 0, recall: 0}),
+};
+
+export type Diff = Record<Classification.Label, number> & {
     precision: number;
     recall: number;
 };
@@ -60,257 +50,262 @@ export type Diff<K extends Feature> = {
 // Impl
 // =============================================================================
 
-// TODO: I think I get this for free from
-// https://effect-ts.github.io/effect/effect/Data.ts.html
 export const ID = {
-    fromInput: <T extends Json>(input: T): ID => {
+    create: <I>(input: I): ID => {
         const toHash =
-            input === undefined
-                ? 'undefined'
-                : typeof input === 'string'
-                  ? input
-                  : JSON.stringify(input);
+            typeof input === 'string' ? input : JSON.stringify(input);
 
         return createHash('sha256').update(toHash).digest('hex');
     },
 };
 
-// TODO: https://effect-ts.github.io/effect/effect/Equal.ts.html
-export const equals = <T extends Json>(a?: T, b?: T): boolean => {
-    return a === b;
-};
+export function runRecord<I, O extends Record<string, unknown>>({
+    testCase: {input, expected, tags},
+    program,
+}: {
+    testCase: TestCase<I, O>;
+    program: Program<I, O>;
+}): {results: TestResult<I, O[keyof O]>[]; id: string} {
+    const id = ID.create(input);
+    const results = P.R.toEntries(program(input)).map(([feature, output]) => ({
+        id,
+        feature,
+        input,
+        output: output as O[keyof O],
+        expected: expected[feature] as O[keyof O],
+        isEqual: isDeepStrictEqual(output, expected[feature]),
+        tags,
+        classifiedAs: Classification.classify(output, expected[feature]),
+    }));
+    return {results, id};
+}
 
-/*
- * Runs a single test and returns one result per feature.
- * We differentiate between features to be able to measure precision/recall per feature.
- * `input` is redundantly stored for convenience.
- */
-export function runSingle<K extends Feature, T extends Json>({
-    features,
+export function runArray<I, O extends P.A.NonEmptyArray<unknown>>({
+    testCase: {input, expected, tags},
+    program,
+}: {
+    testCase: TestCase<I, O>;
+    program: Program<I, O>;
+}): {results: TestResult<I, O[keyof O]>[]; id: string} {
+    const id = ID.create(input);
+    const results = program(input).map((output, i) => ({
+        id,
+        feature: i.toString(),
+        input,
+        output: output as O[keyof O],
+        expected: expected[i] as O[keyof O],
+        isEqual: isDeepStrictEqual(output, expected[i]),
+        tags,
+        classifiedAs: Classification.classify(output, expected[i]),
+    }));
+    return {results, id};
+}
+
+export function run<I, O>({
     testCase,
-    f,
-    createId = ID.fromInput,
+    program,
 }: {
-    features: readonly K[];
-    testCase: Case<K, T>;
-    f: FunctionUnderTest<K, T>;
-    createId: (input: T) => ID;
-}): {resultByFeature: Record<K, Result<K, T>>; id: ID} {
-    const output = f(testCase.input);
-    const id = createId(testCase.input);
+    testCase: TestCase<I, O>;
+    program: Program<I, O>;
+}): TestResult<I, O> {
+    const output = program(testCase.input);
+    const id = ID.create(testCase.input);
 
-    return features.reduce<{
-        resultByFeature: Record<K, Result<K, T>>;
-        id: ID;
-    }>(
-        (m, feature) => {
-            const testResult: Result<K, T> = {
-                id,
-                input: testCase.input,
-                feature,
-                output: output[feature],
-                expected: testCase[feature],
-                equals: equals(output[feature], testCase[feature]),
-                classificationLabel: Classification.classify(
-                    output[feature],
-                    testCase[feature],
-                ),
-            };
-            m.resultByFeature[feature] = testResult;
-            return m;
-        },
-        {resultByFeature: {} as Record<K, Result<K, T>>, id},
-    );
+    const testResult: TestResult<I, O> = {
+        id,
+        input: testCase.input,
+        feature: undefined,
+        output,
+        expected: testCase.expected,
+        isEqual: isDeepStrictEqual(output, testCase.expected),
+        tags: testCase.tags,
+        classifiedAs: Classification.classify(output, testCase.expected),
+    };
+
+    return testResult;
 }
 
-export const Run = {
-    filter: <K extends Feature, T extends Json>({
-        predicate,
-        testRun,
-        previousTestRun,
-    }: {
-        predicate: (
-            result: Result<K, T>,
-            previousResult?: Result<K, T>,
-        ) => boolean;
-        testRun: Run<K, T>;
-        previousTestRun?: Run<K, T>;
-    }) => {
-        return testRun.testResultIds.reduce<Run<K, T>>(
-            (m, id) => {
-                const byFeature = testRun.testResultsById[id];
-                const previousByFeature = previousTestRun?.testResultsById[id];
-
-                for (const feature of testRun.features) {
-                    const result = byFeature[feature];
-                    const previousResult =
-                        previousByFeature && previousByFeature[feature];
-
-                    if (
-                        result !== undefined &&
-                        predicate(result, previousResult)
-                    ) {
-                        if (m.testResultsById[id] === undefined) {
-                            m.testResultsById[id] = {} as Record<
-                                K,
-                                Result<K, T>
-                            >;
-                        }
-                        m.testResultsById[id][feature] = result;
-                    }
-                }
-
-                if (m.testResultsById[id]) {
-                    m.testResultIds.push(id);
-                }
-
-                return m;
-            },
-            {
-                testResultsById: {},
-                testResultIds: [],
-                features: testRun.features,
-                // These aren't filtered, but it makes no sense to filter them anyways.
-                statsByFeature: testRun.statsByFeature,
-            },
-        );
-    },
-    withStats<K extends Feature, T extends Json>({
-        testRun,
-        features,
-    }: {
-        testRun: Run<K, T>;
-        features: readonly K[];
-    }): Run<K, T> {
-        const statsByFeature = features.reduce(
-            (m, feature) => {
-                const stats = testRun.statsByFeature[feature];
-                m[feature] = {
-                    ...stats,
-                    precision: Classification.precision(stats),
-                    recall: Classification.recall(stats),
-                };
-                return m;
-            },
-            {} as Run<K, T>['statsByFeature'],
-        );
-
-        return {
-            ...testRun,
-            statsByFeature,
-        };
-    },
-    empty<K extends Feature, T extends Json>(
-        features: readonly K[],
-    ): Run<K, T> {
-        return {
-            testResultsById: {},
-            testResultIds: [],
-            features,
-            statsByFeature: features.reduce(
-                (m, feature) => {
-                    m[feature] = {
-                        [Classification.Label.TP]: 0,
-                        [Classification.Label.TN]: 0,
-                        [Classification.Label.FP]: 0,
-                        [Classification.Label.FN]: 0,
-                        precision: 0,
-                        recall: 0,
-                    };
-                    return m;
-                },
-                {} as Run<K, T>['statsByFeature'],
-            ),
-        };
-    },
-};
-
-export type RunCasesArgs<K extends Feature, T extends Json> = {
-    features: readonly K[];
-    testCases: Case<K, T>[];
-    f: FunctionUnderTest<K, T>;
-    createId: (input: T) => ID;
-};
-
-export function runAll<K extends Feature, T extends Json>({
-    features,
+export function runAllRecord<I, O extends Record<string, unknown>>({
     testCases,
-    f,
-    createId,
-}: RunCasesArgs<K, T>): Run<K, T> & {errors: DuplicateTestCase[]} {
-    const withoutStats = testCases.reduce<
-        Run<K, T> & {errors: DuplicateTestCase[]}
-    >(
-        (m, testCase) => {
-            const {resultByFeature: testResultByFeature, id} = runSingle({
-                features,
-                testCase,
-                f,
-                createId,
-            });
+    program,
+}: {
+    testCases: TestCase<I, O>[];
+    program: Program<I, O>;
+}): [TestRun<I, O[keyof O]>, DuplicateTestCase[]] {
+    const errors: DuplicateTestCase[] = [];
+    const testResultsByFeatureById: Record<
+        ID,
+        Record<string, TestResult<I, O[keyof O]>>
+    > = {};
+    const testResultIds: string[] = [];
+    const statsByFeature: Record<string, Stats> = {};
 
-            if (m.testResultsById[id] !== undefined) {
-                const e = new DuplicateTestCase({id, input: testCase.input});
-                m.errors.push(e);
-                return m;
+    for (const testCase of testCases) {
+        const {results, id} = runRecord({testCase, program});
+        if (testResultsByFeatureById[id] !== undefined) {
+            errors.push(new DuplicateTestCase({id}));
+            continue;
+        }
+
+        testResultIds.push(id);
+
+        for (const result of results) {
+            if (testResultsByFeatureById[result.feature!] === undefined) {
+                testResultsByFeatureById[result.feature!] = {};
             }
+            testResultsByFeatureById[result.feature!][result.id] = result;
 
-            m.testResultIds.push(id);
-            m.testResultsById[id] = testResultByFeature;
-            for (const feature of features) {
-                m.statsByFeature[feature][
-                    testResultByFeature[feature].classificationLabel
-                ]++;
+            if (statsByFeature[result.feature!] === undefined) {
+                statsByFeature[result.feature!] = Stats.empty();
             }
-            return m;
-        },
-        {...Run.empty(features), errors: []},
-    );
+            statsByFeature[result.feature!][result.classifiedAs]++;
+        }
+    }
 
-    const errors = withoutStats.errors;
-    const withStats = Run.withStats({testRun: withoutStats, features});
-    return {...withStats, errors};
+    return [{testResultsByFeatureById, testResultIds, statsByFeature}, errors];
 }
 
-export const diff = <K extends Feature, T extends Json>({
-    previousTestRun,
-    testRun,
+export function runAllArray<I, O extends P.A.NonEmptyArray<unknown>>({
+    testCases,
+    program,
 }: {
-    previousTestRun?: Run<K, T>;
-    testRun: Run<K, T>;
-}): Diff<K>[] => {
-    const features = testRun.features;
-    return features.map(feature => {
-        const stats = testRun.statsByFeature[feature];
-        const previousStats =
-            previousTestRun && previousTestRun.statsByFeature[feature];
+    testCases: TestCase<I, O>[];
+    program: Program<I, O>;
+}): [TestRun<I, O[keyof O]>, DuplicateTestCase[]] {
+    const errors: DuplicateTestCase[] = [];
+    const testResultsByFeatureById: Record<
+        ID,
+        Record<string, TestResult<I, O[keyof O]>>
+    > = {};
+    const testResultIds: string[] = [];
+    const statsByFeature: Record<string, Stats> = {};
 
-        const TP = stats.TP;
-        const previousTP = previousStats?.TP ?? 0;
+    for (const testCase of testCases) {
+        const {results, id} = runArray({testCase, program});
+        if (testResultsByFeatureById[id] !== undefined) {
+            errors.push(new DuplicateTestCase({id}));
+            continue;
+        }
 
-        const TN = stats.TN;
-        const previousTN = previousStats?.TN ?? 0;
+        testResultIds.push(id);
 
-        const FP = stats.FP;
-        const previousFP = previousStats?.FP ?? 0;
+        for (const result of results) {
+            if (testResultsByFeatureById[result.feature!] === undefined) {
+                testResultsByFeatureById[result.feature!] = {};
+            }
+            testResultsByFeatureById[result.feature!][result.id] = result;
 
-        const FN = stats.FN;
-        const previousFN = previousStats?.FN ?? 0;
+            if (statsByFeature[result.feature!] === undefined) {
+                statsByFeature[result.feature!] = Stats.empty();
+            }
+            statsByFeature[result.feature!][result.classifiedAs]++;
+        }
+    }
 
-        const precision = stats.precision;
-        const previousPrecision = previousStats?.precision ?? 0;
+    return [{testResultsByFeatureById, testResultIds, statsByFeature}, errors];
+}
 
-        const previousRecall = previousStats?.recall ?? 0;
-        const recall = stats.recall;
-
-        return {
-            feature,
-            TP: TP - previousTP,
-            TN: TN - previousTN,
-            FP: FP - previousFP,
-            FN: FN - previousFN,
-            precision: precision - previousPrecision,
-            recall: recall - previousRecall,
-        };
-    });
-};
+// export const Run = {
+//     filter: <I, O>({
+//         predicate,
+//         testRun,
+//         previousTestRun,
+//     }: {
+//         predicate: (
+//             result: TestResult<I, O>,
+//             previousResult: P.O.Option<TestResult<I, O>>,
+//         ) => boolean;
+//         testRun: TestRun<I, O>;
+//         previousTestRun: P.O.Option<TestRun<I, O>>;
+//     }) => {
+//         return testRun.testResultIds.reduce<TestRun<I, O>>(
+//             (m, id) => {
+//                 const result = testRun.testResultsById[id];
+//                 const previousResult = previousTestRun.pipe(
+//                     P.O.map(a => a.testResultsById[id]),
+//                 );
+//                 const isMatch = predicate(result, previousResult);
+//
+//                 if (isMatch) {
+//                     if (m.testResultsById[id] === undefined) {
+//                         m.testResultsById[id] = {} as TestResult<I, O>;
+//                     }
+//                     m.testResultsById[id] = result;
+//                     m.testResultIds.push(id);
+//                 }
+//
+//                 return m;
+//             },
+//             {
+//                 testResultsById: {},
+//                 testResultIds: [],
+//                 // TODO: re-calculate
+//                 stats: testRun.stats,
+//             },
+//         );
+//     },
+//     withStats<I, O>({testRun}: {testRun: TestRun<I, O>}): TestRun<I, O> {
+//         const stats = {
+//             ...testRun.stats,
+//             precision: Classification.precision(testRun.stats),
+//             recall: Classification.recall(testRun.stats),
+//         };
+//
+//         return {
+//             ...testRun,
+//             stats,
+//         };
+//     },
+//     empty<I, O>(): TestRun<I, O> {
+//         return {
+//             testResultsById: {},
+//             testResultIds: [],
+//             stats: {
+//                 TP: 0,
+//                 TN: 0,
+//                 FP: 0,
+//                 FN: 0,
+//                 precision: 0,
+//                 recall: 0,
+//             },
+//         };
+//     },
+// };
+//
+// export const diff = <I, O>({
+//     previousTestRun,
+//     testRun,
+// }: {
+//     previousTestRun?: TestRun<I, O>;
+//     testRun: TestRun<I, O>;
+// }): Diff => {
+//     const stats = testRun.stats;
+//     const previousStats = previousTestRun && previousTestRun.stats;
+//
+//     const TP = stats.TP;
+//     const previousTP = previousStats?.TP ?? 0;
+//
+//     const TN = stats.TN;
+//     const previousTN = previousStats?.TN ?? 0;
+//
+//     const FP = stats.FP;
+//     const previousFP = previousStats?.FP ?? 0;
+//
+//     const FN = stats.FN;
+//     const previousFN = previousStats?.FN ?? 0;
+//
+//     const precision = stats.precision;
+//     const previousPrecision = previousStats?.precision ?? 0;
+//
+//     const previousRecall = previousStats?.recall ?? 0;
+//     const recall = stats.recall;
+//
+//     return {
+//         TP: TP - previousTP,
+//         TN: TN - previousTN,
+//         FP: FP - previousFP,
+//         FN: FN - previousFN,
+//         precision: precision - previousPrecision,
+//         recall: recall - previousRecall,
+//     };
+// };

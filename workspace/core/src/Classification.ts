@@ -1,31 +1,36 @@
+import {isDeepStrictEqual} from 'node:util';
+
 import * as S from '@effect/schema/Schema';
 
-export enum Label {
-    'TP' = 'TP',
-    'TN' = 'TN',
-    'FP' = 'FP',
-    'FN' = 'FN',
-}
+export type Label = 'TP' | 'TN' | 'FP' | 'FN';
 
-export const LabelSchema = S.enums(Label);
+export const LabelSchema: S.Schema<Label> = S.literal('TP', 'TN', 'FP', 'FN');
 
-type Count = {
-    [Label.TP]: number;
-    [Label.TN]: number;
-    [Label.FP]: number;
-    [Label.FN]: number;
-};
+type Count = Record<Label, number>;
 
-export function classify(output?: unknown, expected?: unknown): Label {
-    // FIXME: This only works for primitives.
-    // use https://effect-ts.github.io/effect/effect/Data.ts.html
-    if (output === expected) {
-        return output !== undefined ? Label.TP : Label.TN;
+export function classify<O>(output: O, expected: O): Label {
+    if (output === undefined && expected === undefined) {
+        return 'TN';
     }
-    if (output !== undefined && expected === undefined) {
-        return Label.FP;
+
+    if (
+        output !== undefined &&
+        expected !== undefined &&
+        isDeepStrictEqual(output, expected)
+    ) {
+        return 'TP';
     }
-    return Label.FN;
+
+    if (
+        (output !== undefined && expected === undefined) ||
+        (output !== undefined &&
+            expected !== undefined &&
+            !isDeepStrictEqual(output, expected))
+    ) {
+        return 'FP';
+    }
+
+    return 'FN';
 }
 
 export const precision = (m: Count): number => {
@@ -44,12 +49,7 @@ export const count = (labels: Label[]): Count =>
             _count[label]++;
             return _count;
         },
-        {
-            [Label.TP]: 0,
-            [Label.TN]: 0,
-            [Label.FP]: 0,
-            [Label.FN]: 0,
-        },
+        {TP: 0, TN: 0, FP: 0, FN: 0},
     );
 
 export const min = (xs: number[]): number =>
