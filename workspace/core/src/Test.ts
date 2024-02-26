@@ -5,7 +5,7 @@ import * as P from './prelude.js';
 import * as Classification from './Classification.js';
 import {DuplicateTestCase} from './Error.js';
 
-export type ID = string;
+export type Program<I, O, E> = (input: I) => P.λ.Effect<O, E>;
 
 export type TestCase<I, O> = {
     input: I;
@@ -13,24 +13,64 @@ export type TestCase<I, O> = {
     tags: string[];
 };
 
-export type TestResult<I, O> = {
+export type ID = string;
+
+type _TestResultSuccess<I, O, E> = {
     id: ID;
     input: I;
-    output: O;
     expected: O;
-    feature: string | undefined;
+    output: O;
     tags: string[];
-    isEqual: boolean;
-    classifiedAs: Classification.Label;
 };
 
-export type Program<I, O> = (input: I) => O;
+type _TestResultError<I, O, E> = {
+    id: ID;
+    input: I;
+    expected: O;
+    error: E;
+    tags: string[];
+};
 
-export type TestRun<I, O> = {
-    testResultsByFeatureById: Record<ID, Record<string, TestResult<I, O>>>;
+export class TestResultSuccess<I, O, E> extends P.Data.TaggedClass(
+    'TestResultSuccess',
+)<_TestResultSuccess<I, O, E>> {
+    constructor(args: Omit<_TestResultSuccess<I, O, E>, 'id'>) {
+        const id = ID.create(args.input);
+        super({...args, id});
+    }
+}
+
+export class TestResultError<I, O, E> extends P.Data.TaggedClass(
+    'TestResultError',
+)<_TestResultError<I, O, E>> {
+    constructor(args: Omit<_TestResultError<I, O, E>, 'id'>) {
+        const id = ID.create(args.input);
+        super({...args, id});
+    }
+}
+export type TestResult<I, O, E> =
+    | TestResultSuccess<I, O, E>
+    | TestResultError<I, O, E>;
+
+export class TestRunSingle<I, O, E> extends P.Data.TaggedClass(
+    'TestRunSingle',
+)<{
+    testResults: Record<ID, TestResult<I, O, E>>;
     testResultIds: ID[];
-    statsByFeature: Record<string, Stats>;
-};
+    stats: Stats;
+    features: never[];
+}> {}
+
+export class TestRunRecord<I, O, E> extends P.Data.TaggedClass(
+    'TestRunRecord',
+)<{
+    testResults: Record<ID, Record<string, TestResult<I, O, E>>>;
+    testResultIds: ID[];
+    stats: Record<string, Stats>;
+    features: string[];
+}> {}
+
+export type TestRun<I, O, E> = TestRunSingle<I, O, E> | TestRunRecord<I, O, E>;
 
 export type Stats = Record<Classification.Label, number> & {
     precision: number;
@@ -38,7 +78,14 @@ export type Stats = Record<Classification.Label, number> & {
 };
 
 const Stats = {
-    empty: (): Stats => ({TP: 0, TN: 0, FP: 0, FN: 0, precision: 0, recall: 0}),
+    empty: (): Stats => ({
+        TP: 0,
+        TN: 0,
+        FP: 0,
+        FN: 0,
+        precision: 0,
+        recall: 0,
+    }),
 };
 
 export type Diff = Record<Classification.Label, number> & {
@@ -52,78 +99,87 @@ export type Diff = Record<Classification.Label, number> & {
 
 export const ID = {
     create: <I>(input: I): ID => {
-        const toHash =
-            typeof input === 'string' ? input : JSON.stringify(input);
-
-        return createHash('sha256').update(toHash).digest('hex');
+        return createHash('sha256').update(JSON.stringify(input)).digest('hex');
     },
 };
 
-export function runRecord<I, O extends Record<string, unknown>>({
+export const testRecord = <I, O extends Record<string | number, unknown>, E>({
     testCase: {input, expected, tags},
     program,
 }: {
     testCase: TestCase<I, O>;
-    program: Program<I, O>;
-}): {results: TestResult<I, O[keyof O]>[]; id: string} {
-    const id = ID.create(input);
-    const results = P.R.toEntries(program(input)).map(([feature, output]) => ({
-        id,
-        feature,
-        input,
-        output: output as O[keyof O],
-        expected: expected[feature] as O[keyof O],
-        isEqual: isDeepStrictEqual(output, expected[feature]),
-        tags,
-        classifiedAs: Classification.classify(output, expected[feature]),
-    }));
-    return {results, id};
-}
+    program: Program<I, O, E>;
+}) => {
+    return program(input).pipe(
+        P.λ.map(P.R.toEntries),
+        P.λ.map(
+            P.A.map(
+                ([feature, output]) =>
+                    new TestResult({
+                        input,
+                        feature: P.O.some(feature),
+                        output: output as O[keyof O],
+                        expected: expected[feature] as O[keyof O],
+                        isEqual: isDeepStrictEqual(output, expected[feature]),
+                        tags,
+                        classifiedAs: Classification.classify(
+                            output,
+                            expected[feature],
+                        ),
+                    }),
+            ),
+        ),
+        P.λ.mapError(
+            error =>
+                new TestResult<I, O, E>({
+                    input,
+                    feature: P.O.none(),
+                    output: error,
+                    expected,
+                    isEqual: false,
+                    tags,
+                    // FIXME: Need enumerate errors in labels.
+                    classifiedAs: 'TN',
+                }),
+        ),
+    );
+    // .map(
+    //     ([feature, output]) =>
+    // );
+};
 
-export function runArray<I, O extends P.A.NonEmptyArray<unknown>>({
+export const testSingle = <I, O, E>({
     testCase: {input, expected, tags},
     program,
 }: {
     testCase: TestCase<I, O>;
-    program: Program<I, O>;
-}): {results: TestResult<I, O[keyof O]>[]; id: string} {
-    const id = ID.create(input);
-    const results = program(input).map((output, i) => ({
-        id,
-        feature: i.toString(),
-        input,
-        output: output as O[keyof O],
-        expected: expected[i] as O[keyof O],
-        isEqual: isDeepStrictEqual(output, expected[i]),
-        tags,
-        classifiedAs: Classification.classify(output, expected[i]),
-    }));
-    return {results, id};
-}
-
-export function run<I, O>({
-    testCase,
-    program,
-}: {
-    testCase: TestCase<I, O>;
-    program: Program<I, O>;
-}): TestResult<I, O> {
-    const output = program(testCase.input);
-    const id = ID.create(testCase.input);
-
-    const testResult: TestResult<I, O> = {
-        id,
-        input: testCase.input,
-        feature: undefined,
-        output,
-        expected: testCase.expected,
-        isEqual: isDeepStrictEqual(output, testCase.expected),
-        tags: testCase.tags,
-        classifiedAs: Classification.classify(output, testCase.expected),
-    };
-
-    return testResult;
-}
+    program: Program<I, O, E>;
+}): P.λ.Effect<TestResult<I, O, E>> =>
+    program(input).pipe(
+        P.λ.match({
+            onSuccess: output =>
+                new TestResult<I, O, E>({
+                    input,
+                    feature: P.O.none(),
+                    output,
+                    expected,
+                    isEqual: isDeepStrictEqual(output, expected),
+                    tags,
+                    classifiedAs: Classification.classify(output, expected),
+                }),
+            onFailure: error =>
+                new TestResult<I, O, E>({
+                    input,
+                    feature: P.O.none(),
+                    output: error,
+                    expected,
+                    isEqual: false,
+                    tags,
+                    // FIXME: Need enumerate errors in labels.
+                    classifiedAs: 'TN',
+                }),
+        }),
+    );
 
 export function runAllRecord<I, O extends Record<string, unknown>>({
     testCases,
@@ -131,79 +187,106 @@ export function runAllRecord<I, O extends Record<string, unknown>>({
 }: {
     testCases: TestCase<I, O>[];
     program: Program<I, O>;
-}): [TestRun<I, O[keyof O]>, DuplicateTestCase[]] {
+}): [TestRunRecord<I, O[keyof O]>, DuplicateTestCase[]] {
     const errors: DuplicateTestCase[] = [];
-    const testResultsByFeatureById: Record<
-        ID,
-        Record<string, TestResult<I, O[keyof O]>>
-    > = {};
+    const testResults: TestRunRecord<I, O[keyof O]>['testResults'] = {};
     const testResultIds: string[] = [];
-    const statsByFeature: Record<string, Stats> = {};
+    const stats: Record<string, Stats> = {};
 
-    for (const testCase of testCases) {
-        const {results, id} = runRecord({testCase, program});
-        if (testResultsByFeatureById[id] !== undefined) {
+    TESTCASES: for (const testCase of testCases) {
+        const {results, id} = testRecord({testCase, program});
+        if (testResults[id] !== undefined) {
             errors.push(new DuplicateTestCase({id}));
-            continue;
+            continue TESTCASES;
         }
 
         testResultIds.push(id);
 
         for (const result of results) {
-            if (testResultsByFeatureById[result.feature!] === undefined) {
-                testResultsByFeatureById[result.feature!] = {};
+            if (testResults[id] === undefined) {
+                testResults[id] = {};
             }
-            testResultsByFeatureById[result.feature!][result.id] = result;
+            testResults[id][result.feature] = result;
 
-            if (statsByFeature[result.feature!] === undefined) {
-                statsByFeature[result.feature!] = Stats.empty();
+            if (stats[result.feature] === undefined) {
+                stats[result.feature] = Stats.empty();
             }
-            statsByFeature[result.feature!][result.classifiedAs]++;
+            stats[result.feature][result.classifiedAs]++;
         }
     }
 
-    return [{testResultsByFeatureById, testResultIds, statsByFeature}, errors];
+    for (const feature of Object.keys(stats)) {
+        stats[feature].precision = Classification.precision(stats[feature]);
+        stats[feature].recall = Classification.recall(stats[feature]);
+    }
+
+    return [new TestRunRecord({testResults, testResultIds, stats}), errors];
 }
 
-export function runAllArray<I, O extends P.A.NonEmptyArray<unknown>>({
+export function runAllSingle<I, O>({
     testCases,
     program,
 }: {
     testCases: TestCase<I, O>[];
     program: Program<I, O>;
-}): [TestRun<I, O[keyof O]>, DuplicateTestCase[]] {
+}): [TestRunSingle<I, O>, DuplicateTestCase[]] {
     const errors: DuplicateTestCase[] = [];
-    const testResultsByFeatureById: Record<
-        ID,
-        Record<string, TestResult<I, O[keyof O]>>
-    > = {};
+    const testResults: Record<ID, TestResultSingle<I, O>> = {};
     const testResultIds: string[] = [];
-    const statsByFeature: Record<string, Stats> = {};
+    const stats = Stats.empty();
 
     for (const testCase of testCases) {
-        const {results, id} = runArray({testCase, program});
-        if (testResultsByFeatureById[id] !== undefined) {
+        const result = testSingle({testCase, program});
+        const {id} = result;
+        if (testResults[id] !== undefined) {
             errors.push(new DuplicateTestCase({id}));
             continue;
         }
 
         testResultIds.push(id);
 
-        for (const result of results) {
-            if (testResultsByFeatureById[result.feature!] === undefined) {
-                testResultsByFeatureById[result.feature!] = {};
-            }
-            testResultsByFeatureById[result.feature!][result.id] = result;
-
-            if (statsByFeature[result.feature!] === undefined) {
-                statsByFeature[result.feature!] = Stats.empty();
-            }
-            statsByFeature[result.feature!][result.classifiedAs]++;
+        if (testResults[id] === undefined) {
+            testResults[id] = result;
         }
+
+        stats[result.classifiedAs]++;
     }
 
-    return [{testResultsByFeatureById, testResultIds, statsByFeature}, errors];
+    stats.precision = Classification.precision(stats);
+    stats.recall = Classification.recall(stats);
+
+    return [new TestRunSingle({testResults, testResultIds, stats}), errors];
 }
+
+type Predicate<I, O> = (input: {
+    result: TestResult<I, O>;
+    previousResult: P.O.Option<TestResult<I, O>>;
+}) => boolean;
+
+export const filter: {
+    <I, O>(
+        predicate: Predicate<I, O>,
+    ): (data: {
+        result: TestRun<I, O>;
+        previousRun: P.O.Option<TestRun<I, O>>;
+    }) => TestRun<I, O>;
+    <I, O>(
+        data: {
+            result: TestRun<I, O>;
+            previousRun: P.O.Option<TestRun<I, O>>;
+        },
+        predicate: Predicate<I, O>,
+    ): TestRun<I, O>;
+} = P.dual(
+    2,
+    <I, O>(
+        data: {
+            result: TestRun<I, O>;
+            previousRun: P.O.Option<TestRun<I, O>>;
+        },
+        predicate: Predicate<I, O>,
+    ) => P.hole(),
+);
 
 // export const Run = {
 //     filter: <I, O>({
@@ -243,32 +326,6 @@ export function runAllArray<I, O extends P.A.NonEmptyArray<unknown>>({
 //                 stats: testRun.stats,
 //             },
 //         );
-//     },
-//     withStats<I, O>({testRun}: {testRun: TestRun<I, O>}): TestRun<I, O> {
-//         const stats = {
-//             ...testRun.stats,
-//             precision: Classification.precision(testRun.stats),
-//             recall: Classification.recall(testRun.stats),
-//         };
-//
-//         return {
-//             ...testRun,
-//             stats,
-//         };
-//     },
-//     empty<I, O>(): TestRun<I, O> {
-//         return {
-//             testResultsById: {},
-//             testResultIds: [],
-//             stats: {
-//                 TP: 0,
-//                 TN: 0,
-//                 FP: 0,
-//                 FN: 0,
-//                 precision: 0,
-//                 recall: 0,
-//             },
-//         };
 //     },
 // };
 //

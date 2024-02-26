@@ -17,4 +17,4 @@ export * as Result from '@effect/schema/ParseResult';
 export * as S from '@effect/schema';
 export * as R from 'effect/ReadonlyRecord';
 export * as λ from 'effect/Effect';
-export {pipe} from 'effect/Function';
+export {pipe, dual, hole} from 'effect/Function';

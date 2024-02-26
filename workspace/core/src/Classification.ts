@@ -2,15 +2,18 @@ import {isDeepStrictEqual} from 'node:util';
 
 import * as S from '@effect/schema/Schema';
 
-export type Label = 'TP' | 'TN' | 'FP' | 'FN';
+export const TN = Symbol.for('TN');
+export const TP = Symbol.for('TP');
+export const FP = Symbol.for('FP');
+export const FN = Symbol.for('FN');
 
-export const LabelSchema: S.Schema<Label> = S.literal('TP', 'TN', 'FP', 'FN');
+export type Label = typeof TP | typeof TN | typeof FP | typeof FN | string;
 
-type Count = Record<Label, number>;
+type Count = Map<Label, number>;
 
-export function classify<O>(output: O, expected: O): Label {
+export function classify<O, E>(output: O | E, expected: O): Label {
     if (output === undefined && expected === undefined) {
-        return 'TN';
+        return TN;
     }
 
     if (
@@ -18,7 +21,7 @@ export function classify<O>(output: O, expected: O): Label {
         expected !== undefined &&
         isDeepStrictEqual(output, expected)
     ) {
-        return 'TP';
+        return TP;
     }
 
     if (
@@ -27,30 +30,30 @@ export function classify<O>(output: O, expected: O): Label {
             expected !== undefined &&
             !isDeepStrictEqual(output, expected))
     ) {
-        return 'FP';
+        return FP;
     }
 
-    return 'FN';
+    return FN;
 }
 
-export const precision = (m: Count): number => {
-    const r = m.TP / (m.TP + m.FP);
-    return isNaN(r) ? 0 : r;
-};
+// export const precision = (m: Count): number => {
+//     const r = m.get(TP)! / (m.get(TP)! + m.get(FP)!);
+//     return isNaN(r) ? 0 : r;
+// };
 
-export const recall = (m: Count): number => {
-    const r = m.TP / (m.TP + m.FN);
-    return isNaN(r) ? 0 : r;
-};
+// export const recall = (m: Count): number => {
+//     const r = m.TP / (m.TP + m.FN);
+//     return isNaN(r) ? 0 : r;
+// };
 
-export const count = (labels: Label[]): Count =>
-    labels.reduce(
-        (_count, label) => {
-            _count[label]++;
-            return _count;
-        },
-        {TP: 0, TN: 0, FP: 0, FN: 0},
-    );
+// export const count = (labels: Label[]): Count =>
+//     labels.reduce(
+//         (_count, label) => {
+//             _count[label]++;
+//             return _count;
+//         },
+//         {TP: 0, TN: 0, FP: 0, FN: 0},
+//     );
 
 export const min = (xs: number[]): number =>
     xs.reduce((min, x) => (x < min ? x : min), Infinity);
