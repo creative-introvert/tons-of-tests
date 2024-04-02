@@ -3,22 +3,24 @@
     "license": "MIT",
     "packageManager": "pnpm@8.12.1",
     "scripts": {
-        "start": "tsc --build && node --max-old-space-size=8192 --enable-source-maps ./workspace/core/build/esm/src/index.js"
+        "start": "tsx --max-old-space-size=8192 --enable-source-maps ./workspace/core/src/index.ts",
+        "dev": "tsx watch --max-old-space-size=8192 --enable-source-maps ./workspace/core/src/index.ts"
     },
     "devDependencies": {
-        "@typescript-eslint/eslint-plugin": "^6.12.0",
-        "@typescript-eslint/parser": "^6.12.0",
-        "eslint": "^8.54.0",
+        "@typescript-eslint/eslint-plugin": "^7.4.0",
+        "@typescript-eslint/parser": "^7.4.0",
+        "eslint": "^8.57.0",
         "eslint-config-prettier": "^9.0.0",
         "eslint-import-resolver-typescript": "^3.6.1",
         "eslint-plugin-import": "^2.29.0",
         "eslint-plugin-prettier": "^5.0.1",
-        "eslint-plugin-react": "^7.33.2",
-        "eslint-plugin-simple-import-sort": "^10.0.0",
+        "eslint-plugin-react": "^7.34.1",
+        "eslint-plugin-simple-import-sort": "^12.0.0",
         "eslint-plugin-sort-destructure-keys": "^1.5.0",
-        "eslint-plugin-unicorn": "^50.0.1",
-        "eslint-plugin-unused-imports": "^3.0.0",
-        "prettier": "^3.1.0",
-        "typescript": "^5.3.2"
+        "eslint-plugin-unicorn": "^51.0.1",
+        "eslint-plugin-unused-imports": "^3.1.0",
+        "prettier": "^3.2.5",
+        "tsx": "^4.7.1",
+        "typescript": "^5.4.3"
     }
 }

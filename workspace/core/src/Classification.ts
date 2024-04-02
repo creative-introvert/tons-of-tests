@@ -1,50 +1,68 @@
 import {isDeepStrictEqual} from 'node:util';
 
-import * as S from '@effect/schema/Schema';
+export const Label = {
+    TN: 'TN',
+    TP: 'TP',
+    FP: 'FP',
+    FN: 'FN',
+} as const;
 
-export const TN = Symbol.for('TN');
-export const TP = Symbol.for('TP');
-export const FP = Symbol.for('FP');
-export const FN = Symbol.for('FN');
+export type Label = (typeof Label)[keyof typeof Label];
 
-export type Label = typeof TP | typeof TN | typeof FP | typeof FN | string;
-
-type Count = Map<Label, number>;
+export const isNil = <I>(x: I): boolean => x === null || x === undefined;
 
 export function classify<O, E>(output: O | E, expected: O): Label {
-    if (output === undefined && expected === undefined) {
-        return TN;
+    if (isNil(output) && isNil(expected)) {
+        return Label.TN;
     }
 
     if (
-        output !== undefined &&
-        expected !== undefined &&
+        !isNil(output) &&
+        !isNil(expected) &&
         isDeepStrictEqual(output, expected)
     ) {
-        return TP;
+        return Label.TP;
     }
 
     if (
-        (output !== undefined && expected === undefined) ||
-        (output !== undefined &&
-            expected !== undefined &&
+        (!isNil(output) && isNil(expected)) ||
+        (!isNil(output) &&
+            !isNil(expected) &&
             !isDeepStrictEqual(output, expected))
     ) {
-        return FP;
+        return Label.FP;
     }
 
-    return FN;
+    return Label.FN;
 }
 
-// export const precision = (m: Count): number => {
-//     const r = m.get(TP)! / (m.get(TP)! + m.get(FP)!);
-//     return isNaN(r) ? 0 : r;
-// };
+export type Stats = Record<Label, number> & {
+    precision: number;
+    recall: number;
+};
 
-// export const recall = (m: Count): number => {
-//     const r = m.TP / (m.TP + m.FN);
-//     return isNaN(r) ? 0 : r;
-// };
+export const Stats = {
+    empty: (): Stats => ({
+        TP: 0,
+        TN: 0,
+        FP: 0,
+        FN: 0,
+        precision: 0,
+        recall: 0,
+    }),
+};
+
+export const precision = (m: Stats): number => {
+    const r = m.TP / (m.TP + m.FP);
+    return isNaN(r) ? 0 : r;
+};
+
+export const recall = (m: Stats): number => {
+    const r = m.TP / (m.TP + m.FN);
+    return isNaN(r) ? 0 : r;
+};
+
+// type Count = Map<Label, number>;
 
 // export const count = (labels: Label[]): Count =>
 //     labels.reduce(

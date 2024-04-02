@@ -1,4 +1,5 @@
 export * as A from 'effect/ReadonlyArray';
+export * as Console from 'effect/Console';
 export * as Chunk from 'effect/Chunk';
 export * as Config from 'effect/Config';
 export * as Context from 'effect/Context';
@@ -16,5 +17,6 @@ export * as O from 'effect/Option';
 export * as Result from '@effect/schema/ParseResult';
 export * as S from '@effect/schema';
 export * as R from 'effect/ReadonlyRecord';
-export * as λ from 'effect/Effect';
+export * as E from 'effect/Effect';
+export * as Stream from 'effect/Stream';
 export {pipe, dual, hole} from 'effect/Function';
