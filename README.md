@@ -1,19 +1,13 @@
-# PERCOV
+# predictive-testing
 
-Percov (**Per**formance **Cov**erage) provides an alternative to test runners like [Jest](https://jestjs.io/) or [ava](https://github.com/avajs/ava).
+`predictive-testing` is a test runner, simlar to [Jest](https://jestjs.io/), [vitest](https://vitest.dev/) or [ava](https://github.com/avajs/ava), that focuses on testing predictive functions (e.g. search, auto-complete, or ML).
 
-Test runners like Jest focus on _individual_ test cases and promote
-example-based testing, providing no insights on summary statistics like
-precision and recall (without reaching for third-party reporters).
-
-Percov, in contrast assumes, and provides tools for working with a large corpus
-of test cases per suite.
-
-## When you should use percov
+## When you should use `predictive-testing`
 
 - you have tons of test cases, and your tests purely compare
   inputs and outputs of the function under test
-- you are testing a statistical model
+- you are testing a statistical model, or a predictive function, where 100%
+  coverage is impossible or impractical
 - you are testing a (flaky) legacy system
 
 ## Getting Started
