@@ -4,13 +4,13 @@ import {isDeepStrictEqual} from 'node:util';
 import colors from 'ansi-colors';
 import {identity} from 'effect';
 import {number} from 'effect/Equivalence';
+import {sum} from 'effect/Number';
 
 import * as P from './prelude.js';
 import type * as Test from './Test.js';
-import type {Label} from './Classification.js';
+import {defaultIsNil, type Label} from './Classification.js';
 
 // TODO: render functions for input, expected, output
-// TOOD: function for deriving TP/TN/FP/FN (i.e. "isEqual")
 
 type DisplayConfig = {
     /** @default true */
@@ -65,10 +65,7 @@ function getTotalWidth<C extends string>({
     displayConfig: DisplayConfig;
 }): number {
     const all: number[] = Object.values(widths);
-    return (
-        all.reduce((m, width) => m + width) +
-        (all.length - 1) * cfg.columnDelimiter.length
-    );
+    return all.reduce(sum) + (all.length - 1) * cfg.columnDelimiter.length;
 }
 
 const columns = [
@@ -84,14 +81,14 @@ const columns = [
 
 type Columns = (typeof columns)[number];
 
-type Rows<I, O> = {
+type Rows<I, O, T> = {
     xs: {
         display: Record<Columns, string> & {
             hasPrevious: boolean;
             hasResultDiff: boolean;
         };
-        testResult: Test.TestResult<I, O>;
-        previousTestResult: P.O.Option<Test.TestResult<I, O>>;
+        testResult: Test.TestResult<I, O, T>;
+        previousTestResult: P.O.Option<Test.TestResult<I, O, T>>;
     }[];
     widths: Widths<Columns>;
 };
@@ -114,12 +111,12 @@ function createHeadRow({
     totalWidth: number;
 }): string {
     return value.padStart(
-        Math.floor(totalWidth / 2) - Math.ceil(value.length / 2),
+        Math.floor(totalWidth / 2) + Math.ceil(value.length / 2),
     );
 }
 
 const Rows = {
-    empty: <I, O>(): Rows<I, O> => ({
+    empty: <I, O, T>(): Rows<I, O, T> => ({
         xs: [],
         widths: columns.reduce(
             (m, key) => ({...m, [key]: 0}),
@@ -155,20 +152,13 @@ const colorIdentity = (): Colorizer => identity;
 
 export const showID = (id: string): string => id.slice(0, 8);
 
-export const showValue = <I>(value: I): string => {
-    if (value === undefined || value === null) {
-        return '∅';
-    } else {
-        return JSON.stringify(value);
-    }
-};
+export const showValue = <I>(value: I): string => JSON.stringify(value);
 
-export const single = <I, O>({
+export const single = <I, O, T>({
     testResult,
 }: {
-    testResult: Test.TestResult<I, O>;
+    testResult: Test.TestResult<I, O, T>;
 }): string => {
-    const id = showID(testResult.id);
     const label = colorLabel(testResult.label, true)(testResult.label);
     const input = showValue(testResult.input);
     const expected = showValue(testResult.expected);
@@ -176,24 +166,26 @@ export const single = <I, O>({
         testResult.label,
         false,
     )(showValue(testResult.output));
-    return `${id} | ${label} | ${input} | ${expected} | ${result}`;
+    return `${label} :: ${input} -> ${result} (${expected})`;
 };
 
-export const summary = <I, O>({
+export const summary = <I, O, T>({
     testRun,
     previousTestRun,
     displayConfig,
+    isOutputNil = defaultIsNil,
 }: {
-    testRun: Test.TestRun<I, O>;
-    previousTestRun: P.O.Option<Test.TestRun<I, O>>;
+    testRun: Test.TestRun<I, O, T>;
+    previousTestRun: P.O.Option<Test.TestRun<I, O, T>>;
     displayConfig?: Partial<DisplayConfig>;
+    isOutputNil?: (output: O) => boolean;
 }): string => {
     const cfg = {...DisplayConfig.default(), ...displayConfig};
 
     const _colorLabel = cfg.colorize ? colorLabel : colorIdentity;
 
     const ids = testRun.testResultIds;
-    const rows = Rows.empty();
+    const rows = Rows.empty<I, O, T>();
 
     for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
@@ -218,7 +210,10 @@ export const summary = <I, O>({
             label: testResult.label.toString(),
             expected: showValue(testResult.expected),
             result: showValue(testResult.output),
-            'previous result': showValue(previousResultOutput),
+            'previous result': P.O.match(previousResultOutput, {
+                onNone: () => '∅',
+                onSome: showValue,
+            }),
             hasPrevious,
             hasResultDiff,
         };
@@ -269,18 +264,16 @@ export const summary = <I, O>({
                 )(display.result.padEnd(rows.widths.result)),
                 previousTestResult.pipe(
                     P.O.match({
-                        onNone: () => showValue(undefined),
-                        onSome: ({output, label}) =>
-                            output === undefined
-                                ? '∅'
-                                : _colorLabel(
-                                      label,
-                                      !display.hasPrevious,
-                                  )(
-                                      display['previous result'].padEnd(
-                                          rows.widths['previous result'],
-                                      ),
-                                  ),
+                        onNone: () => '∅',
+                        onSome: ({label}) =>
+                            _colorLabel(
+                                label,
+                                !display.hasPrevious,
+                            )(
+                                display['previous result'].padEnd(
+                                    rows.widths['previous result'],
+                                ),
+                            ),
                     }),
                 ),
             ];
@@ -296,6 +289,8 @@ export const summary = <I, O>({
                     .join(cfg.columnDelimiter);
                 return result;
             }
+            // TODO: This only makes sense when we render multiple rows per result.
+            //
             // We're on the same id as the previous row, so we don't
             // need to display the row headers again.
             else {
@@ -414,11 +409,11 @@ const StatsRows = {
     }),
 };
 
-export const stats = <I, O>({
+export const stats = <I, O, T>({
     testRun,
     displayConfig,
 }: {
-    testRun: Pick<Test.TestRun<I, O>, 'stats'>;
+    testRun: Pick<Test.TestRun<I, O, T>, 'stats'>;
     displayConfig?: Partial<DisplayConfig>;
 }): string => {
     const cfg = {...DisplayConfig.default(), ...displayConfig};
@@ -490,12 +485,12 @@ type DiffRows = {
     widths: Widths<DiffColumns>;
 };
 
-export const diff = <I, O>({
+export const diff = <I, O, T>({
     testRun,
     diff,
     config: _config,
 }: {
-    testRun: Test.TestRun<I, O>;
+    testRun: Test.TestRun<I, O, T>;
     diff: Test.Diff;
     config?: Partial<DisplayConfig>;
 }): string => {

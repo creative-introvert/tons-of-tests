@@ -3,6 +3,8 @@
     "license": "MIT",
     "packageManager": "pnpm@8.12.1",
     "scripts": {
+        "build": "tsc --build",
+        "build:watch": "tsc --build --watch",
         "start": "tsx --max-old-space-size=8192 --enable-source-maps ./workspace/core/src/index.ts",
         "dev": "tsx watch --max-old-space-size=8192 --enable-source-maps ./workspace/core/src/index.ts"
     },

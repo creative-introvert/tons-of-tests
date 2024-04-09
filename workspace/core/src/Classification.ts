@@ -9,32 +9,35 @@ export const Label = {
 
 export type Label = (typeof Label)[keyof typeof Label];
 
-export const isNil = <I>(x: I): boolean => x === null || x === undefined;
+export const defaultIsNil = <I>(x: I): boolean => x === null || x === undefined;
 
-export function classify<O, E>(output: O | E, expected: O): Label {
-    if (isNil(output) && isNil(expected)) {
-        return Label.TN;
-    }
+export type Classify<O, T> = (output: O, expected: T) => Label;
 
-    if (
-        !isNil(output) &&
-        !isNil(expected) &&
-        isDeepStrictEqual(output, expected)
-    ) {
-        return Label.TP;
-    }
+export const createClassify =
+    <O, T>(
+        isEqual: (output: O, expected: T) => boolean,
+        isOutputNil: (output: O) => boolean = defaultIsNil,
+        isExpectedNil: (expected: T) => boolean = defaultIsNil,
+    ): Classify<O, T> =>
+    (output, expected) => {
+        const eq = isEqual(output, expected);
+        const oNil = isOutputNil(output);
+        const eNil = isExpectedNil(expected);
 
-    if (
-        (!isNil(output) && isNil(expected)) ||
-        (!isNil(output) &&
-            !isNil(expected) &&
-            !isDeepStrictEqual(output, expected))
-    ) {
-        return Label.FP;
-    }
+        if (oNil && eNil) {
+            return Label.TN;
+        }
 
-    return Label.FN;
-}
+        if (!oNil && !eNil && eq) {
+            return Label.TP;
+        }
+
+        if ((!oNil && eNil) || (!oNil && !eNil && !eq)) {
+            return Label.FP;
+        }
+
+        return Label.FN;
+    };
 
 export type Stats = Record<Label, number> & {
     precision: number;
