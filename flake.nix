@@ -19,8 +19,9 @@
           default = with pkgs;
             mkShell {
               buildInputs = [
-                nodejs_20
-                corepack
+                act
+                nodejs_18
+                corepackEnable
               ];
             };
         };

@@ -2,10 +2,7 @@ import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 
 import * as P from './prelude.js';
-import * as Classification from './Classification.js';
-import {DuplicateTestCase} from './Error.js';
-import {Label} from './Classification.js';
-import {showID} from './Show.console.js';
+import * as Classification from './Classify.js';
 
 export type Program<I, O> = (input: I) => P.E.Effect<O>;
 
@@ -124,7 +121,7 @@ export const test = <I, O, T>({
 export const testAll = <I, O, T>({
     testCases,
     program,
-    classify = Classification.createClassify(
+    classify = Classification.make(
         isDeepStrictEqual,
         Classification.defaultIsNil,
         Classification.defaultIsNil,
@@ -149,9 +146,7 @@ export const runFoldEffect = <I, O, T>(
 
                 if (run.testResultsById[id] !== undefined) {
                     yield* _(
-                        P.Console.warn(
-                            `Skipped duplicate test case. id=${showID(id)}`,
-                        ),
+                        P.Console.warn(`Skipped duplicate test case. id=${id}`),
                     );
                     return run;
                 } else {

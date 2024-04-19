@@ -1,5 +1,3 @@
-import {isDeepStrictEqual} from 'node:util';
-
 export const Label = {
     TN: 'TN',
     TP: 'TP',
@@ -13,7 +11,7 @@ export const defaultIsNil = <I>(x: I): boolean => x === null || x === undefined;
 
 export type Classify<O, T> = (output: O, expected: T) => Label;
 
-export const createClassify =
+export const make =
     <O, T>(
         isEqual: (output: O, expected: T) => boolean,
         isOutputNil: (output: O) => boolean = defaultIsNil,
@@ -64,17 +62,6 @@ export const recall = (m: Stats): number => {
     const r = m.TP / (m.TP + m.FN);
     return isNaN(r) ? 0 : r;
 };
-
-// type Count = Map<Label, number>;
-
-// export const count = (labels: Label[]): Count =>
-//     labels.reduce(
-//         (_count, label) => {
-//             _count[label]++;
-//             return _count;
-//         },
-//         {TP: 0, TN: 0, FP: 0, FN: 0},
-//     );
 
 export const min = (xs: number[]): number =>
     xs.reduce((min, x) => (x < min ? x : min), Infinity);

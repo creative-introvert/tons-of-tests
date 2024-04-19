@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+act \
+  --secret-file .env.act \
+  --env-file .env.act \
+  --var-file .env.act \
+  $@

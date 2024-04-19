@@ -8,7 +8,7 @@ import {sum} from 'effect/Number';
 
 import * as P from './prelude.js';
 import type * as Test from './Test.js';
-import {defaultIsNil, type Label} from './Classification.js';
+import {defaultIsNil, type Label} from './Classify.js';
 
 // TODO: render functions for input, expected, output
 
