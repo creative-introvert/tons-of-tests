@@ -49,7 +49,7 @@ function getWidths<K extends string>({
             // Name of column is the minimum length.
             column.length,
             widths[column],
-            display[column].length,
+            colors.unstyle(display[column]).length,
         );
         return widths;
     }, previousWidths);
@@ -173,16 +173,16 @@ export const summary = <I, O, T>({
     displayConfig,
     isResultNil = defaultIsNil,
     showInput = showValue,
-    showResult = showValue,
     showExpected = showValue,
+    showResult = showValue,
 }: {
     testRun: Test.TestRun<I, O, T>;
     previousTestRun: P.O.Option<Test.TestRun<I, O, T>>;
     displayConfig?: Partial<DisplayConfig>;
     isResultNil?: (result: O) => boolean;
     showInput?: (input: I) => string;
-    showResult?: (result: O) => string;
     showExpected?: (expected: T) => string;
+    showResult?: (result: O, expected: T) => string;
 }): string => {
     const cfg = {...DisplayConfig.default(), ...displayConfig};
 
@@ -213,10 +213,10 @@ export const summary = <I, O, T>({
             tags: testResult.tags.join(','),
             label: testResult.label.toString(),
             expected: showExpected(testResult.expected),
-            result: showResult(testResult.result),
+            result: showResult(testResult.result, testResult.expected),
             'previous result': P.O.match(previousResultResult, {
                 onNone: () => '∅',
-                onSome: showResult,
+                onSome: result => showResult(result, testResult.expected),
             }),
             hasPrevious,
             hasResultDiff,

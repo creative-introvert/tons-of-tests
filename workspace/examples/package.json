@@ -22,6 +22,8 @@
         "@effect/platform": "^0.50.0",
         "@effect/platform-node": "^0.47.0",
         "@effect/schema": "^0.66.3",
+        "ansi-colors": "^4.1.3",
+        "deep-object-diff": "^1.1.9",
         "effect": "3.0.3"
     },
     "version": null
