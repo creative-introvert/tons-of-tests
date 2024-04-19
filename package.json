@@ -1,16 +1,19 @@
 {
     "private": true,
     "license": "MIT",
-    "packageManager": "pnpm@8.12.1",
+    "packageManager": "pnpm@9.0.2",
     "scripts": {
+        "ci:publish": "pnpm run build && pnpm run ci:pack && changeset publish",
+        "ci:pack": "tsx workspace/core/src/pack.ts",
         "build": "tsc --build",
-        "build:watch": "tsc --build --watch",
-        "start": "tsx --max-old-space-size=8192 --enable-source-maps ./workspace/core/src/index.ts",
-        "dev": "tsx watch --max-old-space-size=8192 --enable-source-maps ./workspace/core/src/index.ts"
+        "build:watch": "tsc --build --watch"
     },
     "devDependencies": {
         "@typescript-eslint/eslint-plugin": "^7.4.0",
         "@typescript-eslint/parser": "^7.4.0",
+        "@types/node": "^20.11.30",
+        "@changesets/changelog-github": "^0.5.0",
+        "@changesets/cli": "^2.27.1",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^9.0.0",
         "eslint-import-resolver-typescript": "^3.6.1",

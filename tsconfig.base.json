@@ -36,7 +36,7 @@
     "incremental": true,
     "removeComments": false,
     "paths": {
-      "@internal/core": ["./workspace/core/src/index.js"]
+      "@creative-introvert/prediction-testing": ["./workspace/core/src/index.js"]
     }
   },
   "include": []

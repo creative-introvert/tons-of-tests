@@ -13,3 +13,17 @@
 - when your tests are few, and predominantely example-based; use the conventional test runners instead (jest, ava, vitest)
 
 ## Getting Started
+## Examples
+
+Checkout `workspace/examples` for more examples.
+
+```bash
+pnpx tsx <file-path>
+# e.g.
+pnpx tsx ./workspace/examples/src/as-library.ts
+```
+
+## TODO
+
+- Show: custom render function for input, output, etc
+- CLI is missing

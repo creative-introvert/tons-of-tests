@@ -1,12 +1,9 @@
 {
     "name": "@creative-introvert/prediction-testing",
-    "version": "0.0.1-alpha.1",
+    "version": "0.0.1",
     "type": "module",
     "license": "MIT",
     "sideEffects": [],
-    "publishConfig": {
-        "directory": "dist"
-    },
     "tags": [
         "typescript",
         "performance",
@@ -20,11 +17,11 @@
         "url": "https://github.com/creative-introvert/prediction-testing.git"
     },
     "scripts": {
-        "build": "tsc --build tsconfig.build.json",
+        "build": "pnpm run clean && pnpm build-esm && pnpm build-cjs && pnpm build-annotate && tsx src/pack.ts",
+        "build-esm": "tsc --build tsconfig.build.json",
         "build-cjs": "babel build/esm --plugins @babel/transform-export-namespace-from --plugins @babel/transform-modules-commonjs --out-dir build/cjs --source-maps",
-        "clean": "rm -rf build dist .tsbuildinfo",
-        "prepublish": "node build/esm/src/build.js",
-        "build-all": "pnpm run clean && pnpm run build && pnpm run build-cjs && pnpm run prepublish"
+        "build-annotate": "babel build --plugins annotate-pure-calls --out-dir build --source-maps",
+        "clean": "rm -rf build dist .tsbuildinfo"
     },
     "devDependencies": {
         "@babel/cli": "^7.24.1",
@@ -33,10 +30,8 @@
         "@babel/plugin-transform-modules-commonjs": "^7.24.1",
         "@creative-introvert/eslint-config": "^0.3.2",
         "@creative-introvert/prettier-config": "^0.2.0",
-        "@types/node": "^20.11.30",
-        "app-root-path": "^3.1.0",
-        "type-fest": "^4.14.0",
-        "typescript": "^5.4.3"
+        "babel-plugin-annotate-pure-calls": "^0.4.0",
+        "type-fest": "^4.14.0"
     },
     "dependencies": {
         "@effect/platform": "^0.48.21",

@@ -1,0 +1,41 @@
+name: on-push
+
+on:
+  push:
+    branches-ignore:
+    - 'master'
+
+jobs:
+  lint:
+    if: |
+      !contains(fromJson('["ci skip","skip ci"]'), github.event.head_commit.message) &&
+      !startsWith(github.event.head_commit.message, 'docs')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: lint
+        run: pnpm run -r lint
+
+  test:
+    if: |
+      !contains(fromJson('["ci skip","skip ci"]'), github.event.head_commit.message) &&
+      !startsWith(github.event.head_commit.message, 'docs')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: test
+        run: pnpm run -r test
+
+  build:
+    if: |
+      !contains(fromJson('["ci skip","skip ci"]'), github.event.head_commit.message) &&
+      !startsWith(github.event.head_commit.message, 'docs')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: build
+        run: pnpm run -w build
