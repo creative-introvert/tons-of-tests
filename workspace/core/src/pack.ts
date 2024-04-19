@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 import * as S from '@effect/schema/Schema';
 
@@ -16,7 +17,10 @@ const PackageJsonSchema = S.parseJson(
 );
 
 const getPackageJson = async () => {
-    const workspacePath = './';
+    const workspacePath = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+    );
     const distPath = path.join(workspacePath, 'dist');
     const buildPath = path.join(workspacePath, 'build');
     const pjsonPath = path.join(workspacePath, 'package.json');
