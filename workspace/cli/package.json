@@ -1,0 +1,49 @@
+{
+    "name": "@creative-introvert/prediction-testing-cli",
+    "version": "0.0.0",
+    "type": "module",
+    "license": "MIT",
+    "sideEffects": [],
+    "tags": [
+        "typescript",
+        "performance",
+        "confusion-matrix",
+        "test",
+        "test-runner",
+        "coverage"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/creative-introvert/prediction-testing.git"
+    },
+    "publishConfig": {
+        "access": "public",
+        "directory": "dist",
+        "provenance": true
+    },
+    "scripts": {
+        "build": "pnpm run clean && pnpm build-esm && pnpm build-cjs && pnpm build-annotate && tsx src/pack.ts",
+        "build-esm": "tsc --build tsconfig.build.json",
+        "build-cjs": "babel build/esm --plugins @babel/transform-export-namespace-from --plugins @babel/transform-modules-commonjs --out-dir build/cjs --source-maps",
+        "build-annotate": "babel build --plugins annotate-pure-calls --out-dir build --source-maps",
+        "clean": "rm -rf build dist .tsbuildinfo"
+    },
+    "devDependencies": {
+        "@babel/cli": "^7.24.1",
+        "@babel/core": "^7.24.3",
+        "@babel/plugin-transform-export-namespace-from": "^7.24.1",
+        "@babel/plugin-transform-modules-commonjs": "^7.24.1",
+        "@creative-introvert/eslint-config": "^0.3.2",
+        "@creative-introvert/prettier-config": "^0.2.0",
+        "babel-plugin-annotate-pure-calls": "^0.4.0",
+        "type-fest": "^4.14.0"
+    },
+    "dependencies": {
+        "@effect/cli": "^0.36.6",
+        "@effect/platform": "^0.50.0",
+        "@effect/platform-node": "^0.47.0",
+        "@effect/schema": "^0.66.3",
+        "ansi-colors": "^4.1.3",
+        "effect": "3.0.3"
+    }
+}

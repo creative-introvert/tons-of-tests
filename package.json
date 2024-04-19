@@ -4,6 +4,7 @@
     "packageManager": "pnpm@9.0.2",
     "scripts": {
         "ci:publish": "pnpm run build && pnpm --filter prediction-testing run build && changeset publish",
+        "cli": "tsx workspace/cli/src/bin.ts",
         "build": "tsc --build",
         "build:watch": "tsc --build --watch"
     },
