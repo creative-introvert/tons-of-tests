@@ -3,19 +3,22 @@ import {Console, Effect, Option, Stream, pipe} from 'effect';
 
 const testResults$ = PT.testAll({
     testCases: [
-        {input: 1, expected: 0.6},
-        {input: 2, expected: 2.4},
-        {input: 3, expected: 3},
-        {input: 4, expected: 4.1},
+        {input: {foo: 1}, expected: {foo: 1}},
+        {input: {foo: 2}, expected: {foo: 2}},
+        {input: {foo: 3}, expected: {foo: 3}},
+        {input: {foo: 4}, expected: {foo: 4}},
     ],
-    program: input => Effect.succeed(input),
+    // Function under test.
+    program: ({foo}) => Effect.succeed({foo: foo * 1.05}),
     // Custom classify function.
-    classify: PT.Classify.make<number, number>((a, b) => b - a <= 0.2),
+    classify: PT.Classify.make<{foo: number}, {foo: number}>(
+        (output, expected) => Math.abs(expected.foo - output.foo) <= 0.2,
+    ),
 });
 
 void pipe(
     testResults$,
-    // Track test results as they happen.
+    // Tests run in a stream, so you can hook into that.
     Stream.tap(testResult => {
         console.log(PT.Show.single({testResult}));
         return Effect.void;
@@ -24,7 +27,16 @@ void pipe(
     PT.runFoldEffect,
     // Show summary.
     Effect.tap(testRun =>
-        Console.log(PT.Show.summary({testRun, previousTestRun: Option.none()})),
+        Console.log(
+            PT.Show.summary({
+                testRun,
+                // With custom renderers. Default = JSON.stringify.
+                showInput: ({foo}) => `foo=${foo}`,
+                showExpected: ({foo}) => `${foo}`,
+                showResult: ({foo}) => `${foo.toFixed(2)}`,
+                previousTestRun: Option.none(),
+            }),
+        ),
     ),
     // Show stats.
     Effect.tap(testRun => Console.log(PT.Show.stats({testRun}))),

@@ -10,8 +10,6 @@ import * as P from './prelude.js';
 import type * as Test from './Test.js';
 import {defaultIsNil, type Label} from './Classify.js';
 
-// TODO: render functions for input, expected, output
-
 type DisplayConfig = {
     /** @default true */
     colorize: boolean;
@@ -165,7 +163,7 @@ export const single = <I, O, T>({
     const result = colorLabel(
         testResult.label,
         false,
-    )(showValue(testResult.output));
+    )(showValue(testResult.result));
     return `${label} :: ${input} -> ${result} (${expected})`;
 };
 
@@ -173,12 +171,18 @@ export const summary = <I, O, T>({
     testRun,
     previousTestRun,
     displayConfig,
-    isOutputNil = defaultIsNil,
+    isResultNil = defaultIsNil,
+    showInput = showValue,
+    showResult = showValue,
+    showExpected = showValue,
 }: {
     testRun: Test.TestRun<I, O, T>;
     previousTestRun: P.O.Option<Test.TestRun<I, O, T>>;
     displayConfig?: Partial<DisplayConfig>;
-    isOutputNil?: (output: O) => boolean;
+    isResultNil?: (result: O) => boolean;
+    showInput?: (input: I) => string;
+    showResult?: (result: O) => string;
+    showExpected?: (expected: T) => string;
 }): string => {
     const cfg = {...DisplayConfig.default(), ...displayConfig};
 
@@ -194,25 +198,25 @@ export const summary = <I, O, T>({
         const previousTestResult = previousTestRun.pipe(
             P.O.map(m => m.testResultsById[id]),
         );
-        const previousResultOutput = P.O.map(previousTestResult, _ => _.output);
+        const previousResultResult = P.O.map(previousTestResult, _ => _.result);
 
         const hasPrevious = P.O.isSome(previousTestResult);
         const hasResultDiff = isDeepStrictEqual(
-            testResult.output,
-            previousResultOutput,
+            testResult.result,
+            previousResultResult,
         );
 
         const display = {
             index: `${i + 1}/${ids.length}`,
             id: showID(id),
-            input: showValue(testResult.input),
+            input: showInput(testResult.input),
             tags: testResult.tags.join(','),
             label: testResult.label.toString(),
-            expected: showValue(testResult.expected),
-            result: showValue(testResult.output),
-            'previous result': P.O.match(previousResultOutput, {
+            expected: showExpected(testResult.expected),
+            result: showResult(testResult.result),
+            'previous result': P.O.match(previousResultResult, {
                 onNone: () => '∅',
-                onSome: showValue,
+                onSome: showResult,
             }),
             hasPrevious,
             hasResultDiff,
@@ -246,9 +250,9 @@ export const summary = <I, O, T>({
 
     const _rows = rows.xs
         .map(({testResult, previousTestResult, display}, i, xs) => {
-            const hasPreviousOutput = P.O.map(
+            const hasPreviousResult = P.O.map(
                 previousTestResult,
-                _ => _.output,
+                _ => _.result,
             ).pipe(P.O.isSome);
 
             const row: string[] = [

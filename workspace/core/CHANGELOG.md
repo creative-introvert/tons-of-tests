@@ -1,5 +1,11 @@
 # @creative-introvert/prediction-testing
 
+## 0.0.4
+
+### Patch Changes
+
+- Feat: Add showInput,showResult,showExpected.
+
 ## 0.0.3
 
 ### Patch Changes

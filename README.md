@@ -25,6 +25,6 @@ pnpx tsx ./workspace/examples/src/as-library.ts
 
 ## TODO
 
-- Show: custom render function for input, output, etc
-- CLI is missing
-- Basic performance measurements
+- Test previous input comparison.
+- CLI is missing.
+- Basic performance measurements.

@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 
 import * as P from './prelude.js';
-import * as Classification from './Classify.js';
+import * as Classify from './Classify.js';
 
 export type Program<I, O> = (input: I) => P.E.Effect<O>;
 
@@ -17,9 +17,9 @@ export type ID = string;
 type _TestResult<I, O, T> = {
     id: ID;
     input: I;
-    output: O;
+    result: O;
     expected: T;
-    label: Classification.Label;
+    label: Classify.Label;
     tags: string[];
 };
 
@@ -35,18 +35,18 @@ export class TestResult<I, O, T> extends P.Data.TaggedClass('TestResult')<
 export class TestRun<I, O, T> extends P.Data.TaggedClass('TestRun')<{
     testResultsById: Record<ID, TestResult<I, O, T>>;
     testResultIds: ID[];
-    stats: Classification.Stats;
+    stats: Classify.Stats;
 }> {
     static empty<I, O, T>(): TestRun<I, O, T> {
         return new TestRun({
             testResultsById: {},
             testResultIds: [],
-            stats: Classification.Stats.empty(),
+            stats: Classify.Stats.empty(),
         });
     }
 }
 
-export type Diff = Record<Classification.Label, number> & {
+export type Diff = Record<Classify.Label, number> & {
     precision: number;
     recall: number;
 };
@@ -102,17 +102,17 @@ export const test = <I, O, T>({
 }: {
     testCase: TestCase<I, T>;
     program: Program<I, O>;
-    classify: Classification.Classify<O, T>;
+    classify: Classify.Classify<O, T>;
 }): P.E.Effect<TestResult<I, O, T>> => {
     return program(input).pipe(
         P.E.map(
-            output =>
+            result =>
                 new TestResult<I, O, T>({
                     input,
-                    output,
+                    result,
                     expected,
                     tags: tags ?? [],
-                    label: classify(output, expected),
+                    label: classify(result, expected),
                 }),
         ),
     );
@@ -121,15 +121,15 @@ export const test = <I, O, T>({
 export const testAll = <I, O, T>({
     testCases,
     program,
-    classify = Classification.make(
+    classify = Classify.make(
         isDeepStrictEqual,
-        Classification.defaultIsNil,
-        Classification.defaultIsNil,
+        Classify.defaultIsNil,
+        Classify.defaultIsNil,
     ),
 }: {
     testCases: TestCase<I, T>[];
     program: Program<I, O>;
-    classify?: Classification.Classify<O, T>;
+    classify?: Classify.Classify<O, T>;
 }): P.Stream.Stream<TestResult<I, O, T>> =>
     P.pipe(
         P.Stream.fromIterable(testCases),
@@ -159,8 +159,8 @@ export const runFoldEffect = <I, O, T>(
             }),
         ),
         P.E.map(run => {
-            run.stats.precision = Classification.precision(run.stats);
-            run.stats.recall = Classification.recall(run.stats);
+            run.stats.precision = Classify.precision(run.stats);
+            run.stats.recall = Classify.recall(run.stats);
             return run;
         }),
     );
@@ -219,8 +219,8 @@ export const filterTestRun: {
                 return m;
             }, TestRun.empty<I, O, T>()),
             run => {
-                run.stats.precision = Classification.precision(run.stats);
-                run.stats.recall = Classification.recall(run.stats);
+                run.stats.precision = Classify.precision(run.stats);
+                run.stats.recall = Classify.recall(run.stats);
                 return run;
             },
         ),
