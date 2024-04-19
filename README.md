@@ -25,6 +25,6 @@ pnpx tsx ./workspace/examples/src/as-library.ts
 
 ## TODO
 
-- Test previous input comparison.
 - CLI is missing.
+- sqlite backend
 - Basic performance measurements.
