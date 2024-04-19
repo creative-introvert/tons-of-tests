@@ -5,14 +5,14 @@ import {fileURLToPath} from 'node:url';
 import * as S from '@effect/schema/Schema';
 
 const PackageJsonSchema = S.parseJson(
-    S.struct({
-        dependencies: S.record(S.string, S.string),
-        license: S.string.pipe(S.nonEmpty()),
-        name: S.string.pipe(S.nonEmpty()),
-        repository: S.record(S.string, S.string),
-        sideEffects: S.array(S.string),
-        tags: S.array(S.string),
-        version: S.string.pipe(S.nonEmpty()),
+    S.Struct({
+        dependencies: S.Record(S.String, S.String),
+        license: S.String.pipe(S.nonEmpty()),
+        name: S.String.pipe(S.nonEmpty()),
+        repository: S.Record(S.String, S.String),
+        sideEffects: S.Array(S.String),
+        tags: S.Array(S.String),
+        version: S.String.pipe(S.nonEmpty()),
     }),
 );
 

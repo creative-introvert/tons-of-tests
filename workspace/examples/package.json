@@ -15,14 +15,14 @@
         "@creative-introvert/eslint-config": "^0.3.2",
         "@creative-introvert/prettier-config": "^0.2.0",
         "@types/node": "^20.11.30",
-        "typescript": "^5.4.3"
+        "typescript": "^5.4.5"
     },
     "dependencies": {
-        "@effect/platform": "^0.48.21",
-        "@effect/platform-node": "^0.45.23",
-        "@effect/schema": "^0.64.15",
         "@creative-introvert/prediction-testing": "workspace:*",
-        "effect": "2.4.15"
+        "@effect/platform": "^0.50.0",
+        "@effect/platform-node": "^0.47.0",
+        "@effect/schema": "^0.66.3",
+        "effect": "3.0.3"
     },
     "version": null
 }

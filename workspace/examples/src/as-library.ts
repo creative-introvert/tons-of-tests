@@ -18,7 +18,7 @@ void pipe(
     // Track test results as they happen.
     Stream.tap(testResult => {
         console.log(PT.Show.single({testResult}));
-        return Effect.unit;
+        return Effect.void;
     }),
     // Collect test results.
     PT.runFoldEffect,

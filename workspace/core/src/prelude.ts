@@ -1,4 +1,4 @@
-export * as A from 'effect/ReadonlyArray';
+export * as A from 'effect/Array';
 export * as Console from 'effect/Console';
 export * as Chunk from 'effect/Chunk';
 export * as Config from 'effect/Config';
@@ -16,7 +16,7 @@ export * as NodeRuntime from '@effect/platform-node/NodeRuntime';
 export * as O from 'effect/Option';
 export * as Result from '@effect/schema/ParseResult';
 export * as S from '@effect/schema';
-export * as R from 'effect/ReadonlyRecord';
+export * as R from 'effect/Record';
 export * as E from 'effect/Effect';
 export * as Stream from 'effect/Stream';
 export {pipe, dual, hole} from 'effect/Function';
