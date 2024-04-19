@@ -27,3 +27,4 @@ pnpx tsx ./workspace/examples/src/as-library.ts
 
 - Show: custom render function for input, output, etc
 - CLI is missing
+- Basic performance measurements
