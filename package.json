@@ -3,8 +3,7 @@
     "license": "MIT",
     "packageManager": "pnpm@9.0.2",
     "scripts": {
-        "ci:publish": "pnpm run build && pnpm run ci:pack && changeset publish",
-        "ci:pack": "tsx workspace/core/src/pack.ts",
+        "ci:publish": "pnpm run build && pnpm --filter prediction-testing run build && changeset publish",
         "build": "tsc --build",
         "build:watch": "tsc --build --watch"
     },

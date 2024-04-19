@@ -55,6 +55,4 @@ const getPackageJson = async () => {
     console.log('copied build');
 };
 
-const main = async () => {};
-
 void getPackageJson();
