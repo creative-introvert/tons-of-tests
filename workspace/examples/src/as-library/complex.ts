@@ -55,12 +55,15 @@ void pipe(
                     return JSON.stringify(
                         Object.entries(
                             diff.detailedDiff(expected, result),
-                        ).reduce((m, [k, v]) => {
-                            if (Object.keys(v).length !== 0) {
-                                m[k] = v;
-                            }
-                            return m;
-                        }, {} as any),
+                        ).reduce(
+                            (m, [k, v]) => {
+                                if (Object.keys(v).length !== 0) {
+                                    m[k] = v;
+                                }
+                                return m;
+                            },
+                            {} as Record<string, unknown>,
+                        ),
                     );
                 },
                 previousTestRun: Option.some(previousTestRun),

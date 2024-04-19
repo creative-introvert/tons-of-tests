@@ -1,5 +1,5 @@
 import * as PT from '@creative-introvert/prediction-testing';
-import {Console, Duration, Effect, Option, Stream} from 'effect';
+import {Console, Duration, Effect, Stream} from 'effect';
 
 type Input = number;
 type Result = number;
@@ -28,9 +28,7 @@ await PT.testAll({
         return Effect.void;
     }),
     PT.runFoldEffect,
-    Effect.tap(testRun =>
-        Console.log(PT.Show.summary({testRun, previousTestRun: Option.none()})),
-    ),
+    Effect.tap(testRun => Console.log(PT.Show.summary({testRun}))),
     Effect.runPromise,
 );
 

@@ -1,6 +1,8 @@
 import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 
+import {Parameters} from '@effect/schema/FastCheck';
+
 import * as P from './prelude.js';
 import * as Classify from './Classify.js';
 
@@ -164,6 +166,24 @@ export const runFoldEffect = <I, O, T>(
             return run;
         }),
     );
+
+/**
+ * Convenience function to run all tests and return the results.
+ */
+export const runAll = <I, O, T>({
+    testCases,
+    program,
+    classify = Classify.make(
+        isDeepStrictEqual,
+        Classify.defaultIsNil,
+        Classify.defaultIsNil,
+    ),
+}: {
+    testCases: TestCase<I, T>[];
+    program: Program<I, O>;
+    classify?: Classify.Classify<O, T>;
+}) =>
+    testAll({testCases, program, classify}).pipe(runFoldEffect, P.E.runPromise);
 
 export type TestResultPredicate<I, O, T> = (args: {
     testResult: TestResult<I, O, T>;

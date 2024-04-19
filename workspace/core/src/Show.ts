@@ -169,15 +169,15 @@ export const single = <I, O, T>({
 
 export const summary = <I, O, T>({
     testRun,
-    previousTestRun,
     displayConfig,
+    previousTestRun = P.O.none(),
     isResultNil = defaultIsNil,
     showInput = showValue,
     showExpected = showValue,
     showResult = showValue,
 }: {
     testRun: Test.TestRun<I, O, T>;
-    previousTestRun: P.O.Option<Test.TestRun<I, O, T>>;
+    previousTestRun?: P.O.Option<Test.TestRun<I, O, T>>;
     displayConfig?: Partial<DisplayConfig>;
     isResultNil?: (result: O) => boolean;
     showInput?: (input: I) => string;
