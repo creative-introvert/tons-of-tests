@@ -84,8 +84,8 @@ export const diff = <I, O, T>({
     previousTestRun,
     testRun,
 }: {
-    previousTestRun?: TestRun<I, O, T>;
-    testRun: TestRun<I, O, T>;
+    previousTestRun?: _TestRun<I, O, T>;
+    testRun: _TestRun<I, O, T>;
 }): Diff => {
     const stats = testRun.stats;
     const previousStats = previousTestRun && previousTestRun.stats;
@@ -155,7 +155,7 @@ export const testAll = <I, O, T>({
         Classify.defaultIsNil,
         Classify.defaultIsNil,
     ),
-}: TestSuite<I, O, T>): P.Stream.Stream<TestResult<I, O, T>> =>
+}: TestSuite<I, O, T>): P.Stream.Stream<_TestResult<I, O, T>> =>
     P.pipe(
         P.Stream.fromIterable(testCases),
         P.Stream.mapEffect(testCase => test({testCase, program, classify})),
