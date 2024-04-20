@@ -24,6 +24,7 @@ const getPackageJson = async () => {
     const distPath = path.join(workspacePath, 'dist');
     const buildPath = path.join(workspacePath, 'build');
     const pjsonPath = path.join(workspacePath, 'package.json');
+    const readmePath = path.join(workspacePath, '../../README.md');
 
     await fs.mkdir(distPath, {recursive: true});
     const pjson = S.decodeSync(PackageJsonSchema)(
@@ -53,6 +54,9 @@ const getPackageJson = async () => {
 
     await fs.cp(buildPath, path.join(distPath, 'dist'), {recursive: true});
     console.log('copied build');
+
+    await fs.cp(readmePath, path.join(distPath, 'README.md'));
+    console.log('copied README');
 };
 
 void getPackageJson();

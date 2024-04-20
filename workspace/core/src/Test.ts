@@ -1,12 +1,14 @@
 import {createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 
-import {Parameters} from '@effect/schema/FastCheck';
-
 import * as P from './prelude.js';
 import * as Classify from './Classify.js';
 
-export type Program<I, O> = (input: I) => P.E.Effect<O>;
+export type TestSuite<I = unknown, O = unknown, T = unknown> = {
+    testCases: TestCase<I, T>[];
+    program: Program<I, O>;
+    classify?: Classify.Classify<O, T>;
+};
 
 export type TestCase<I, T> = {
     input: I;
@@ -14,32 +16,51 @@ export type TestCase<I, T> = {
     tags?: string[];
 };
 
+export type Program<I, O> = (input: I) => P.E.Effect<O>;
+
 export type ID = string;
 
-type _TestResult<I, O, T> = {
+export type _TestResult<I = unknown, O = unknown, T = unknown> = {
     id: ID;
     input: I;
     result: O;
     expected: T;
     label: Classify.Label;
-    tags: string[];
+    tags: Readonly<string[]>;
 };
 
-export class TestResult<I, O, T> extends P.Data.TaggedClass('TestResult')<
-    _TestResult<I, O, T>
-> {
+export class TestResult<
+    I = unknown,
+    O = unknown,
+    T = unknown,
+> extends P.Data.TaggedClass('TestResult')<_TestResult<I, O, T>> {
     constructor(args: Omit<_TestResult<I, O, T>, 'id'>) {
         const id = ID.create(args.input);
         super({...args, id});
     }
 }
 
-export class TestRun<I, O, T> extends P.Data.TaggedClass('TestRun')<{
-    testResultsById: Record<ID, TestResult<I, O, T>>;
+export const TestResultSchema: P.Schema.Schema<_TestResult> = P.Schema.Struct({
+    id: P.Schema.String,
+    input: P.Schema.Unknown,
+    result: P.Schema.Unknown,
+    expected: P.Schema.Unknown,
+    label: Classify.LabelSchema,
+    tags: P.Schema.Array(P.Schema.String),
+});
+
+export type _TestRun<I = unknown, O = unknown, T = unknown> = {
+    testResultsById: Record<ID, _TestResult<I, O, T>>;
     testResultIds: ID[];
     stats: Classify.Stats;
-}> {
-    static empty<I, O, T>(): TestRun<I, O, T> {
+};
+
+export class TestRun<
+    I = unknown,
+    O = unknown,
+    T = unknown,
+> extends P.Data.TaggedClass('TestRun')<_TestRun<I, O, T>> {
+    static empty<I, O, T>(): _TestRun<I, O, T> {
         return new TestRun({
             testResultsById: {},
             testResultIds: [],
@@ -47,6 +68,12 @@ export class TestRun<I, O, T> extends P.Data.TaggedClass('TestRun')<{
         });
     }
 }
+
+export const TestRunSchema: P.Schema.Schema<_TestRun> = P.Schema.Struct({
+    testResultsById: P.Schema.Record(P.Schema.String, TestResultSchema),
+    testResultIds: P.Schema.mutable(P.Schema.Array(P.Schema.String)),
+    stats: Classify.StatsSchema,
+});
 
 export type Diff = Record<Classify.Label, number> & {
     precision: number;
@@ -128,19 +155,15 @@ export const testAll = <I, O, T>({
         Classify.defaultIsNil,
         Classify.defaultIsNil,
     ),
-}: {
-    testCases: TestCase<I, T>[];
-    program: Program<I, O>;
-    classify?: Classify.Classify<O, T>;
-}): P.Stream.Stream<TestResult<I, O, T>> =>
+}: TestSuite<I, O, T>): P.Stream.Stream<TestResult<I, O, T>> =>
     P.pipe(
         P.Stream.fromIterable(testCases),
         P.Stream.mapEffect(testCase => test({testCase, program, classify})),
     );
 
 export const runFoldEffect = <I, O, T>(
-    testResults$: P.Stream.Stream<TestResult<I, O, T>>,
-): P.E.Effect<TestRun<I, O, T>> =>
+    testResults$: P.Stream.Stream<_TestResult<I, O, T>>,
+): P.E.Effect<_TestRun<I, O, T>> =>
     testResults$.pipe(
         P.Stream.runFoldEffect(TestRun.empty<I, O, T>(), (run, result) =>
             P.E.gen(function* (_) {
@@ -178,16 +201,12 @@ export const runAll = <I, O, T>({
         Classify.defaultIsNil,
         Classify.defaultIsNil,
     ),
-}: {
-    testCases: TestCase<I, T>[];
-    program: Program<I, O>;
-    classify?: Classify.Classify<O, T>;
-}) =>
+}: TestSuite<I, O, T>) =>
     testAll({testCases, program, classify}).pipe(runFoldEffect, P.E.runPromise);
 
 export type TestResultPredicate<I, O, T> = (args: {
-    testResult: TestResult<I, O, T>;
-    previousTestResult: P.O.Option<TestResult<I, O, T>>;
+    testResult: _TestResult<I, O, T>;
+    previousTestResult: P.O.Option<_TestResult<I, O, T>>;
 }) => boolean;
 
 /** Filters results. Note, tests still run, but results are filtered out. */
@@ -195,16 +214,16 @@ export const filterTestRun: {
     <I, O, T>(
         predicates: TestResultPredicate<I, O, T>[],
     ): (args: {
-        testRun: TestRun<I, O, T>;
-        previousTestRun: P.O.Option<TestRun<I, O, T>>;
-    }) => TestRun<I, O, T>;
+        testRun: _TestRun<I, O, T>;
+        previousTestRun: P.O.Option<_TestRun<I, O, T>>;
+    }) => _TestRun<I, O, T>;
     <I, O, T>(
         args: {
-            testRun: TestRun<I, O, T>;
-            previousTestRun: P.O.Option<TestRun<I, O, T>>;
+            testRun: _TestRun<I, O, T>;
+            previousTestRun: P.O.Option<_TestRun<I, O, T>>;
         },
         predicates: TestResultPredicate<I, O, T>[],
-    ): TestRun<I, O, T>;
+    ): _TestRun<I, O, T>;
 } = P.dual(
     2,
     <I, O, T>(
@@ -212,8 +231,8 @@ export const filterTestRun: {
             testRun,
             previousTestRun,
         }: {
-            testRun: TestRun<I, O, T>;
-            previousTestRun: P.O.Option<TestRun<I, O, T>>;
+            testRun: _TestRun<I, O, T>;
+            previousTestRun: P.O.Option<_TestRun<I, O, T>>;
         },
         predicates: TestResultPredicate<I, O, T>[],
     ) =>

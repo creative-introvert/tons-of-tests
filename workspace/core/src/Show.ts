@@ -85,8 +85,8 @@ type Rows<I, O, T> = {
             hasPrevious: boolean;
             hasResultDiff: boolean;
         };
-        testResult: Test.TestResult<I, O, T>;
-        previousTestResult: P.O.Option<Test.TestResult<I, O, T>>;
+        testResult: Test._TestResult<I, O, T>;
+        previousTestResult: P.O.Option<Test._TestResult<I, O, T>>;
     }[];
     widths: Widths<Columns>;
 };
@@ -155,7 +155,7 @@ export const showValue = <I>(value: I): string => JSON.stringify(value);
 export const single = <I, O, T>({
     testResult,
 }: {
-    testResult: Test.TestResult<I, O, T>;
+    testResult: Test._TestResult<I, O, T>;
 }): string => {
     const label = colorLabel(testResult.label, true)(testResult.label);
     const input = showValue(testResult.input);
@@ -176,8 +176,8 @@ export const summary = <I, O, T>({
     showExpected = showValue,
     showResult = showValue,
 }: {
-    testRun: Test.TestRun<I, O, T>;
-    previousTestRun?: P.O.Option<Test.TestRun<I, O, T>>;
+    testRun: Test._TestRun<I, O, T>;
+    previousTestRun?: P.O.Option<Test._TestRun<I, O, T>>;
     displayConfig?: Partial<DisplayConfig>;
     isResultNil?: (result: O) => boolean;
     showInput?: (input: I) => string;
@@ -417,7 +417,7 @@ export const stats = <I, O, T>({
     testRun,
     displayConfig,
 }: {
-    testRun: Pick<Test.TestRun<I, O, T>, 'stats'>;
+    testRun: Pick<Test._TestRun<I, O, T>, 'stats'>;
     displayConfig?: Partial<DisplayConfig>;
 }): string => {
     const cfg = {...DisplayConfig.default(), ...displayConfig};
@@ -494,7 +494,7 @@ export const diff = <I, O, T>({
     diff,
     config: _config,
 }: {
-    testRun: Test.TestRun<I, O, T>;
+    testRun: Test._TestRun<I, O, T>;
     diff: Test.Diff;
     config?: Partial<DisplayConfig>;
 }): string => {

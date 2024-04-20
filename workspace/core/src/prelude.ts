@@ -16,6 +16,7 @@ export * as NodeRuntime from '@effect/platform-node/NodeRuntime';
 export * as O from 'effect/Option';
 export * as Result from '@effect/schema/ParseResult';
 export * as S from '@effect/schema';
+export * as Schema from '@effect/schema/Schema';
 export * as R from 'effect/Record';
 export * as E from 'effect/Effect';
 export * as Stream from 'effect/Stream';
