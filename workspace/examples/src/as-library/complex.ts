@@ -75,7 +75,13 @@ void pipe(
     // Show diff to previous run.
     Effect.tap(testRun =>
         Console.log(
-            PT.Show.diff({testRun, diff: PT.diff({testRun, previousTestRun})}),
+            PT.Show.diff({
+                testRun,
+                diff: PT.diff({
+                    testRun,
+                    previousTestRun: Option.some(previousTestRun),
+                }),
+            }),
         ),
     ),
     Effect.runSync,
