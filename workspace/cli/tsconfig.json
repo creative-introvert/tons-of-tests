@@ -8,6 +8,7 @@
         "types": ["node"],
         "declarationDir": "build/dts",
         "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
+        "rootDir": "src",
         "outDir": "build/esm"
     }
 }
