@@ -81,42 +81,25 @@ export type Diff = Record<Classify.Label, number> & {
 };
 
 export const diff = <I, O, T>({
+    testRun: {stats},
     previousTestRun,
-    testRun,
 }: {
-    previousTestRun?: _TestRun<I, O, T>;
     testRun: _TestRun<I, O, T>;
-}): Diff => {
-    const stats = testRun.stats;
-    const previousStats = previousTestRun && previousTestRun.stats;
-
-    const TP = stats.TP;
-    const previousTP = previousStats?.TP ?? 0;
-
-    const TN = stats.TN;
-    const previousTN = previousStats?.TN ?? 0;
-
-    const FP = stats.FP;
-    const previousFP = previousStats?.FP ?? 0;
-
-    const FN = stats.FN;
-    const previousFN = previousStats?.FN ?? 0;
-
-    const precision = stats.precision;
-    const previousPrecision = previousStats?.precision ?? 0;
-
-    const previousRecall = previousStats?.recall ?? 0;
-    const recall = stats.recall;
-
-    return {
-        TP: TP - previousTP,
-        TN: TN - previousTN,
-        FP: FP - previousFP,
-        FN: FN - previousFN,
-        precision: precision - previousPrecision,
-        recall: recall - previousRecall,
-    };
-};
+    previousTestRun: P.O.Option<_TestRun<I, O, T>>;
+}): Diff =>
+    previousTestRun.pipe(
+        P.O.match({
+            onNone: () => stats,
+            onSome: ({stats: previousStats}) => ({
+                TP: stats.TP - previousStats.TP,
+                TN: stats.TN - previousStats.TN,
+                FP: stats.FP - previousStats.FP,
+                FN: stats.FN - previousStats.FN,
+                precision: stats.precision - previousStats.precision,
+                recall: stats.recall - previousStats.recall,
+            }),
+        }),
+    );
 
 export const ID = {
     create: <I>(input: I): ID => {

@@ -22,3 +22,4 @@ dist
 .npmrc
 .git
 .rollup.cache
+.metrics
