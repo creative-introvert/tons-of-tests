@@ -1,5 +1,11 @@
 # @creative-introvert/prediction-testing
 
+## 0.0.5
+
+### Patch Changes
+
+- Feat: CLI.
+
 ## 0.0.4
 
 ### Patch Changes
