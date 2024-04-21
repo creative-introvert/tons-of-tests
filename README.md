@@ -72,7 +72,7 @@ void CLI.run({
 
 #### Summarize
 
-```bash
+```
 pnpx tsx my-test-suite.ts summarize
 
 =============================================================================
@@ -104,7 +104,7 @@ TP | TN | FP | FN | precision | recall
 
 #### Summarize With Labels Filter
 
-```bash
+```
 pnpx tsx my-test-suite.ts summarize --labels TP
 
 =============================================================================
@@ -124,14 +124,6 @@ TP | TN | FP | FN | precision | recall
 --------------------------------------
 1  | 0  | 0  | 0  | 1.00      | 1.00
 ======================================
-```
-
-Checkout `workspace/examples/src/with-cli` for more examples.
-
-```bash
-pnpx tsx <file-path>
-# e.g.
-pnpx tsx ./workspace/examples/src/with-cli/simple.ts
 ```
 
 #### Write Test Results
@@ -162,7 +154,7 @@ index 21cd713..ab1b6dc 100644
      testSuite: {
 ```
 
-```bash
+```
 pnpx tsx my-test-suite.ts diff
 # or, if you want it to process.exit(1) on diff
 pnpx tsx my-test-suite.ts diff --ci
@@ -190,6 +182,14 @@ TP | TN | FP | FN | precision | recall
 --------------------------------------
 0  │ 0  │ -1 │ 0  │ 0.05      │ 0.00
 ======================================
+```
+
+Checkout `workspace/examples/src/with-cli` for more examples.
+
+```
+pnpx tsx <file-path>
+# e.g.
+pnpx tsx ./workspace/examples/src/with-cli/simple.ts
 ```
 
 ### Without CLI
