@@ -1,3 +1,5 @@
+import * as P from './prelude.js';
+
 export const Label = {
     TN: 'TN',
     TP: 'TP',
@@ -6,6 +8,13 @@ export const Label = {
 } as const;
 
 export type Label = (typeof Label)[keyof typeof Label];
+
+export const LabelSchema: P.Schema.Schema<Label> = P.Schema.Literal(
+    'TP',
+    'TN',
+    'FP',
+    'FN',
+);
 
 export const defaultIsNil = <I>(x: I): boolean => x === null || x === undefined;
 
@@ -41,6 +50,15 @@ export type Stats = Record<Label, number> & {
     precision: number;
     recall: number;
 };
+
+export const StatsSchema: P.Schema.Schema<Stats> = P.Schema.Struct({
+    TP: P.Schema.Number,
+    TN: P.Schema.Number,
+    FP: P.Schema.Number,
+    FN: P.Schema.Number,
+    precision: P.Schema.Number,
+    recall: P.Schema.Number,
+});
 
 export const Stats = {
     empty: (): Stats => ({

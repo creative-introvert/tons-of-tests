@@ -1,6 +1,6 @@
 {
-    "name": "@creative-introvert/prediction-testing",
-    "version": "0.0.5",
+    "name": "@creative-introvert/prediction-testing-cli",
+    "version": "0.0.1",
     "type": "module",
     "license": "MIT",
     "sideEffects": [],
@@ -36,9 +36,12 @@
         "@creative-introvert/eslint-config": "^0.3.2",
         "@creative-introvert/prettier-config": "^0.2.0",
         "babel-plugin-annotate-pure-calls": "^0.4.0",
+        "ts-node": "^10.9.2",
         "type-fest": "^4.14.0"
     },
     "dependencies": {
+        "@creative-introvert/prediction-testing": "workspace:*",
+        "@effect/cli": "^0.36.6",
         "@effect/platform": "^0.50.1",
         "@effect/platform-node": "^0.47.1",
         "@effect/schema": "^0.66.4",

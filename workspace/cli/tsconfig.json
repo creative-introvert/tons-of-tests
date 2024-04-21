@@ -2,14 +2,12 @@
     "extends": "../../tsconfig.base.json",
     "include": ["src"],
     "references": [
-        { "path": "../core"},
-        { "path": "../cli"}
+        { "path": "../core" }
     ],
     "compilerOptions": {
         "types": ["node"],
         "declarationDir": "build/dts",
         "tsBuildInfoFile": ".tsbuildinfo/src.tsbuildinfo",
-        "rootDir": "src",
         "outDir": "build/esm"
     }
 }
