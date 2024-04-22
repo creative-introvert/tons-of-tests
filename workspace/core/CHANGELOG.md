@@ -1,5 +1,11 @@
 # @creative-introvert/prediction-testing
 
+## 0.0.6
+
+### Patch Changes
+
+- Feat: Passthrough display config.
+
 ## 0.0.5
 
 ### Patch Changes
