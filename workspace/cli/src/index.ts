@@ -2,7 +2,6 @@ import {isDeepStrictEqual} from 'node:util';
 
 import {Command, Options} from '@effect/cli';
 import * as PT from '@creative-introvert/prediction-testing';
-import type {DisplayConfig} from 'workspace/core/src/Show.js';
 
 import * as P from './prelude.js';
 
@@ -11,7 +10,7 @@ export type Config<I = unknown, O = unknown, T = unknown> = {
     dirPath: string;
     filePostfix: string;
     testSuiteName: string;
-    displayConfig?: Partial<DisplayConfig> | undefined;
+    displayConfig?: Partial<PT.Show.DisplayConfig> | undefined;
     showInput?: undefined | ((input: I) => string);
     showExpected?: undefined | ((expected: T) => string);
     showResult?: undefined | ((result: O, expected: T) => string);
