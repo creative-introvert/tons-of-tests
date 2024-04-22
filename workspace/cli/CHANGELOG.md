@@ -1,5 +1,13 @@
 # @creative-introvert/prediction-testing-cli
 
+## 0.0.4
+
+### Patch Changes
+
+- Feat: Allow toggling tags.
+- Updated dependencies
+  - @creative-introvert/prediction-testing@0.0.7
+
 ## 0.0.3
 
 ### Patch Changes

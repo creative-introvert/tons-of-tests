@@ -14,6 +14,7 @@ export type Config<I = unknown, O = unknown, T = unknown> = {
     showInput?: undefined | ((input: I) => string);
     showExpected?: undefined | ((expected: T) => string);
     showResult?: undefined | ((result: O, expected: T) => string);
+    showTags?: undefined | boolean;
     isResultNil?: undefined | ((result: O) => boolean);
 };
 
@@ -65,6 +66,7 @@ const summarize = Command.make('summarize', {labels}, ({labels}) =>
             showExpected,
             showResult,
             displayConfig,
+            showTags,
         } = yield* _(Config);
 
         const filterLabel = createFilterLabel(labels);
@@ -92,6 +94,7 @@ const summarize = Command.make('summarize', {labels}, ({labels}) =>
                         showExpected,
                         showResult,
                         displayConfig,
+                        showTags,
                     }),
                     '',
                     PT.Show.stats({testRun}),
@@ -116,6 +119,7 @@ const diff = Command.make('diff', {ci}, ({ci}) =>
             showExpected,
             showResult,
             displayConfig,
+            showTags,
         } = yield* _(Config);
 
         const previousTestRun = yield* _(readPreviousTestRun);
@@ -157,6 +161,7 @@ const diff = Command.make('diff', {ci}, ({ci}) =>
                         showExpected,
                         showResult,
                         displayConfig,
+                        showTags,
                     }),
                     '',
                     PT.Show.diff({

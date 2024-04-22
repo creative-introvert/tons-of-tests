@@ -175,6 +175,7 @@ export const summary = <I, O, T>({
     showInput = showValue,
     showExpected = showValue,
     showResult = showValue,
+    showTags = true,
 }: {
     testRun: Test._TestRun<I, O, T>;
     previousTestRun?: P.O.Option<Test._TestRun<I, O, T>>;
@@ -183,6 +184,7 @@ export const summary = <I, O, T>({
     showInput?: ((input: I) => string) | undefined;
     showExpected?: ((expected: T) => string) | undefined;
     showResult?: ((result: O, expected: T) => string) | undefined;
+    showTags?: boolean | undefined;
 }): string => {
     const cfg = {...DisplayConfig.default(), ...displayConfig};
 
@@ -190,6 +192,8 @@ export const summary = <I, O, T>({
 
     const ids = testRun.testResultIds;
     const rows = Rows.empty<I, O, T>();
+
+    const _columns = showTags ? columns : columns.filter(s => s !== 'tags');
 
     for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
@@ -230,13 +234,13 @@ export const summary = <I, O, T>({
 
         rows.widths = getWidths({
             display,
-            columns,
+            columns: _columns,
             previousWidths: rows.widths,
         });
     }
 
     const _headers = createHeaders({
-        columns,
+        columns: _columns,
         widths: rows.widths,
     });
 
@@ -255,8 +259,15 @@ export const summary = <I, O, T>({
                 _ => _.result,
             ).pipe(P.O.isSome);
 
-            const row: string[] = [
-                colors.gray.italic(display.tags.padEnd(rows.widths.tags)),
+            const row: string[] = (
+                showTags
+                    ? [
+                          colors.gray.italic(
+                              display.tags.padEnd(rows.widths.tags),
+                          ),
+                      ]
+                    : []
+            ).concat([
                 _colorLabel(
                     testResult.label,
                     !display.hasPrevious,
@@ -280,7 +291,7 @@ export const summary = <I, O, T>({
                             ),
                     }),
                 ),
-            ];
+            ]);
 
             const prev = i > 0 ? xs[i - 1] : undefined;
             if (prev?.testResult.id !== testResult.id) {

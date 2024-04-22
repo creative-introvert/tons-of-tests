@@ -1,5 +1,11 @@
 # @creative-introvert/prediction-testing
 
+## 0.0.7
+
+### Patch Changes
+
+- Feat: Allow toggling tags.
+
 ## 0.0.6
 
 ### Patch Changes

@@ -15,6 +15,7 @@ void CLI.run({
             {input: 4, expected: 5},
         ],
     },
+    showTags: false,
     testSuiteName: 'simple',
     // Currently, test results are written to the file-system.
     // This will be replaced by an SQLite backend soon™.
