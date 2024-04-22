@@ -15,7 +15,7 @@
 
 ## Before Getting Started
 
-Before looking at code examples, some notes on the design philosohpy:
+Before looking at code examples, some notes on the design:
 
 1. Unlike tools like jest or vitest, prediction-testing's CLI does not provide a
    runtime, but is imported as a library. Check the ["Why No Runtime?" section](#why-no-runtime)
@@ -24,6 +24,14 @@ Before looking at code examples, some notes on the design philosohpy:
    [effect](https://effect.website/) (the missing standard library for
    TypeScript). At minimum, your function under test has to return an [Effect](https://effect.website/docs/guides/essentials/the-effect-type).
    If your function doesn't already do so, checkout the [Usage](#usage) below, to see how to trivially convert it.
+
+Further, a cautionary note on stability:
+
+- The library is still in alpha, and will, regularly, without warning, release
+  breaking changes.
+- A beta phase is planned, which will keep releasing breaking changes, but
+  provide guidance on migration paths, or even code-mods for automatic
+  migration.
 
 ## Usage
 

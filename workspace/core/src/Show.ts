@@ -10,7 +10,7 @@ import * as P from './prelude.js';
 import type * as Test from './Test.js';
 import {defaultIsNil, type Label} from './Classify.js';
 
-type DisplayConfig = {
+export type DisplayConfig = {
     /** @default true */
     colorize: boolean;
     /** @default ' │ ' */
@@ -178,11 +178,11 @@ export const summary = <I, O, T>({
 }: {
     testRun: Test._TestRun<I, O, T>;
     previousTestRun?: P.O.Option<Test._TestRun<I, O, T>>;
-    displayConfig?: Partial<DisplayConfig>;
-    isResultNil?: (result: O) => boolean;
-    showInput?: (input: I) => string;
-    showExpected?: (expected: T) => string;
-    showResult?: (result: O, expected: T) => string;
+    displayConfig?: Partial<DisplayConfig> | undefined;
+    isResultNil?: ((result: O) => boolean) | undefined;
+    showInput?: ((input: I) => string) | undefined;
+    showExpected?: ((expected: T) => string) | undefined;
+    showResult?: ((result: O, expected: T) => string) | undefined;
 }): string => {
     const cfg = {...DisplayConfig.default(), ...displayConfig};
 

@@ -2,6 +2,7 @@ import {isDeepStrictEqual} from 'node:util';
 
 import {Command, Options} from '@effect/cli';
 import * as PT from '@creative-introvert/prediction-testing';
+import type {DisplayConfig} from 'workspace/core/src/Show.js';
 
 import * as P from './prelude.js';
 
@@ -10,6 +11,11 @@ export type Config<I = unknown, O = unknown, T = unknown> = {
     dirPath: string;
     filePostfix: string;
     testSuiteName: string;
+    displayConfig?: Partial<DisplayConfig> | undefined;
+    showInput?: undefined | ((input: I) => string);
+    showExpected?: undefined | ((expected: T) => string);
+    showResult?: undefined | ((result: O, expected: T) => string);
+    isResultNil?: undefined | ((result: O) => boolean);
 };
 
 export const Config = P.Context.GenericTag<Config>('Config');
@@ -53,7 +59,14 @@ const readPreviousTestRun = P.E.gen(function* (_) {
 
 const summarize = Command.make('summarize', {labels}, ({labels}) =>
     P.E.gen(function* (_) {
-        const {testSuite} = yield* _(Config);
+        const {
+            testSuite,
+            isResultNil,
+            showInput,
+            showExpected,
+            showResult,
+            displayConfig,
+        } = yield* _(Config);
 
         const filterLabel = createFilterLabel(labels);
         const previousTestRun = yield* _(readPreviousTestRun);
@@ -72,7 +85,15 @@ const summarize = Command.make('summarize', {labels}, ({labels}) =>
         yield* _(
             P.Console.log(
                 [
-                    PT.Show.summary({testRun, previousTestRun}),
+                    PT.Show.summary({
+                        testRun,
+                        previousTestRun,
+                        isResultNil,
+                        showInput,
+                        showExpected,
+                        showResult,
+                        displayConfig,
+                    }),
                     '',
                     PT.Show.stats({testRun}),
                 ].join('\n'),
@@ -89,7 +110,14 @@ const ci = Options.boolean('ci').pipe(
 
 const diff = Command.make('diff', {ci}, ({ci}) =>
     P.E.gen(function* (_) {
-        const {testSuite} = yield* _(Config);
+        const {
+            testSuite,
+            isResultNil,
+            showInput,
+            showExpected,
+            showResult,
+            displayConfig,
+        } = yield* _(Config);
 
         const previousTestRun = yield* _(readPreviousTestRun);
 
@@ -122,7 +150,15 @@ const diff = Command.make('diff', {ci}, ({ci}) =>
         yield* _(
             P.Console.log(
                 [
-                    PT.Show.summary({testRun, previousTestRun}),
+                    PT.Show.summary({
+                        testRun,
+                        previousTestRun,
+                        isResultNil,
+                        showInput,
+                        showExpected,
+                        showResult,
+                        displayConfig,
+                    }),
                     '',
                     PT.Show.diff({
                         testRun,
@@ -167,7 +203,7 @@ const cli = Command.run(predictionTesting, {
 
 export const run = <I = unknown, O = unknown, T = unknown>(
     config: Config<I, O, T>,
-) =>
+): void =>
     P.E.suspend(() => cli(process.argv)).pipe(
         P.E.provide(
             P.NodeContext.layer.pipe(
