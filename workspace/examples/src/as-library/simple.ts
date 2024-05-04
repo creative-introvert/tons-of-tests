@@ -1,15 +1,54 @@
 import * as PT from '@creative-introvert/prediction-testing';
-import {Effect} from 'effect';
+import {Effect, Option} from 'effect';
 
-const testRun = await PT.runAll({
-    testCases: [
-        {input: 0, expected: 0},
-        {input: 1, expected: 2},
-        {input: 2, expected: 3},
-        {input: 3, expected: 4},
-        {input: 4, expected: 5},
-    ],
-    program: input => Effect.sync(() => input * 2),
+type TestCase = PT.Test.TestCase<
+    {BRAND: string; MODEL?: number; MACHINE_TYPE?: string},
+    {BRAND: string; MODEL?: number}
+>;
+
+const testCases: TestCase[] = [
+    {input: {BRAND: 'Claas'}, expected: {BRAND: 'Claas'}},
+    {input: {BRAND: 'John Deere'}, expected: {BRAND: 'John Deere'}},
+    {
+        input: {BRAND: 'John Deere', MODEL: 8100},
+        expected: {BRAND: 'John Deere', MODEL: 8300},
+    },
+    {
+        input: {
+            BRAND: 'John Deere',
+            MODEL: 8400,
+            MACHINE_TYPE: 'tractor',
+        },
+        expected: {
+            BRAND: 'John Deere',
+            MODEL: 8400,
+        },
+    },
+];
+
+const testRun1 = await PT.Test.runAll({
+    testCases,
+    program: input => Effect.sync(() => input),
 });
 
-console.log(PT.Show.summary({testRun}));
+const testRun2 = await PT.Test.runAll({
+    testCases,
+    program: input =>
+        Effect.sync(() => ({...input, MODEL: input?.MODEL ?? 0 + 100})),
+});
+
+console.log(
+    PT.Show.summarize({
+        testRun: testRun1,
+        previousTestRun: Option.some(testRun2),
+    }),
+);
+
+console.log(PT.Show.stats({testRun: testRun1}));
+
+const diff = PT.Test.diff({
+    testRun: testRun1,
+    previousTestRun: Option.some(testRun2),
+});
+
+console.log(PT.Show.diff({diff}));

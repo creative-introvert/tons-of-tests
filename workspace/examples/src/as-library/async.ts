@@ -9,7 +9,7 @@ const program = (input: Input) =>
         Effect.delay(Duration.millis(500)),
     );
 
-const testCases: PT.TestCase<Input, Result>[] = [
+const testCases: PT.Test.TestCase<Input, Result>[] = [
     {input: 0, expected: 0},
     {input: 1, expected: 1},
     {input: 2, expected: 2},
@@ -19,7 +19,7 @@ const testCases: PT.TestCase<Input, Result>[] = [
 
 console.time('async');
 
-await PT.testAll({
+await PT.Test.all({
     testCases,
     program,
 }).pipe(
@@ -27,8 +27,8 @@ await PT.testAll({
         console.timeLog('async', 'got a result');
         return Effect.void;
     }),
-    PT.runFoldEffect,
-    Effect.tap(testRun => Console.log(PT.Show.summary({testRun}))),
+    PT.Test.runFoldEffect,
+    Effect.tap(testRun => Console.log(PT.Show.summarize({testRun}))),
     Effect.runPromise,
 );
 
