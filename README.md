@@ -271,8 +271,3 @@ come with its own limitations.
 Providing `prediction-testing` as a pure library is not as satisfying and
 convenient as a dedicated binary, but is both simpler, and more easily
 customizable.
-
-## TODO
-
-- sqlite backend
-- Basic performance measurements.

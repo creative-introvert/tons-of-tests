@@ -6,15 +6,14 @@ import * as PT from '@creative-introvert/prediction-testing';
 import * as P from './prelude.js';
 
 export type Config<I = unknown, O = unknown, T = unknown> = {
-    testSuite: PT.TestSuite<I, O, T>;
+    testSuite: PT.Test.TestSuite<I, O, T>;
     dirPath: string;
     filePostfix: string;
     testSuiteName: string;
-    displayConfig?: Partial<PT.Show.DisplayConfig> | undefined;
+    displayConfig?: Partial<PT.DisplayConfig.DisplayConfig> | undefined;
     showInput?: undefined | ((input: I) => string);
     showExpected?: undefined | ((expected: T) => string);
     showResult?: undefined | ((result: O, expected: T) => string);
-    showTags?: undefined | boolean;
     isResultNil?: undefined | ((result: O) => boolean);
 };
 
@@ -39,26 +38,24 @@ const labels = Options.text('labels').pipe(
 
 const createFilterLabel =
     (maybeLables: P.O.Option<readonly PT.Classify.Label[]>) =>
-    (tr: PT.TestResult<unknown, unknown, unknown>) =>
+    (tr: PT.Test.TestResult<unknown, unknown, unknown>) =>
         P.O.match(maybeLables, {
             onNone: () => true,
             onSome: labels => labels.includes(tr.label),
         });
 
-const TestRunSchema = P.Schema.parseJson(PT.TestRunSchema);
+const TestRunSchema = P.Schema.parseJson(PT.Test.TestRunSchema);
 
-const readPreviousTestRun = P.E.gen(function* (_) {
-    const {testSuiteName, dirPath, filePostfix} = yield* _(Config);
-    const fs = yield* _(P.FS.FileSystem);
-    return yield* _(
-        fs.readFileString(`${dirPath}/${testSuiteName}.${filePostfix}.json`),
-        P.E.flatMap(P.Schema.decodeUnknown(TestRunSchema)),
-        P.E.option,
-    );
+const readPreviousTestRun = P.E.gen(function* () {
+    const {testSuiteName, dirPath, filePostfix} = yield* Config;
+    const fs = yield* P.FS.FileSystem;
+    return yield* fs
+        .readFileString(`${dirPath}/${testSuiteName}.${filePostfix}.json`)
+        .pipe(P.E.flatMap(P.Schema.decodeUnknown(TestRunSchema)), P.E.option);
 });
 
 const summarize = Command.make('summarize', {labels}, ({labels}) =>
-    P.E.gen(function* (_) {
+    P.E.gen(function* () {
         const {
             testSuite,
             isResultNil,
@@ -66,40 +63,34 @@ const summarize = Command.make('summarize', {labels}, ({labels}) =>
             showExpected,
             showResult,
             displayConfig,
-            showTags,
-        } = yield* _(Config);
+        } = yield* Config;
 
         const filterLabel = createFilterLabel(labels);
-        const previousTestRun = yield* _(readPreviousTestRun);
-        const testRun = yield* _(
-            PT.testAll(testSuite).pipe(
-                P.Stream.filter(filterLabel),
-                PT.runFoldEffect,
-            ),
+        const previousTestRun = yield* readPreviousTestRun;
+        const testRun = yield* PT.Test.all(testSuite).pipe(
+            P.Stream.filter(filterLabel),
+            PT.Test.runFoldEffect,
         );
 
         if (testRun.testResultIds.length === 0) {
-            yield* _(P.Console.log('Nothing to show.'));
+            yield* P.Console.log('Nothing to show.');
             return;
         }
 
-        yield* _(
-            P.Console.log(
-                [
-                    PT.Show.summary({
-                        testRun,
-                        previousTestRun,
-                        isResultNil,
-                        showInput,
-                        showExpected,
-                        showResult,
-                        displayConfig,
-                        showTags,
-                    }),
-                    '',
-                    PT.Show.stats({testRun}),
-                ].join('\n'),
-            ),
+        yield* P.Console.log(
+            [
+                PT.Show.summarize({
+                    testRun,
+                    previousTestRun,
+                    // isResultNil,
+                    // showInput,
+                    // showExpected,
+                    // showResult,
+                    displayConfig,
+                }),
+                '',
+                PT.Show.stats({testRun}),
+            ].join('\n'),
         );
     }),
 );
@@ -111,7 +102,7 @@ const ci = Options.boolean('ci').pipe(
 );
 
 const diff = Command.make('diff', {ci}, ({ci}) =>
-    P.E.gen(function* (_) {
+    P.E.gen(function* () {
         const {
             testSuite,
             isResultNil,
@@ -119,79 +110,65 @@ const diff = Command.make('diff', {ci}, ({ci}) =>
             showExpected,
             showResult,
             displayConfig,
-            showTags,
-        } = yield* _(Config);
+        } = yield* Config;
 
-        const previousTestRun = yield* _(readPreviousTestRun);
+        const previousTestRun = yield* readPreviousTestRun;
 
-        const testRun = yield* _(
-            PT.testAll(testSuite).pipe(
-                P.Stream.filter(next =>
-                    P.pipe(
-                        P.O.flatMap(previousTestRun, prevTestRun =>
-                            P.O.fromNullable(
-                                prevTestRun.testResultsById[next.id],
-                            ),
-                        ),
-                        P.O.map(
-                            prev =>
-                                prev.label !== next.label ||
-                                !isDeepStrictEqual(prev.result, next.result),
-                        ),
-                        P.O.getOrElse(() => true),
+        const testRun = yield* PT.Test.all(testSuite).pipe(
+            P.Stream.filter(next =>
+                P.pipe(
+                    P.O.flatMap(previousTestRun, prevTestRun =>
+                        P.O.fromNullable(prevTestRun.testResultsById[next.id]),
                     ),
+                    P.O.map(
+                        prev =>
+                            prev.label !== next.label ||
+                            !isDeepStrictEqual(prev.result, next.result),
+                    ),
+                    P.O.getOrElse(() => true),
                 ),
-                PT.runFoldEffect,
             ),
+            PT.Test.runFoldEffect,
         );
 
         if (testRun.testResultIds.length === 0) {
-            yield* _(P.Console.log('Nothing to show.'));
+            yield* P.Console.log('Nothing to show.');
             return;
         }
 
-        yield* _(
-            P.Console.log(
-                [
-                    PT.Show.summary({
-                        testRun,
-                        previousTestRun,
-                        isResultNil,
-                        showInput,
-                        showExpected,
-                        showResult,
-                        displayConfig,
-                        showTags,
-                    }),
-                    '',
-                    PT.Show.diff({
-                        testRun,
-                        diff: PT.diff({testRun, previousTestRun}),
-                    }),
-                ].join('\n'),
-            ),
+        yield* P.Console.log(
+            [
+                PT.Show.summarize({
+                    testRun,
+                    previousTestRun,
+                    displayConfig,
+                }),
+                '',
+                PT.Show.diff({
+                    diff: PT.Test.diff({testRun, previousTestRun}),
+                }),
+            ].join('\n'),
         );
         if (ci) {
-            yield* _(P.E.die('Non-empty diff.'));
+            yield* P.E.die('Non-empty diff.');
         }
     }),
 );
 
 // FIXME: Either sqlite backend, csv, or use line-delimited JSON.
 const write = Command.make('write', {}, () =>
-    P.E.gen(function* (_) {
-        const {testSuite, dirPath, testSuiteName, filePostfix} =
-            yield* _(Config);
-        const fs = yield* _(P.FS.FileSystem);
+    P.E.gen(function* () {
+        const {testSuite, dirPath, testSuiteName, filePostfix} = yield* Config;
+        const fs = yield* P.FS.FileSystem;
 
-        yield* _(fs.makeDirectory(dirPath, {recursive: true}));
+        yield* fs.makeDirectory(dirPath, {recursive: true});
 
-        const testRun = yield* _(PT.testAll(testSuite).pipe(PT.runFoldEffect));
-        const filePath = `${dirPath}/${testSuiteName}.${filePostfix}.json`;
-        yield* _(
-            fs.writeFileString(filePath, JSON.stringify(testRun, null, 2)),
+        const testRun = yield* PT.Test.all(testSuite).pipe(
+            PT.Test.runFoldEffect,
         );
-        yield* _(P.Console.log(`Wrote to "${filePath}"`));
+        const filePath = `${dirPath}/${testSuiteName}.${filePostfix}.json`;
+        yield* fs.writeFileString(filePath, JSON.stringify(testRun, null, 2));
+        yield* P.Console.log(`Wrote to "${filePath}"`);
     }),
 );
 
