@@ -36,8 +36,8 @@
     "incremental": true,
     "removeComments": false,
     "paths": {
-      "@creative-introvert/prediction-testing": ["./workspace/core/src/index.js"],
-      "@creative-introvert/prediction-testing-cli": ["./workspace/cli/src/index.js"]
+      "@creative-introvert/prediction-testing": ["./workspace/prediction-testing/src/index.js"],
+      "@creative-introvert/prediction-testing-cli": ["./workspace/prediction-testing-cli/src/index.js"]
     }
   },
   "include": []
