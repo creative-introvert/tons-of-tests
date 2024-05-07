@@ -9,9 +9,9 @@ import {
     showRow,
     showTitle,
 } from './common.js';
-import type {TestRun} from './Test.js';
 import {makeDefault} from './DisplayConfig.js';
 import type {StatsColumn, StatsColumnNames, StatsContext} from '../Show.js';
+import type {TestRunResults} from '../Test.js';
 
 const columns: StatsColumn[] = [
     {
@@ -54,12 +54,12 @@ const columns: StatsColumn[] = [
     },
 ];
 
-export const stats = <I, O, T>({
+export const showStats = <I, O, T>({
     testRun,
     displayConfig,
     selectColumns = ['TP', 'TN', 'FP', 'FN', 'precision', 'recall'],
 }: {
-    testRun: Pick<TestRun<I, O, T>, 'stats'>;
+    testRun: Pick<TestRunResults<I, O, T>, 'stats'>;
     displayConfig?: Partial<DisplayConfig>;
     selectColumns?: StatsColumnNames[];
 }): string => {

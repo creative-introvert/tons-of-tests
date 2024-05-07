@@ -1,23 +1,36 @@
+import type * as PT from '@creative-introvert/prediction-testing';
 import * as CLI from '@creative-introvert/prediction-testing-cli';
 import {Effect} from 'effect';
 
-const myFunction = (input: number) => Promise.resolve(input * 2);
+type TestCase = PT.Test.TestCase<unknown, {BRAND: string; MODEL?: number}>;
 
-void CLI.run({
-    testSuite: {
-        // Convert myFunction to Effect-returning.
-        program: (n: number) => Effect.promise(() => myFunction(n)),
-        testCases: [
-            {input: 0, expected: 0},
-            {input: 1, expected: 2},
-            {input: 2, expected: 3},
-            {input: 3, expected: 4},
-            {input: 4, expected: 5},
-        ],
+const testCases: TestCase[] = [
+    {input: null, expected: {BRAND: 'Claas'}},
+    {input: {BRAND: 'Claas'}, expected: {BRAND: 'Claas'}},
+    {input: {BRAND: 'John Deere'}, expected: {BRAND: 'John Deere'}},
+    {
+        input: {BRAND: 'John Deere', MODEL: 8100},
+        expected: {BRAND: 'John Deere', MODEL: 8300},
     },
-    testSuiteName: 'simple',
-    // Currently, test results are written to the file-system.
-    // This will be replaced by an SQLite backend soon™.
-    dirPath: '.metrics',
-    filePostfix: 'ptest',
+    {
+        input: {
+            BRAND: 'John Deere',
+            MODEL: 8400,
+            MACHINE_TYPE: 'tractor',
+        },
+        expected: {
+            BRAND: 'John Deere',
+            MODEL: 8400,
+        },
+        tags: ['tractor', 'asdf'],
+    },
+];
+
+void CLI.main({
+    testSuite: {
+        name: 'with-cli-simple',
+        program: a => Effect.sync(() => a),
+        testCases,
+    },
+    dbPath: 'with-cli-simple.db',
 });

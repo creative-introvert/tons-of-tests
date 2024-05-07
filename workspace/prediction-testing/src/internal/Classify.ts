@@ -2,7 +2,7 @@ import * as P from '../prelude.js';
 import type {
     Classify as TClassify,
     Label as TLabel,
-    Stats as TStats,
+    Stats as _Stats,
 } from '../Classify.js';
 
 export const values = {
@@ -47,7 +47,7 @@ export const makeClassify =
         return values.FN;
     };
 
-export const StatsSchema: P.Schema.Schema<TStats> = P.Schema.Struct({
+export const StatsSchema: P.Schema.Schema<_Stats> = P.Schema.Struct({
     TP: P.Schema.Number,
     TN: P.Schema.Number,
     FP: P.Schema.Number,
@@ -56,21 +56,23 @@ export const StatsSchema: P.Schema.Schema<TStats> = P.Schema.Struct({
     recall: P.Schema.Number,
 });
 
-export const emptyStats = (): TStats => ({
-    TP: 0,
-    TN: 0,
-    FP: 0,
-    FN: 0,
-    precision: 0,
-    recall: 0,
-});
+export const Stats = {
+    empty: (): _Stats => ({
+        TP: 0,
+        TN: 0,
+        FP: 0,
+        FN: 0,
+        precision: 0,
+        recall: 0,
+    }),
+};
 
-export const precision = (m: TStats): number => {
+export const precision = (m: _Stats): number => {
     const r = m.TP / (m.TP + m.FP);
     return isNaN(r) ? 0 : r;
 };
 
-export const recall = (m: TStats): number => {
+export const recall = (m: _Stats): number => {
     const r = m.TP / (m.TP + m.FN);
     return isNaN(r) ? 0 : r;
 };

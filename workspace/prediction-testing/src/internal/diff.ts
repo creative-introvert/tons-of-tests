@@ -1,5 +1,6 @@
 import colors from 'ansi-colors';
 
+import * as P from '../prelude.js';
 import type {DisplayConfig} from '../DisplayConfig.js';
 import {
     colorNegative,
@@ -10,7 +11,7 @@ import {
     showTitle,
 } from './common.js';
 import {makeDefault} from './DisplayConfig.js';
-import type {Diff} from '../Test.js';
+import type {Diff, TestRunResults} from '../Test.js';
 import type {DiffColumn, DiffColumnNames, DiffContext} from '../Show.js';
 
 const columns: DiffColumn[] = [
@@ -58,7 +59,7 @@ const columns: DiffColumn[] = [
     },
 ];
 
-export const diff = ({
+export const showDiff = ({
     diff,
     displayConfig,
     selectColumns = ['TP', 'TN', 'FP', 'FN', 'precision', 'recall'],

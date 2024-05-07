@@ -1,5 +1,7 @@
 import {isDeepStrictEqual} from 'node:util';
+import {randomUUID} from 'node:crypto';
 
+import type {ResultLengthMismatch, SqlError} from '@effect/sql/Error';
 import {Command, Options} from '@effect/cli';
 import * as PT from '@creative-introvert/prediction-testing';
 
@@ -7,14 +9,8 @@ import * as P from './prelude.js';
 
 export type Config<I = unknown, O = unknown, T = unknown> = {
     testSuite: PT.Test.TestSuite<I, O, T>;
-    dirPath: string;
-    filePostfix: string;
-    testSuiteName: string;
+    dbPath: string;
     displayConfig?: Partial<PT.DisplayConfig.DisplayConfig> | undefined;
-    showInput?: undefined | ((input: I) => string);
-    showExpected?: undefined | ((expected: T) => string);
-    showResult?: undefined | ((result: O, expected: T) => string);
-    isResultNil?: undefined | ((result: O) => boolean);
 };
 
 export const Config = P.Context.GenericTag<Config>('Config');
@@ -36,144 +32,262 @@ const labels = Options.text('labels').pipe(
     Options.optional,
 );
 
+const shouldRun = Options.boolean('run').pipe(Options.withDefault(false));
+
 const createFilterLabel =
-    (maybeLables: P.O.Option<readonly PT.Classify.Label[]>) =>
+    (maybeLables: P.Option.Option<readonly PT.Classify.Label[]>) =>
     (tr: PT.Test.TestResult<unknown, unknown, unknown>) =>
-        P.O.match(maybeLables, {
+        P.Option.match(maybeLables, {
             onNone: () => true,
             onSome: labels => labels.includes(tr.label),
         });
 
-const TestRunSchema = P.Schema.parseJson(PT.Test.TestRunSchema);
+const getPreviousTestRunResults = <I = unknown, O = unknown, T = unknown>(
+    testSuite: PT.Test.TestSuite<I, O, T>,
+): P.Effect.Effect<
+    P.Option.Option<PT.Test.TestRunResults>,
+    SqlError | P.Result.ParseError,
+    PT.TestRepository.TestRepository
+> =>
+    P.Effect.gen(function* () {
+        const repository = yield* PT.TestRepository.TestRepository;
+        return yield* repository.getPreviousTestRun(testSuite.name).pipe(
+            P.Effect.flatMap(
+                P.Option.match({
+                    onNone: () => P.Effect.succeed(P.Option.none()),
+                    onSome: testRun =>
+                        repository
+                            .getTestResultsStream(testRun)
+                            .pipe(
+                                PT.Test.runCollectRecord(testRun),
+                                P.Effect.map(P.Option.some),
+                            ),
+                }),
+            ),
+        );
+    });
 
-const readPreviousTestRun = P.E.gen(function* () {
-    const {testSuiteName, dirPath, filePostfix} = yield* Config;
-    const fs = yield* P.FS.FileSystem;
-    return yield* fs
-        .readFileString(`${dirPath}/${testSuiteName}.${filePostfix}.json`)
-        .pipe(P.E.flatMap(P.Schema.decodeUnknown(TestRunSchema)), P.E.option);
-});
-
-const summarize = Command.make('summarize', {labels}, ({labels}) =>
-    P.E.gen(function* () {
-        const {
-            testSuite,
-            isResultNil,
-            showInput,
-            showExpected,
-            showResult,
-            displayConfig,
-        } = yield* Config;
+export const _sumarize = <I = unknown, O = unknown, T = unknown>({
+    labels,
+    shouldRun,
+    config: {testSuite, displayConfig},
+}: {
+    labels: P.Option.Option<readonly PT.Classify.Label[]>;
+    shouldRun: boolean;
+    config: Config<I, O, T>;
+}) =>
+    P.Effect.gen(function* () {
+        const repository = yield* PT.TestRepository.TestRepository;
+        yield* P.Effect.logDebug('repository');
 
         const filterLabel = createFilterLabel(labels);
-        const previousTestRun = yield* readPreviousTestRun;
-        const testRun = yield* PT.Test.all(testSuite).pipe(
-            P.Stream.filter(filterLabel),
-            PT.Test.runFoldEffect,
+
+        const currentTestRun = yield* repository.getOrCreateCurrentTestRun(
+            testSuite.name,
+        );
+        yield* P.Effect.logDebug('currentTestRun');
+
+        const hasResults = yield* repository.hasResults(currentTestRun);
+        yield* P.Effect.logDebug('hasResults');
+
+        const testRun: PT.Test.TestRunResults = yield* P.Effect.if(
+            shouldRun || !hasResults,
+            {
+                onTrue: () =>
+                    PT.Test.all(testSuite).pipe(
+                        P.Effect.flatMap(
+                            PT.Test.runCollectRecord(currentTestRun),
+                        ),
+                        P.Effect.tap(P.Effect.logDebug('from run')),
+                    ),
+                onFalse: () =>
+                    repository
+                        .getTestResultsStream(currentTestRun)
+                        .pipe(
+                            PT.Test.runCollectRecord(currentTestRun),
+                            P.Effect.tap(P.Effect.logDebug('from cache')),
+                        ),
+            },
         );
 
-        if (testRun.testResultIds.length === 0) {
-            yield* P.Console.log('Nothing to show.');
-            return;
-        }
+        yield* P.Effect.logDebug('testRun');
 
-        yield* P.Console.log(
-            [
-                PT.Show.summarize({
-                    testRun,
-                    previousTestRun,
-                    // isResultNil,
-                    // showInput,
-                    // showExpected,
-                    // showResult,
-                    displayConfig,
-                }),
-                '',
-                PT.Show.stats({testRun}),
-            ].join('\n'),
-        );
-    }),
+        const previousTestRun = yield* getPreviousTestRunResults(testSuite);
+        yield* P.Effect.logDebug('previousTestRun');
+        return {testRun, previousTestRun};
+    }).pipe(P.Effect.withLogSpan('summarize'));
+
+const summarize = Command.make(
+    'summarize',
+    {labels, shouldRun},
+    ({labels, shouldRun}) =>
+        P.Effect.gen(function* () {
+            const config = yield* Config;
+            const {testSuite, displayConfig, dbPath} = config;
+            const {testRun, previousTestRun} = yield* _sumarize({
+                labels,
+                shouldRun,
+                config,
+            });
+
+            if (testRun.testResultIds.length === 0) {
+                yield* P.Console.log('Nothing to show.');
+                return;
+            }
+
+            yield* P.Console.log(
+                [
+                    PT.Show.summarize({
+                        testRun,
+                        previousTestRun,
+                        displayConfig,
+                    }),
+                    '',
+                    PT.Show.stats({testRun}),
+                ].join('\n'),
+            );
+            console.timeLog('summarize', 'summarize');
+            console.timeEnd('summarize');
+        }),
 );
 
-const ci = Options.boolean('ci').pipe(
+const exitOnDiff = Options.boolean('exit-on-diff').pipe(
     Options.withDescription(
         'Will exit with non-zero status if there are differences',
     ),
 );
 
-const diff = Command.make('diff', {ci}, ({ci}) =>
-    P.E.gen(function* () {
-        const {
+export const _diff = <I = unknown, O = unknown, T = unknown>({
+    shouldRun,
+    config: {testSuite, displayConfig},
+}: {
+    shouldRun: boolean;
+    config: Config<I, O, T>;
+}) =>
+    P.Effect.gen(function* () {
+        const repository = yield* PT.TestRepository.TestRepository;
+
+        const currentTestRun = yield* repository.getOrCreateCurrentTestRun(
+            testSuite.name,
+        );
+        const hasResults = yield* repository.hasResults(currentTestRun);
+
+        // FIXME: provide schema to config for tests, to get I, O and T
+        const previousTestRun = (yield* getPreviousTestRunResults(
             testSuite,
-            isResultNil,
-            showInput,
-            showExpected,
-            showResult,
-            displayConfig,
-        } = yield* Config;
+        )) as P.Option.Option<PT.Test.TestRunResults<I, O, T>>;
 
-        const previousTestRun = yield* readPreviousTestRun;
+        const filter = (next: PT.Test.TestResult<I, O, T>): boolean =>
+            P.pipe(
+                P.Option.flatMap(previousTestRun, prevTestRun =>
+                    P.Option.fromNullable(
+                        prevTestRun.testResultsById[next.hash],
+                    ),
+                ),
+                P.Option.map(
+                    prev =>
+                        prev.label !== next.label ||
+                        !isDeepStrictEqual(prev.result, next.result),
+                ),
+                P.Option.getOrElse(() => true),
+            );
 
-        const testRun = yield* PT.Test.all(testSuite).pipe(
-            P.Stream.filter(next =>
-                P.pipe(
-                    P.O.flatMap(previousTestRun, prevTestRun =>
-                        P.O.fromNullable(prevTestRun.testResultsById[next.id]),
-                    ),
-                    P.O.map(
-                        prev =>
-                            prev.label !== next.label ||
-                            !isDeepStrictEqual(prev.result, next.result),
-                    ),
-                    P.O.getOrElse(() => true),
+        const getFromRun: P.Effect.Effect<
+            PT.Test.TestRunResults<I, O, T>,
+            SqlError | P.Result.ParseError | ResultLengthMismatch,
+            PT.TestRepository.TestRepository
+        > = P.pipe(
+            PT.Test.all(testSuite),
+            P.Effect.flatMap(testResults$ =>
+                P.Stream.filter(testResults$, filter).pipe(
+                    PT.Test.runCollectRecord(currentTestRun),
                 ),
             ),
-            PT.Test.runFoldEffect,
         );
+        const getFromCache: P.Effect.Effect<
+            PT.Test.TestRunResults<I, O, T>,
+            SqlError | P.Result.ParseError,
+            PT.TestRepository.TestRepository
+        > = repository
+            .getTestResultsStream(currentTestRun)
+            .pipe(
+                a =>
+                    a as P.Stream.Stream<
+                        PT.Test.TestResult<I, O, T>,
+                        SqlError | P.Result.ParseError,
+                        never
+                    >,
+                P.Stream.filter(filter),
+                PT.Test.runCollectRecord(currentTestRun),
+            );
 
-        if (testRun.testResultIds.length === 0) {
-            yield* P.Console.log('Nothing to show.');
-            return;
-        }
+        const testRun = yield* P.Effect.if(shouldRun || !hasResults, {
+            onTrue: () => getFromRun,
+            onFalse: () => getFromCache,
+        });
 
-        yield* P.Console.log(
-            [
-                PT.Show.summarize({
-                    testRun,
-                    previousTestRun,
-                    displayConfig,
-                }),
-                '',
-                PT.Show.diff({
-                    diff: PT.Test.diff({testRun, previousTestRun}),
-                }),
-            ].join('\n'),
-        );
-        if (ci) {
-            yield* P.E.die('Non-empty diff.');
-        }
-    }),
+        return {testRun, previousTestRun};
+    });
+
+const diff = Command.make(
+    'diff',
+    {exitOnDiff, shouldRun},
+    ({exitOnDiff, shouldRun}) =>
+        P.Effect.gen(function* () {
+            const config = yield* Config;
+            const {testSuite, displayConfig} = config;
+            const {testRun, previousTestRun} = yield* _diff({
+                shouldRun,
+                config,
+            });
+
+            if (testRun.testResultIds.length === 0) {
+                yield* P.Console.log('Nothing to show.');
+                return;
+            }
+
+            yield* P.Console.log(
+                [
+                    PT.Show.summarize({
+                        testRun,
+                        previousTestRun,
+                        displayConfig,
+                    }),
+                    '',
+                    PT.Show.diff({
+                        diff: PT.Test.diff({testRun, previousTestRun}),
+                    }),
+                ].join('\n'),
+            );
+            if (exitOnDiff) {
+                yield* P.Effect.die('Non-empty diff.');
+            }
+        }),
 );
 
-// FIXME: Either sqlite backend, csv, or use line-delimited JSON.
-const write = Command.make('write', {}, () =>
-    P.E.gen(function* () {
-        const {testSuite, dirPath, testSuiteName, filePostfix} = yield* Config;
-        const fs = yield* P.FS.FileSystem;
+export const _commit = <I = unknown, O = unknown, T = unknown>({
+    config: {testSuite},
+}: {
+    config: Config<I, O, T>;
+}) =>
+    P.Effect.gen(function* () {
+        const repository = yield* PT.TestRepository.TestRepository;
+        yield* repository.commitCurrentTestRun({
+            name: testSuite.name,
+            hash: randomUUID(),
+        });
+        yield* P.Console.log(`Commited test run.`);
+    });
 
-        yield* fs.makeDirectory(dirPath, {recursive: true});
-
-        const testRun = yield* PT.Test.all(testSuite).pipe(
-            PT.Test.runFoldEffect,
-        );
-        const filePath = `${dirPath}/${testSuiteName}.${filePostfix}.json`;
-        yield* fs.writeFileString(filePath, JSON.stringify(testRun, null, 2));
-        yield* P.Console.log(`Wrote to "${filePath}"`);
+const commit = Command.make('commit', {}, () =>
+    P.Effect.gen(function* () {
+        const config = yield* Config;
+        yield* _commit({config});
     }),
 );
 
 const predictionTesting = Command.make('prediction-testing').pipe(
-    Command.withSubcommands([summarize, write, diff]),
+    Command.withSubcommands([summarize, diff, commit]),
 );
 
 const cli = Command.run(predictionTesting, {
@@ -182,13 +296,17 @@ const cli = Command.run(predictionTesting, {
     version: 'v0.0.1',
 });
 
-export const run = <I = unknown, O = unknown, T = unknown>(
+export const main = <I = unknown, O = unknown, T = unknown>(
     config: Config<I, O, T>,
 ): void =>
-    P.E.suspend(() => cli(process.argv)).pipe(
-        P.E.provide(
+    P.Effect.suspend(() => cli(process.argv)).pipe(
+        P.Effect.provide(
             P.NodeContext.layer.pipe(
                 P.Layer.merge(makeConfigLayer(config as Config)),
+                P.Layer.provideMerge(PT.TestRepository.LiveLayer),
+                P.Layer.provideMerge(
+                    PT.TestRepository.makeSqliteLiveLayer(config.dbPath),
+                ),
             ),
         ),
         P.NodeRuntime.runMain,
