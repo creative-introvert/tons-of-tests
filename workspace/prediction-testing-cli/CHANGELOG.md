@@ -1,5 +1,13 @@
 # @creative-introvert/prediction-testing-cli
 
+## 0.2.1
+
+### Patch Changes
+
+- Fix: Duplicates, Incorrect Ordering.
+- Updated dependencies
+  - @creative-introvert/prediction-testing@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

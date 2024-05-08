@@ -1,5 +1,11 @@
 # @creative-introvert/prediction-testing
 
+## 0.2.1
+
+### Patch Changes
+
+- Fix: Duplicates, Incorrect Ordering.
+
 ## 0.2.0
 
 ### Minor Changes
