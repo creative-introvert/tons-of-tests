@@ -1,13 +1,11 @@
 import {createHash} from 'node:crypto';
-import {isDeepStrictEqual} from 'node:util';
-
-import type {ResultLengthMismatch, SqlError} from '@effect/sql/Error';
 
 import * as P from '../prelude.js';
 import type {Classify, Label} from '../Classify.js';
 import {
     LabelSchema,
     Stats,
+    defaultIsEqual,
     defaultIsNil,
     makeClassify,
     precision,
@@ -29,14 +27,27 @@ export const makeSha256 = <I>(input: I): string => {
 };
 
 const TestResult = {
-    make: <I, O, T>(args: Omit<TestResult<I, O, T>, 'hash'>) => ({
-        ...args,
-        hash: makeSha256(args.input),
-    }),
+    make: <I, O, T>(args: Omit<TestResult<I, O, T>, 'id' | 'hashTestCase'>) => {
+        const {label, input, result, expected} = args;
+
+        // Without `ordering`, in case the user decides to re-order test cases,
+        // which shouldn't change the identity of the test result.
+        // Without `tags`, as those are just for filtering.
+        const id = makeSha256({label, input, result, expected});
+        const hashTestCase = makeSha256({input, expected});
+
+        return {
+            ...args,
+            id,
+            hashTestCase,
+        };
+    },
 };
 
 export const TestResultSchema: P.Schema.Schema<TestResult> = P.Schema.Struct({
-    hash: P.Schema.String,
+    id: P.Schema.String,
+    hashTestCase: P.Schema.String,
+    ordering: P.Schema.Int,
     input: P.Schema.Unknown,
     result: P.Schema.Unknown,
     expected: P.Schema.Unknown,
@@ -47,8 +58,8 @@ export const TestResultSchema: P.Schema.Schema<TestResult> = P.Schema.Struct({
 const TestRunResults = {
     emptyFromTestRun: <I, O, T>(args: TestRun): TestRunResults<I, O, T> => ({
         ...args,
-        testResultsById: {},
-        testResultIds: [],
+        testResultsByTestCaseHash: {},
+        testCaseHashes: [],
         stats: Stats.empty(),
     }),
 };
@@ -57,14 +68,17 @@ export const test = <I, O, T>({
     testCase: {input, expected, tags},
     program,
     classify,
+    ordering,
 }: {
     testCase: TestCase<I, T>;
     program: Program<I, O>;
     classify: Classify<O, T>;
+    ordering: number;
 }): P.Effect.Effect<TestResult<I, O, T>> => {
     return program(input).pipe(
         P.Effect.map(result =>
             TestResult.make({
+                ordering,
                 input,
                 result,
                 expected,
@@ -78,7 +92,7 @@ export const test = <I, O, T>({
 export const all = <I, O, T>({
     testCases,
     program,
-    classify = makeClassify(isDeepStrictEqual, defaultIsNil, defaultIsNil),
+    classify = makeClassify(defaultIsEqual, defaultIsNil, defaultIsNil),
     name,
 }: TestSuite<I, O, T>) =>
     P.Effect.gen(function* () {
@@ -87,8 +101,13 @@ export const all = <I, O, T>({
             yield* repository.getOrCreateCurrentTestRun(name);
         yield* repository.clearTestRun(currentTestRun);
 
+        let ordering = 0;
         return P.Stream.fromIterable(testCases).pipe(
-            P.Stream.mapEffect(testCase => test({testCase, program, classify})),
+            P.Stream.mapEffect(
+                testCase =>
+                    test({ordering: ordering++, testCase, program, classify}),
+                {unordered: false},
+            ),
             P.Stream.tap(testResult =>
                 repository.insertTestResult(testResult, name),
             ),
@@ -105,14 +124,19 @@ export const runCollectRecord =
                 TestRunResults.emptyFromTestRun<I, O, T>(testRun),
                 (run, result) =>
                     P.Effect.gen(function* () {
-                        if (run.testResultsById[result.hash] !== undefined) {
-                            yield* P.Console.warn(
-                                `Skipped duplicate test case. hash=${result.hash}`,
+                        if (
+                            run.testResultsByTestCaseHash[
+                                result.hashTestCase
+                            ] !== undefined
+                        ) {
+                            yield* P.Effect.logWarning(
+                                `Skipped duplicate test case. hashTestCase=${result.hashTestCase}`,
                             );
                             return run;
                         } else {
-                            run.testResultsById[result.hash] = result;
-                            run.testResultIds.push(result.hash);
+                            run.testResultsByTestCaseHash[result.hashTestCase] =
+                                result;
+                            run.testCaseHashes.push(result.hashTestCase);
                             run.stats[result.label]++;
                         }
 
@@ -125,68 +149,6 @@ export const runCollectRecord =
                 return run;
             }),
         );
-
-// export type TestResultPredicate<I, O, T> = (args: {
-//     testResult: _TestResult<I, O, T>;
-//     previousTestResult: P.Option.Option<_TestResult<I, O, T>>;
-// }) => boolean;
-
-/** Filters results. Note, tests still run, but results are filtered out. */
-// export const filterTestRun: {
-//     <I, O, T>(
-//         predicates: TestResultPredicate<I, O, T>[],
-//     ): (args: {
-//         testRun: _TestRun<I, O, T>;
-//         previousTestRun: P.Option.Option<_TestRun<I, O, T>>;
-//     }) => _TestRun<I, O, T>;
-//     <I, O, T>(
-//         args: {
-//             testRun: _TestRun<I, O, T>;
-//             previousTestRun: P.Option.Option<_TestRun<I, O, T>>;
-//         },
-//         predicates: TestResultPredicate<I, O, T>[],
-//     ): _TestRun<I, O, T>;
-// } = P.dual(
-//     2,
-//     <I, O, T>(
-//         {
-//             testRun,
-//             previousTestRun,
-//         }: {
-//             testRun: _TestRun<I, O, T>;
-//             previousTestRun: P.Option.Option<_TestRun<I, O, T>>;
-//         },
-//         predicates: TestResultPredicate<I, O, T>[],
-//     ) =>
-//         P.pipe(
-//             testRun.testResultIds.reduce((m, id) => {
-//                 const testResult = testRun.testResultsById[id];
-//                 const previousTestResult = previousTestRun.pipe(
-//                     P.Option.map(_ => _.testResultsById[id]),
-//                 );
-//                 const isMatch = predicates.every(p =>
-//                     p({testResult, previousTestResult}),
-//                 );
-//
-//                 if (isMatch) {
-//                     if (m.testResultsById[id] === undefined) {
-//                         m.testResultsById[id] = {} as TestResult<I, O, T>;
-//                     }
-//                     m.testResultsById[id] = testResult;
-//                     m.testResultIds.push(id);
-//                     m.stats[testResult.label]++;
-//                 }
-//
-//                 return m;
-//             }, TestRun.empty<I, O, T>()),
-//             run => {
-//                 run.stats.precision = precision(run.stats);
-//                 run.stats.recall = recall(run.stats);
-//                 return run;
-//             },
-//         ),
-// );
-//
 
 export const diff = ({
     testRun: {stats},

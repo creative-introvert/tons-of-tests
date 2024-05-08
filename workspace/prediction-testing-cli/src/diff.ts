@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto';
 import type {ResultLengthMismatch, SqlError} from '@effect/sql/Error';
 import {Command, Options} from '@effect/cli';
 import * as PT from '@creative-introvert/prediction-testing';
+import {defaultIsEqual} from 'workspace/prediction-testing/src/internal/Classify.js';
 
 import * as P from './prelude.js';
 import {Config} from './Config.js';
@@ -17,7 +18,7 @@ const exitOnDiff = Options.boolean('exit-on-diff').pipe(
 
 export const _diff = <I = unknown, O = unknown, T = unknown>({
     shouldRun,
-    config: {testSuite, displayConfig},
+    config: {testSuite},
 }: {
     shouldRun: boolean;
     config: Config<I, O, T>;
@@ -30,59 +31,79 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
         );
         const hasResults = yield* repository.hasResults(currentTestRun);
 
-        // FIXME: provide schema to config for tests, to get I, O and T
+        // FIXME: void type cast
         const previousTestRun = (yield* getPreviousTestRunResults(
             testSuite,
         )) as P.Option.Option<PT.Test.TestRunResults<I, O, T>>;
 
-        const filter = (next: PT.Test.TestResult<I, O, T>): boolean =>
-            P.pipe(
-                P.Option.flatMap(previousTestRun, prevTestRun =>
-                    P.Option.fromNullable(
-                        prevTestRun.testResultsById[next.hash],
-                    ),
-                ),
-                P.Option.map(
-                    prev =>
-                        prev.label !== next.label ||
-                        !isDeepStrictEqual(prev.result, next.result),
-                ),
-                P.Option.getOrElse(() => true),
-            );
+        // FIXME: I can't filter before runCollectRecord, as
+        // I need to calculate the stats first. Not sure how
+        // to do this better.
+        const filterUnchanged =
+            (previous: P.Option.Option<PT.Test.TestRunResults>) =>
+            ({
+                testCaseHashes,
+                testResultsByTestCaseHash,
+                ...rest
+            }: PT.Test.TestRunResults): PT.Test.TestRunResults => {
+                const _testCaseHashes = [];
+                const _testResultsByTestCaseHash: PT.Test.TestRunResults['testResultsByTestCaseHash'] =
+                    {};
+
+                for (const hash of testCaseHashes) {
+                    const next = testResultsByTestCaseHash[hash];
+
+                    const shouldInclude = previous.pipe(
+                        P.Option.flatMap(_ =>
+                            P.Option.fromNullable(
+                                _.testResultsByTestCaseHash[hash],
+                            ),
+                        ),
+                        P.Option.map(
+                            prev =>
+                                prev.label !== next.label ||
+                                !defaultIsEqual(next.result, prev.result),
+                        ),
+                        P.Option.getOrElse(() => true),
+                    );
+
+                    if (shouldInclude) {
+                        _testCaseHashes.push(hash);
+                        _testResultsByTestCaseHash[hash] = next;
+                    }
+                }
+
+                return {
+                    testCaseHashes: _testCaseHashes,
+                    testResultsByTestCaseHash: _testResultsByTestCaseHash,
+                    ...rest,
+                };
+            };
 
         const getFromRun: P.Effect.Effect<
-            PT.Test.TestRunResults<I, O, T>,
+            PT.Test.TestRunResults,
             SqlError | P.Result.ParseError | ResultLengthMismatch,
             PT.TestRepository.TestRepository
         > = P.pipe(
             PT.Test.all(testSuite),
-            P.Effect.flatMap(testResults$ =>
-                P.Stream.filter(testResults$, filter).pipe(
-                    PT.Test.runCollectRecord(currentTestRun),
-                ),
-            ),
+            P.Effect.flatMap(PT.Test.runCollectRecord(currentTestRun)),
+            P.Effect.map(filterUnchanged(previousTestRun)),
         );
         const getFromCache: P.Effect.Effect<
-            PT.Test.TestRunResults<I, O, T>,
+            PT.Test.TestRunResults,
             SqlError | P.Result.ParseError,
             PT.TestRepository.TestRepository
         > = repository
             .getTestResultsStream(currentTestRun)
             .pipe(
-                a =>
-                    a as P.Stream.Stream<
-                        PT.Test.TestResult<I, O, T>,
-                        SqlError | P.Result.ParseError,
-                        never
-                    >,
-                P.Stream.filter(filter),
                 PT.Test.runCollectRecord(currentTestRun),
+                P.Effect.map(filterUnchanged(previousTestRun)),
             );
 
-        const testRun = yield* P.Effect.if(shouldRun || !hasResults, {
+        const testRun: PT.Test.TestRunResults = yield* P.Effect.if({
             onTrue: () => getFromRun,
             onFalse: () => getFromCache,
-        });
+        })(shouldRun || !hasResults);
 
         return {testRun, previousTestRun};
     });
@@ -99,7 +120,7 @@ export const diff = Command.make(
                 config,
             });
 
-            if (testRun.testResultIds.length === 0) {
+            if (testRun.testCaseHashes.length === 0) {
                 yield* P.Console.log('Nothing to show.');
                 return;
             }

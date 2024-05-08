@@ -2,35 +2,29 @@ import type * as PT from '@creative-introvert/prediction-testing';
 import * as CLI from '@creative-introvert/prediction-testing-cli';
 import {Effect} from 'effect';
 
-type TestCase = PT.Test.TestCase<unknown, {BRAND: string; MODEL?: number}>;
-
-const testCases: TestCase[] = [
-    {input: null, expected: {BRAND: 'Claas'}},
-    {input: {BRAND: 'Claas'}, expected: {BRAND: 'Claas'}},
-    {input: {BRAND: 'John Deere'}, expected: {BRAND: 'John Deere'}},
-    {
-        input: {BRAND: 'John Deere', MODEL: 8100},
-        expected: {BRAND: 'John Deere', MODEL: 8300},
-    },
-    {
-        input: {
-            BRAND: 'John Deere',
-            MODEL: 8400,
-            MACHINE_TYPE: 'tractor',
-        },
-        expected: {
-            BRAND: 'John Deere',
-            MODEL: 8400,
-        },
-        tags: ['tractor', 'asdf'],
-    },
-];
-
-void CLI.main({
+void CLI.run({
     testSuite: {
         name: 'with-cli-simple',
-        program: a => Effect.sync(() => a),
-        testCases,
+        testCases: [
+            {input: {BRAND: '1'}, expected: {BRAND: '1'}},
+            {input: {BRAND: '2'}, expected: {BRAND: '2'}},
+            {
+                input: {BRAND: '3', MODEL: 8100},
+                expected: {BRAND: '3', MODEL: 8100},
+            },
+            {
+                input: {
+                    BRAND: '4',
+                    MODEL: 8400,
+                    MACHINE_TYPE: 'tractor',
+                },
+                expected: {
+                    BRAND: '4',
+                    MODEL: 8400,
+                },
+            },
+        ],
+        program: ({BRAND, MODEL}) => Effect.sync(() => ({MODEL, BRAND})),
     },
     dbPath: 'with-cli-simple.db',
 });

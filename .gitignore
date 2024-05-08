@@ -24,4 +24,4 @@ dist
 .rollup.cache
 .metrics
 
-*.db
+*.db*

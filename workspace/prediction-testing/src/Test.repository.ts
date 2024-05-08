@@ -7,7 +7,9 @@ import type {Label} from './Classify.js';
 import type {TestResult} from './Test.js';
 
 export type TestResultRead = {
-    hash: string;
+    id: string;
+    hashTestCase: string;
+    ordering: number;
     label: Label;
     input: string;
     result: string;

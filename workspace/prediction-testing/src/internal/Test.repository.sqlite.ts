@@ -1,5 +1,6 @@
 import * as Sql from '@effect/sql';
 import * as Sqlite from '@effect/sql-sqlite-node';
+import type {Fragment, Primitive} from '@effect/sql/Statement';
 
 import * as P from '../prelude.js';
 import type {
@@ -17,9 +18,11 @@ const tables = {
     testRunResults: 'test-run-results',
 } as const;
 
-const TestResultSchema: P.Schema.Schema<TestResult, TestResultRead> =
+const TestResultWriteSchema: P.Schema.Schema<TestResult, TestResultRead> =
     P.Schema.Struct({
-        hash: P.Schema.String,
+        id: P.Schema.String,
+        hashTestCase: P.Schema.String,
+        ordering: P.Schema.Int,
         input: P.Schema.parseJson(P.Schema.Unknown),
         result: P.Schema.parseJson(P.Schema.Unknown),
         expected: P.Schema.parseJson(P.Schema.Unknown),
@@ -27,7 +30,7 @@ const TestResultSchema: P.Schema.Schema<TestResult, TestResultRead> =
         tags: split(','),
     });
 
-const TestResultsSchema = TestResultSchema.pipe(P.Schema.Array);
+const TestResultsSchema = TestResultWriteSchema.pipe(P.Schema.Array);
 
 const TestRunReadSchema: P.Schema.Schema<TestRun> = P.Schema.Struct({
     id: P.Schema.Int,
@@ -62,7 +65,9 @@ const makeTestRepository = P.Effect.gen(function* () {
 
     yield* sql`
         CREATE TABLE IF NOT EXISTS ${sql(tables.testResults)}(
-            hash TEXT PRIMARY KEY,
+            id TEXT PRIMARY KEY,
+            hashTestCase TEXT NOT NULL,
+            ordering INTEGER NOT NULL,
             input TEXT,
             result TEXT,
             expected TEXT,
@@ -76,29 +81,23 @@ const makeTestRepository = P.Effect.gen(function* () {
             testRun INTEGER NOT NULL,
             testResult TEXT NOT NULL,
             FOREIGN KEY (testRun) REFERENCES ${sql(tables.testRuns)}(id),
-            FOREIGN KEY (testResult) REFERENCES ${sql(tables.testResults)}(hash),
+            FOREIGN KEY (testResult) REFERENCES ${sql(tables.testResults)}(id),
             UNIQUE (testRun, testResult)
         );
     `;
 
-    const InsertTestResult = yield* Sql.resolver.void('InsertTestResult', {
-        Request: TestResultSchema,
-        execute: request =>
-            sql`
-                INSERT INTO ${sql(tables.testResults)}
-                ${sql.insert(request)}
-                ON CONFLICT(hash) DO NOTHING;
-            `,
-    });
-
-    const insertTestResult = (
-        testResult: Parameters<typeof InsertTestResult.execute>[0],
-        name: string,
-    ) =>
+    const insertTestResult = (testResult: TestResult, name: string) =>
         P.Effect.gen(function* () {
-            yield* InsertTestResult.execute(testResult);
-            // We're only inserting into the current test run,
-            // that's why we can have the inline select here.
+            const encoded = yield* P.Schema.encode(TestResultWriteSchema)(
+                testResult,
+            );
+
+            yield* sql`
+                INSERT INTO ${sql(tables.testResults)}
+                ${sql.insert(encoded)}
+                ON CONFLICT(id) DO NOTHING;
+            `;
+
             yield* sql`
                 INSERT INTO ${sql(tables.testRunResults)}
                 VALUES (
@@ -106,7 +105,7 @@ const makeTestRepository = P.Effect.gen(function* () {
                         SELECT id FROM ${sql(tables.testRuns)}
                         WHERE hash IS NULL AND name = ${name}
                     ),
-                    ${testResult.hash}
+                    ${encoded.id}
                 )
                 ON CONFLICT(testRun, testResult) DO NOTHING;
             `;
@@ -122,9 +121,10 @@ const makeTestRepository = P.Effect.gen(function* () {
         P.Effect.gen(function* () {
             const raw = yield* sql<TestResultRead>`
                 SELECT res.* FROM ${sql(tables.testResults)} res
-                JOIN ${sql(tables.testRunResults)} runres ON res.hash = runres.testResult
+                JOIN ${sql(tables.testRunResults)} runres ON res.id = runres.testResult
                 JOIN ${sql(tables.testRuns)} runs ON runs.id = runres.testRun
-                WHERE runs.id = ${testRun.id};
+                WHERE runs.id = ${testRun.id}
+                ORDER BY ordering ASC;
             `;
             return yield* P.Schema.decode(TestResultsSchema)(raw);
         }).pipe(P.Stream.fromIterableEffect);

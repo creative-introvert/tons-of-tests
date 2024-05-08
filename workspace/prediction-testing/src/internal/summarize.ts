@@ -17,12 +17,12 @@ const columns: SummarizeColumn[] = [
     {
         name: 'index',
         label: '#',
-        make: ({i, ids}: SummarizeContext) => [`${i + 1}/${ids.length}`],
+        make: ({i, hashes}: SummarizeContext) => [`${i + 1}/${hashes.length}`],
     },
     {
         name: 'hash',
         label: 'hash',
-        make: ({i, ids}: SummarizeContext) => [ids[i].slice(0, 8)],
+        make: ({i, hashes}: SummarizeContext) => [hashes[i].slice(0, 8)],
     },
     {
         name: 'input',
@@ -37,7 +37,7 @@ const columns: SummarizeColumn[] = [
     },
     {
         name: 'label',
-        label: 'lbl',
+        label: 'label',
         make: ({testResult, previousTestResult}: SummarizeContext) => {
             const hasPrevious = P.Option.isSome(previousTestResult);
             const label = testResult.label;
@@ -76,7 +76,7 @@ const columns: SummarizeColumn[] = [
     {
         name: 'prev_result',
         label: 'previous result',
-        make: ({testResult, previousTestResult}: SummarizeContext) =>
+        make: ({previousTestResult}: SummarizeContext) =>
             previousTestResult.pipe(
                 P.Option.map(_ =>
                     JSON.stringify(_.result, null, 2)?.split('\n'),
@@ -118,28 +118,35 @@ export const showSummary = ({
     testRun: TestRunResults;
     previousTestRun?: P.Option.Option<TestRunResults>;
     displayConfig?: Partial<DisplayConfig> | undefined;
-    selectColumns?: SummarizeColumnNames[];
+    selectColumns?: P.Array.NonEmptyArray<SummarizeColumnNames>;
 }) => {
     const cfg = {...makeDefault(), ...displayConfig};
 
-    const ids = testRun.testResultIds;
-    // console.log(ids);
+    const hashes = testRun.testCaseHashes;
 
-    const _columns = columns.filter(c => selectColumns.includes(c.name));
+    const _columns = columns
+        .filter(c => selectColumns.includes(c.name))
+        .filter(
+            c =>
+                c.name !== 'prev_result_diff' ||
+                P.Option.isSome(previousTestRun),
+        );
     let columnWidths = _columns.map(m => m.label.length);
 
     const rows = [];
 
-    for (let i = 0; i < ids.length; i++) {
-        const id = ids[i];
-        const testResult = testRun.testResultsById[id];
+    for (let i = 0; i < hashes.length; i++) {
+        const hash = hashes[i];
+        const testResult = testRun.testResultsByTestCaseHash[hash];
         const previousTestResult = previousTestRun.pipe(
-            P.Option.flatMap(_ => P.Record.get(_.testResultsById, id)),
+            P.Option.flatMap(_ =>
+                P.Record.get(_.testResultsByTestCaseHash, hash),
+            ),
         );
 
         const row: [string, string[]][] = _columns.map(({label, make}) => [
             label,
-            make({i, ids, testResult, previousTestResult}),
+            make({i, hashes: hashes, testResult, previousTestResult}),
         ]);
 
         columnWidths = columnWidths.map((w, i) =>

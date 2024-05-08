@@ -45,7 +45,7 @@ export type StatsColumn = {
 
 export type SummarizeContext = {
     i: number;
-    ids: string[];
+    hashes: string[];
     testResult: TestResult;
     previousTestResult: P.Option.Option<TestResult>;
 };

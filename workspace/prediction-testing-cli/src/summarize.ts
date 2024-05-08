@@ -62,14 +62,14 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
                         P.Effect.flatMap(
                             PT.Test.runCollectRecord(currentTestRun),
                         ),
-                        P.Effect.tap(P.Effect.logDebug('from run')),
+                        P.Effect.tap(P.Effect.log('from run')),
                     ),
                 onFalse: () =>
                     repository
                         .getTestResultsStream(currentTestRun)
                         .pipe(
                             PT.Test.runCollectRecord(currentTestRun),
-                            P.Effect.tap(P.Effect.logDebug('from cache')),
+                            P.Effect.tap(P.Effect.log('from cache')),
                         ),
             },
         );
@@ -94,7 +94,7 @@ export const summarize = Command.make(
                 config,
             });
 
-            if (testRun.testResultIds.length === 0) {
+            if (testRun.testCaseHashes.length === 0) {
                 yield* P.Console.log('Nothing to show.');
                 return;
             }

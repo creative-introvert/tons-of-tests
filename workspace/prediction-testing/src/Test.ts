@@ -19,7 +19,10 @@ export type TestCase<I, T> = {
 export type Program<I, O> = (input: I) => P.Effect.Effect<O>;
 
 export type TestResult<I = unknown, O = unknown, T = unknown> = {
-    hash: string;
+    id: string;
+    // Identifies the test case (input + expected).
+    hashTestCase: string;
+    ordering: number;
     label: Label;
     input: I;
     result: O;
@@ -28,8 +31,8 @@ export type TestResult<I = unknown, O = unknown, T = unknown> = {
 };
 
 export type TestRunResults<I = unknown, O = unknown, T = unknown> = TestRun & {
-    testResultsById: Record<string, TestResult<I, O, T>>;
-    testResultIds: string[];
+    testResultsByTestCaseHash: Record<string, TestResult<I, O, T>>;
+    testCaseHashes: string[];
     stats: Stats;
 };
 
