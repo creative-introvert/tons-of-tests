@@ -10,74 +10,66 @@ import {
     showTitle,
 } from './common.js';
 import {makeDefault} from './DisplayConfig.js';
-import type {Diff} from '../Test.js';
-import type {DiffColumn, DiffColumnNames, DiffContext} from '../Show.js';
+import type {StatsColumn, StatsColumnNames, StatsContext} from '../Show.js';
+import type {TestRunResults} from '../Test.js';
 
-const columns: DiffColumn[] = [
+const columns: StatsColumn[] = [
     {
         name: 'TP',
         label: 'TP',
-        make: ({diff}: DiffContext) => [
-            colorPositive(diff.TP)(diff.TP.toString()),
+        make: ({stats}: StatsContext) => [
+            colorPositive(stats.TP)(stats.TP.toString()),
         ],
     },
     {
         name: 'TN',
         label: 'TN',
-        make: ({diff}: DiffContext) => [
-            colorPositive(diff.TN)(diff.TN.toString()),
+        make: ({stats}: StatsContext) => [
+            colorPositive(stats.TN)(stats.TN.toString()),
         ],
     },
     {
         name: 'FP',
         label: 'FP',
-        make: ({diff}: DiffContext) => [
-            colorNegative(diff.FP)(diff.FP.toString()),
+        make: ({stats}: StatsContext) => [
+            colorNegative(stats.FP)(stats.FP.toString()),
         ],
     },
     {
         name: 'FN',
         label: 'FN',
-        make: ({diff}: DiffContext) => [
-            colorNegative(diff.FN)(diff.FN.toString()),
+        make: ({stats}: StatsContext) => [
+            colorNegative(stats.FN)(stats.FN.toString()),
         ],
     },
     {
         name: 'precision',
         label: 'precision',
-        make: ({diff}: DiffContext) => [
-            colorPositive(diff.precision)(diff.precision.toFixed(2)),
-        ],
+        make: ({stats}: StatsContext) => [stats.precision.toFixed(2)],
     },
     {
         name: 'recall',
         label: 'recall',
-        make: ({diff}: DiffContext) => [
-            colorPositive(diff.recall)(diff.recall.toFixed(2)),
-        ],
+        make: ({stats}: StatsContext) => [stats.recall.toFixed(2)],
     },
 ];
 
-export const diff = ({
-    diff,
+export const showStats = <I, O, T>({
+    testRun,
     displayConfig,
     selectColumns = ['TP', 'TN', 'FP', 'FN', 'precision', 'recall'],
 }: {
-    diff: Diff;
+    testRun: Pick<TestRunResults<I, O, T>, 'stats'>;
     displayConfig?: Partial<DisplayConfig>;
-    selectColumns?: DiffColumnNames[];
+    selectColumns?: StatsColumnNames[];
 }): string => {
     const cfg = {...makeDefault(), ...displayConfig};
-    const _columns = columns.filter(c => selectColumns.includes(c.name));
 
-    const display = {
-        precision: diff.precision.toFixed(2),
-        recall: diff.recall.toFixed(2),
-    };
+    const _columns = columns.filter(c => selectColumns.includes(c.name));
 
     const row: [string, string[]][] = _columns.map(({label, make}) => [
         label,
-        make({diff}),
+        make({stats: testRun.stats}),
     ]);
 
     const columnWidths = _columns.map((m, i) =>
@@ -89,12 +81,13 @@ export const diff = ({
 
     const header = showHeader(cfg, columnWidths, _columns);
     let s = '';
-    s += showTitle(cfg, columnWidths, colors.bold('DIFF'));
+    s += showTitle(cfg, columnWidths, colors.bold('STATS'));
     s += header;
     s += showBorder(cfg, columnWidths, 'middle');
 
     const height = row[0][1].length;
     s += showRow(cfg, row, columnWidths, height);
+
     s += showBorder(cfg, columnWidths, 'middle');
 
     s += header;

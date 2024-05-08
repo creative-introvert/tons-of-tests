@@ -1,11 +1,13 @@
 import type {Classify, Label, Stats} from './Classify.js';
 import type * as P from './prelude.js';
 import * as internal from './internal/Test.js';
+import type {TestRun} from './Test.repository.js';
 
 export type TestSuite<I = unknown, O = unknown, T = unknown> = {
     testCases: TestCase<I, T>[];
     program: Program<I, O>;
     classify?: Classify<O, T>;
+    name: string;
 };
 
 export type TestCase<I, T> = {
@@ -14,22 +16,23 @@ export type TestCase<I, T> = {
     tags?: string[];
 };
 
-export type Program<I, O> = (input: I) => P.E.Effect<O>;
-
-export type ID = string;
+export type Program<I, O> = (input: I) => P.Effect.Effect<O>;
 
 export type TestResult<I = unknown, O = unknown, T = unknown> = {
-    id: ID;
+    id: string;
+    // Identifies the test case (input + expected).
+    hashTestCase: string;
+    ordering: number;
+    label: Label;
     input: I;
     result: O;
     expected: T;
-    label: Label;
-    tags: Readonly<string[]>;
+    tags: readonly string[];
 };
 
-export type TestRun<I = unknown, O = unknown, T = unknown> = {
-    testResultsById: Record<ID, TestResult<I, O, T>>;
-    testResultIds: ID[];
+export type TestRunResults<I = unknown, O = unknown, T = unknown> = TestRun & {
+    testResultsByTestCaseHash: Record<string, TestResult<I, O, T>>;
+    testCaseHashes: string[];
     stats: Stats;
 };
 
@@ -40,11 +43,9 @@ export type Diff = Record<Label, number> & {
 
 export type TestResultPredicate<I, O, T> = (args: {
     testResult: TestResult<I, O, T>;
-    previousTestResult: P.O.Option<TestResult<I, O, T>>;
+    previousTestResult: P.Option.Option<TestResult<I, O, T>>;
 }) => boolean;
 
-export const all = internal.testAll;
-export const runAll = internal.runAll;
-export const runFoldEffect = internal.runFoldEffect;
+export const all = internal.all;
 export const diff = internal.diff;
-export const TestRunSchema = internal.TestRunSchema;
+export const runCollectRecord = internal.runCollectRecord;

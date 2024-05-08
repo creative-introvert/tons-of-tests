@@ -5,7 +5,7 @@ import * as P from '../prelude.js';
 import {formatDiff} from './format-diff.js';
 import type {DisplayConfig} from '../DisplayConfig.js';
 import {showBorder, showHeader, showRow, showTitle} from './common.js';
-import type {TestRun as _TestRun} from '../Test.js';
+import type {TestRunResults} from '../Test.js';
 import {makeDefault} from './DisplayConfig.js';
 import type {
     SummarizeColumn,
@@ -17,38 +17,30 @@ const columns: SummarizeColumn[] = [
     {
         name: 'index',
         label: '#',
-        make: ({i, ids}: SummarizeContext) => [`${i + 1}/${ids.length}`],
+        make: ({i, hashes}: SummarizeContext) => [`${i + 1}/${hashes.length}`],
     },
     {
         name: 'hash',
         label: 'hash',
-        make: ({i, ids}: SummarizeContext) => [ids[i].slice(0, 8)],
+        make: ({i, hashes}: SummarizeContext) => [hashes[i].slice(0, 8)],
     },
     {
         name: 'input',
         label: 'input',
-        make: ({i, ids, testRun}: SummarizeContext) =>
-            JSON.stringify(
-                testRun.testResultsById[ids[i]].input,
-                null,
-                2,
-            ).split('\n'),
+        make: ({testResult}: SummarizeContext) =>
+            JSON.stringify(testResult.input, null, 2).split('\n'),
     },
     {
         name: 'tags',
         label: 'tags',
-        make: ({i, ids, testRun}: SummarizeContext) =>
-            testRun.testResultsById[ids[i]].tags as string[],
+        make: ({testResult}: SummarizeContext) => testResult.tags as string[],
     },
     {
         name: 'label',
-        label: 'lbl',
-        make: ({i, ids, testRun, previousTestRun}: SummarizeContext) => {
-            const hasPrevious = previousTestRun.pipe(
-                P.O.map(_ => _.testResultsById[ids[i]].result),
-                P.O.isSome,
-            );
-            const label = testRun.testResultsById[ids[i]].label;
+        label: 'label',
+        make: ({testResult, previousTestResult}: SummarizeContext) => {
+            const hasPrevious = P.Option.isSome(previousTestResult);
+            const label = testResult.label;
             const color =
                 label === 'TP' || label === 'TN'
                     ? hasPrevious
@@ -64,72 +56,54 @@ const columns: SummarizeColumn[] = [
     {
         name: 'expected',
         label: 'expected',
-        make: ({i, ids, testRun}: SummarizeContext) =>
-            JSON.stringify(
-                testRun.testResultsById[ids[i]].expected,
-                null,
-                2,
-            ).split('\n'),
+        make: ({testResult}: SummarizeContext) =>
+            JSON.stringify(testResult.expected, null, 2).split('\n'),
     },
     {
         name: 'result',
         label: 'result',
-        make: ({i, ids, testRun}: SummarizeContext) =>
-            JSON.stringify(
-                testRun.testResultsById[ids[i]].result,
-                null,
-                2,
-            ).split('\n'),
+        make: ({testResult}: SummarizeContext) =>
+            JSON.stringify(testResult.result, null, 2).split('\n'),
     },
     {
         name: 'result_diff',
         label: 'diff result',
-        make: ({i, ids, testRun}: SummarizeContext) =>
-            formatDiff(
-                jdp.diff(
-                    testRun.testResultsById[ids[i]].expected,
-                    testRun.testResultsById[ids[i]].result,
-                ),
-            )?.split('\n') || [],
+        make: ({testResult}: SummarizeContext) =>
+            formatDiff(jdp.diff(testResult.expected, testResult.result))?.split(
+                '\n',
+            ) || [],
     },
     {
         name: 'prev_result',
         label: 'previous result',
-        make: ({i, ids, testRun, previousTestRun}: SummarizeContext) =>
-            previousTestRun.pipe(
-                P.O.map(_ =>
-                    JSON.stringify(
-                        _.testResultsById[ids[i]].result,
-                        null,
-                        2,
-                    )?.split('\n'),
+        make: ({previousTestResult}: SummarizeContext) =>
+            previousTestResult.pipe(
+                P.Option.map(_ =>
+                    JSON.stringify(_.result, null, 2)?.split('\n'),
                 ),
-                P.O.getOrElse<string[]>(() => []),
+                P.Option.getOrElse<string[]>(() => []),
             ),
     },
     {
         name: 'prev_result_diff',
         label: 'diff previous result',
-        make: ({i, ids, testRun, previousTestRun}: SummarizeContext) =>
-            previousTestRun.pipe(
-                P.O.map(
+        make: ({testResult, previousTestResult}: SummarizeContext) =>
+            previousTestResult.pipe(
+                P.Option.map(
                     _ =>
                         formatDiff(
-                            jdp.diff(
-                                testRun.testResultsById[ids[i]].expected,
-                                _.testResultsById[ids[i]].result,
-                            ),
+                            jdp.diff(testResult.expected, _.result),
                         )?.split('\n') || [],
                 ),
-                P.O.getOrElse<string[]>(() => []),
+                P.Option.getOrElse<string[]>(() => []),
             ),
     },
 ];
 
-export const summarize = <I, O, T>({
+export const showSummary = ({
     testRun,
     displayConfig,
-    previousTestRun = P.O.none(),
+    previousTestRun = P.Option.none(),
     selectColumns = [
         'index',
         'hash',
@@ -141,24 +115,38 @@ export const summarize = <I, O, T>({
         'prev_result_diff',
     ],
 }: {
-    testRun: _TestRun<I, O, T>;
-    previousTestRun?: P.O.Option<_TestRun<I, O, T>>;
+    testRun: TestRunResults;
+    previousTestRun?: P.Option.Option<TestRunResults>;
     displayConfig?: Partial<DisplayConfig> | undefined;
-    selectColumns?: SummarizeColumnNames[];
+    selectColumns?: P.Array.NonEmptyArray<SummarizeColumnNames>;
 }) => {
     const cfg = {...makeDefault(), ...displayConfig};
 
-    const ids = testRun.testResultIds;
+    const hashes = testRun.testCaseHashes;
 
-    const _columns = columns.filter(c => selectColumns.includes(c.name));
+    const _columns = columns
+        .filter(c => selectColumns.includes(c.name))
+        .filter(
+            c =>
+                c.name !== 'prev_result_diff' ||
+                P.Option.isSome(previousTestRun),
+        );
     let columnWidths = _columns.map(m => m.label.length);
 
     const rows = [];
 
-    for (let i = 0; i < ids.length; i++) {
+    for (let i = 0; i < hashes.length; i++) {
+        const hash = hashes[i];
+        const testResult = testRun.testResultsByTestCaseHash[hash];
+        const previousTestResult = previousTestRun.pipe(
+            P.Option.flatMap(_ =>
+                P.Record.get(_.testResultsByTestCaseHash, hash),
+            ),
+        );
+
         const row: [string, string[]][] = _columns.map(({label, make}) => [
             label,
-            make({i, ids, testRun, previousTestRun}),
+            make({i, hashes: hashes, testResult, previousTestResult}),
         ]);
 
         columnWidths = columnWidths.map((w, i) =>

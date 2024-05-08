@@ -1,11 +1,11 @@
 import type {Stats} from './Classify.js';
-import type {Diff} from './Test.js';
-import type {TestRun} from './Test.js';
+import type {Diff, TestResult} from './Test.js';
+import type {TestRunResults} from './Test.js';
 import type * as P from './prelude.js';
 
-export {summarize} from './internal/summarize.js';
-export {diff} from './internal/diff.js';
-export {stats} from './internal/stats.js';
+export {showSummary as summarize} from './internal/summarize.js';
+export {showDiff as diff} from './internal/diff.js';
+export {showStats as stats} from './internal/stats.js';
 
 export type DiffContext = {
     diff: Diff;
@@ -45,9 +45,9 @@ export type StatsColumn = {
 
 export type SummarizeContext = {
     i: number;
-    ids: string[];
-    testRun: TestRun;
-    previousTestRun: P.O.Option<TestRun>;
+    hashes: string[];
+    testResult: TestResult;
+    previousTestResult: P.Option.Option<TestResult>;
 };
 
 export type SummarizeColumnNames =

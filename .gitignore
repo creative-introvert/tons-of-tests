@@ -23,3 +23,5 @@ dist
 .git
 .rollup.cache
 .metrics
+
+*.db*

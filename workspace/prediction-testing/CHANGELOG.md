@@ -1,5 +1,17 @@
 # @creative-introvert/prediction-testing
 
+## 0.2.1
+
+### Patch Changes
+
+- Fix: Duplicates, Incorrect Ordering.
+
+## 0.2.0
+
+### Minor Changes
+
+- Feat: SQLite backend.
+
 ## 0.1.0
 
 ### Minor Changes

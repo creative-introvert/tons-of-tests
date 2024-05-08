@@ -1,6 +1,5 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import {fileURLToPath} from 'node:url';
 
 import * as S from '@effect/schema/Schema';
 
@@ -16,11 +15,7 @@ const PackageJsonSchema = S.parseJson(
     }),
 );
 
-const getPackageJson = async () => {
-    const workspacePath = path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        '..',
-    );
+export const pack = async (workspacePath: string) => {
     const distPath = path.join(workspacePath, 'dist');
     const buildPath = path.join(workspacePath, 'build');
     const pjsonPath = path.join(workspacePath, 'package.json');
@@ -58,5 +53,3 @@ const getPackageJson = async () => {
     await fs.cp(readmePath, path.join(distPath, 'README.md'));
     console.log('copied README');
 };
-
-void getPackageJson();

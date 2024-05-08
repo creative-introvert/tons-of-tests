@@ -1,6 +1,6 @@
 {
     "name": "@creative-introvert/prediction-testing",
-    "version": "0.1.0",
+    "version": "0.2.1",
     "type": "module",
     "license": "MIT",
     "sideEffects": [],
@@ -26,6 +26,7 @@
         "build-esm": "tsc --build tsconfig.build.json",
         "build-cjs": "babel build/esm --plugins @babel/transform-export-namespace-from --plugins @babel/transform-modules-commonjs --out-dir build/cjs --source-maps",
         "build-annotate": "babel build --plugins annotate-pure-calls --out-dir build --source-maps",
+        "test": "vitest run --passWithNoTests",
         "clean": "rm -rf build dist .tsbuildinfo"
     },
     "devDependencies": {
@@ -36,14 +37,16 @@
         "@creative-introvert/eslint-config": "^0.3.2",
         "@creative-introvert/prettier-config": "^0.2.0",
         "babel-plugin-annotate-pure-calls": "^0.4.0",
-        "type-fest": "^4.17.0"
+        "type-fest": "^4.18.2"
     },
     "dependencies": {
-        "@effect/platform": "^0.51.0",
-        "@effect/platform-node": "^0.48.0",
-        "@effect/schema": "^0.66.12",
+        "@effect/platform": "^0.53.0",
+        "@effect/platform-node": "^0.49.0",
+        "@effect/schema": "^0.66.14",
+        "@effect/sql": "^0.2.2",
+        "@effect/sql-sqlite-node": "^0.2.2",
         "ansi-colors": "^4.1.3",
-        "effect": "3.1.0",
+        "effect": "3.1.2",
         "jsondiffpatch": "^0.6.0"
     }
 }

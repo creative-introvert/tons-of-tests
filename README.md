@@ -256,8 +256,8 @@ Unfortunately, this comes with a lot of complexity:
    days), jest has to figure out how transpile/compile the source. Given the
    level of, let's call it, variation in JavaScript land (Typescript, and its
    many different configurations, custom runtimes like svelte, ESM vs CommonJS,
-   etc), this is no easy feat. The amount of code required for enabling this easily
-   overtrumps the actual test runner.
+   etc), this is no easy feat. The code required for enabling this would easily
+   overshadow the actual test runner in terms of complexity.
 2. As `jest` (etc) essentially behave as a _framework_ (jest calls _your_ code)
    as opposed to a _library_ (you call jest), customization requires additional
    complexity in the framework, which now has to provide various entrypoints
@@ -268,6 +268,6 @@ that vite provides some programatic context), but I have not yet looked deeper
 into that. Though saving me from solving this problem myself, this would likely
 come with its own limitations.
 
-Providing `prediction-testing` as a pure library is not as satisfying and
-convenient as a dedicated binary, but is both simpler, and more easily
-customizable.
+Providing `prediction-testing` as a library is maybe not as satisfying and
+convenient as a dedicated binary, but is **vastly** simpler, and far more
+powerful, enabling trivial extensibility for the user.

@@ -2,8 +2,8 @@
     "extends": "../../tsconfig.base.json",
     "include": ["src"],
     "references": [
-        { "path": "../core"},
-        { "path": "../cli"}
+        { "path": "../prediction-testing" },
+        { "path": "../prediction-testing-cli" }
     ],
     "compilerOptions": {
         "types": ["node"],

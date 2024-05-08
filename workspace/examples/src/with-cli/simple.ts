@@ -1,23 +1,30 @@
+import type * as PT from '@creative-introvert/prediction-testing';
 import * as CLI from '@creative-introvert/prediction-testing-cli';
 import {Effect} from 'effect';
 
-const myFunction = (input: number) => Promise.resolve(input * 2);
-
 void CLI.run({
     testSuite: {
-        // Convert myFunction to Effect-returning.
-        program: (n: number) => Effect.promise(() => myFunction(n)),
+        name: 'with-cli-simple',
         testCases: [
-            {input: 0, expected: 0},
-            {input: 1, expected: 2},
-            {input: 2, expected: 3},
-            {input: 3, expected: 4},
-            {input: 4, expected: 5},
+            {input: {BRAND: '1'}, expected: {BRAND: '1'}},
+            {input: {BRAND: '2'}, expected: {BRAND: '2'}},
+            {
+                input: {BRAND: '3', MODEL: 8100},
+                expected: {BRAND: '3', MODEL: 8100},
+            },
+            {
+                input: {
+                    BRAND: '4',
+                    MODEL: 8400,
+                    MACHINE_TYPE: 'tractor',
+                },
+                expected: {
+                    BRAND: '4',
+                    MODEL: 8400,
+                },
+            },
         ],
+        program: ({BRAND, MODEL}) => Effect.sync(() => ({MODEL, BRAND})),
     },
-    testSuiteName: 'simple',
-    // Currently, test results are written to the file-system.
-    // This will be replaced by an SQLite backend soon™.
-    dirPath: '.metrics',
-    filePostfix: 'ptest',
+    dbPath: 'with-cli-simple.db',
 });
