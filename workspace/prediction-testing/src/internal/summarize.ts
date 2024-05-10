@@ -176,7 +176,9 @@ export const showSummary = ({
 
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        const height = row[i][1].length;
+        // We can hard-code row[0], as all rows have the same height (aka sub-rows).
+        // As a row is a tuple of [key, row,values], we can access the height by row[0][1].length
+        const height = row[0][1].length;
         s += showRow(cfg, row, columnWidths, height);
         s += showBorder(cfg, columnWidths, 'middle');
     }

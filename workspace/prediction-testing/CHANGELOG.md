@@ -1,5 +1,11 @@
 # @creative-introvert/prediction-testing
 
+## 0.2.3
+
+### Patch Changes
+
+- Fix: Incorrect row height calc.
+
 ## 0.2.2
 
 ### Patch Changes

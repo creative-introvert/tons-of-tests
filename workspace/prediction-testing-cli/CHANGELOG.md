@@ -1,5 +1,13 @@
 # @creative-introvert/prediction-testing-cli
 
+## 0.2.3
+
+### Patch Changes
+
+- Fix: Incorrect row height calc.
+- Updated dependencies
+  - @creative-introvert/prediction-testing@0.2.3
+
 ## 0.2.2
 
 ### Patch Changes
