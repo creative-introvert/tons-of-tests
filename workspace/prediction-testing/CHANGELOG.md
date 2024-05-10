@@ -1,5 +1,11 @@
 # @creative-introvert/prediction-testing
 
+## 0.2.4
+
+### Patch Changes
+
+- Feat: Vendor in jsondiffpatch.
+
 ## 0.2.3
 
 ### Patch Changes

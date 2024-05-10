@@ -1,5 +1,13 @@
 # @creative-introvert/prediction-testing-cli
 
+## 0.2.4
+
+### Patch Changes
+
+- Feat: Vendor in jsondiffpatch.
+- Updated dependencies
+  - @creative-introvert/prediction-testing@0.2.4
+
 ## 0.2.3
 
 ### Patch Changes
