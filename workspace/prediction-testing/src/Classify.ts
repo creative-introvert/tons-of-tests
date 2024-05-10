@@ -3,6 +3,7 @@ import * as internal from './internal/Classify.js';
 export type Label = 'TP' | 'TN' | 'FP' | 'FN';
 
 export const values = internal.values;
+export const defaultIsEqual = internal.defaultIsEqual;
 
 export type Classify<O, T> = (output: O, expected: T) => Label;
 

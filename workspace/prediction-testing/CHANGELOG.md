@@ -1,5 +1,11 @@
 # @creative-introvert/prediction-testing
 
+## 0.2.2
+
+### Patch Changes
+
+- Fix: Incorrect import.
+
 ## 0.2.1
 
 ### Patch Changes

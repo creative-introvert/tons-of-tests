@@ -4,7 +4,6 @@ import {randomUUID} from 'node:crypto';
 import type {ResultLengthMismatch, SqlError} from '@effect/sql/Error';
 import {Command, Options} from '@effect/cli';
 import * as PT from '@creative-introvert/prediction-testing';
-import {defaultIsEqual} from 'workspace/prediction-testing/src/internal/Classify.js';
 
 import * as P from './prelude.js';
 import {Config} from './Config.js';
@@ -62,7 +61,10 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
                         P.Option.map(
                             prev =>
                                 prev.label !== next.label ||
-                                !defaultIsEqual(next.result, prev.result),
+                                !PT.Classify.defaultIsEqual(
+                                    next.result,
+                                    prev.result,
+                                ),
                         ),
                         P.Option.getOrElse(() => true),
                     );
