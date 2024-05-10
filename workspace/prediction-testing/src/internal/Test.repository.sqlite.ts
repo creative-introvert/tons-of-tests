@@ -1,6 +1,5 @@
 import * as Sql from '@effect/sql';
 import * as Sqlite from '@effect/sql-sqlite-node';
-import type {Fragment, Primitive} from '@effect/sql/Statement';
 
 import * as P from '../prelude.js';
 import type {

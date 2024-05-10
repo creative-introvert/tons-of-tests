@@ -1,5 +1,4 @@
 import colors from 'ansi-colors';
-import * as jdp from 'jsondiffpatch';
 
 import * as P from '../prelude.js';
 import {formatDiff} from './format-diff.js';
@@ -12,6 +11,7 @@ import type {
     SummarizeColumnNames,
     SummarizeContext,
 } from '../Show.js';
+import {diff} from './lib/jsondiffpatch/index.js';
 
 const columns: SummarizeColumn[] = [
     {
@@ -69,7 +69,7 @@ const columns: SummarizeColumn[] = [
         name: 'result_diff',
         label: 'diff result',
         make: ({testResult}: SummarizeContext) =>
-            formatDiff(jdp.diff(testResult.expected, testResult.result))?.split(
+            formatDiff(diff(testResult.expected, testResult.result))?.split(
                 '\n',
             ) || [],
     },
@@ -91,9 +91,9 @@ const columns: SummarizeColumn[] = [
             previousTestResult.pipe(
                 P.Option.map(
                     _ =>
-                        formatDiff(
-                            jdp.diff(testResult.expected, _.result),
-                        )?.split('\n') || [],
+                        formatDiff(diff(testResult.expected, _.result))?.split(
+                            '\n',
+                        ) || [],
                 ),
                 P.Option.getOrElse<string[]>(() => []),
             ),

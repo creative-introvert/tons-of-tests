@@ -1,7 +1,5 @@
 import {isDeepStrictEqual} from 'node:util';
 
-import {equals, isEqual} from 'effect/Equal';
-
 import * as P from '../prelude.js';
 import type {
     Classify as TClassify,

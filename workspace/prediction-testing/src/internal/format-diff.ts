@@ -1,3 +1,11 @@
+import ansi from 'ansi-colors';
+
+import BaseFormatter from './lib/jsondiffpatch/formatters/base.js';
+import type {
+    BaseFormatterContext,
+    DeltaType,
+    NodeType,
+} from './lib/jsondiffpatch/formatters/base.js';
 import type {
     AddedDelta,
     ArrayDelta,
@@ -7,14 +15,7 @@ import type {
     MovedDelta,
     ObjectDelta,
     TextDiffDelta,
-} from 'jsondiffpatch';
-import type {
-    BaseFormatterContext,
-    DeltaType,
-    NodeType,
-} from 'jsondiffpatch/formatters/base';
-import BaseFormatter from 'jsondiffpatch/formatters/base';
-import ansi from 'ansi-colors';
+} from './lib/jsondiffpatch/index.js';
 
 const colors: {[key: string]: ansi.StyleFunction} = {
     added: ansi.yellowBright,
