@@ -1,5 +1,11 @@
 # @creative-introvert/prediction-testing-cli
 
+## 0.3.2
+
+### Patch Changes
+
+- Fix: version.
+
 ## 0.3.1
 
 ### Patch Changes
