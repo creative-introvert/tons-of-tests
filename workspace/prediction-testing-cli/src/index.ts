@@ -22,16 +22,7 @@ const PackageJsonSchema = P.Schema.parseJson(
 
 const getVersion = P.Effect.gen(function* () {
     const fs = yield* P.FS.FileSystem;
-    let dirname: string;
-    try {
-        // for cjs
-        // eslint-disable-next-line unicorn/prefer-module
-        dirname = __dirname;
-    } catch (e) {
-        // for esm
-        dirname = fileURLToPath(import.meta.url);
-    }
-
+    const dirname = fileURLToPath(import.meta.url);
     const raw = yield* fs
         .readFileString(path.join(dirname, '../package.json'), 'utf8')
         .pipe(
