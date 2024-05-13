@@ -27,6 +27,7 @@ const TestResultWriteSchema: P.Schema.Schema<TestResult, TestResultRead> =
         expected: P.Schema.parseJson(P.Schema.Unknown),
         label: LabelSchema,
         tags: split(','),
+        timeMillis: P.Schema.Number,
     });
 
 const TestResultsSchema = TestResultWriteSchema.pipe(P.Schema.Array);
@@ -71,7 +72,8 @@ const makeTestRepository = P.Effect.gen(function* () {
             result TEXT,
             expected TEXT,
             label TEXT NOT NULL,
-            tags TEXT NOT NULL
+            tags TEXT NOT NULL,
+            timeMillis INTEGER NOT NULL
         );
     `;
 

@@ -59,13 +59,17 @@ export const makeClassify =
         return values.FN;
     };
 
-export const StatsSchema: P.Schema.Schema<_Stats> = P.Schema.Struct({
+export const StatsSchema = P.Schema.Struct({
     TP: P.Schema.Number,
     TN: P.Schema.Number,
     FP: P.Schema.Number,
     FN: P.Schema.Number,
     precision: P.Schema.Number,
     recall: P.Schema.Number,
+    timeMean: P.Schema.Number.pipe(P.Schema.Option),
+    timeMedian: P.Schema.Number.pipe(P.Schema.Option),
+    timeMin: P.Schema.Number.pipe(P.Schema.Option),
+    timeMax: P.Schema.Number.pipe(P.Schema.Option),
 });
 
 export const Stats = {
@@ -76,6 +80,10 @@ export const Stats = {
         FN: 0,
         precision: 0,
         recall: 0,
+        timeMean: P.Option.none(),
+        timeMedian: P.Option.none(),
+        timeMin: P.Option.none(),
+        timeMax: P.Option.none(),
     }),
 };
 
@@ -103,15 +111,18 @@ export const mean = (xs: number[]): number | undefined => {
     return xs.reduce((a, b) => a + b, 0) / xs.length;
 };
 
-export const median = (xs: number[]): number | undefined => {
+export const median = (xs: number[]): P.Option.Option<number> => {
     if (xs.length === 0) {
-        return undefined;
+        return P.Option.none();
     }
 
     const sorted = xs.slice().sort((a, b) => a - b);
     const index = Math.floor(sorted.length / 2);
 
-    return sorted.length % 2 === 0
-        ? (sorted[index - 1] + sorted[index]) / 2
-        : sorted[index];
+    const r =
+        sorted.length % 2 === 0
+            ? (sorted[index - 1] + sorted[index]) / 2
+            : sorted[index];
+
+    return P.Option.fromNullable(r);
 };

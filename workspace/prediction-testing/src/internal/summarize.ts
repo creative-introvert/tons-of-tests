@@ -25,6 +25,13 @@ const columns: SummarizeColumn[] = [
         make: ({i, hashes}: SummarizeContext) => [hashes[i].slice(0, 8)],
     },
     {
+        name: 'timeMillis',
+        label: 'ms',
+        make: ({testResult}: SummarizeContext) => [
+            `${testResult.timeMillis.toFixed(2)}ms`,
+        ],
+    },
+    {
         name: 'input',
         label: 'input',
         make: ({testResult}: SummarizeContext) =>
@@ -107,6 +114,7 @@ export const showSummary = ({
     selectColumns = [
         'index',
         'hash',
+        'timeMillis',
         'input',
         'tags',
         'label',

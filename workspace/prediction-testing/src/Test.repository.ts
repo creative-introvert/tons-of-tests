@@ -15,6 +15,7 @@ export type TestResultRead = {
     result: string;
     expected: string;
     tags: string;
+    timeMillis: number;
 };
 
 export type TestRun = {

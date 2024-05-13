@@ -1,5 +1,6 @@
 import colors from 'ansi-colors';
 
+import * as P from '../prelude.js';
 import type {DisplayConfig} from '../DisplayConfig.js';
 import {
     colorNegative,
@@ -52,12 +53,69 @@ const columns: StatsColumn[] = [
         label: 'recall',
         make: ({stats}: StatsContext) => [stats.recall.toFixed(2)],
     },
+    {
+        name: 'timeMin',
+        label: 'timeMin',
+        make: ({stats}: StatsContext) => [
+            stats.timeMin.pipe(
+                P.Option.match({
+                    onSome: n => `${n.toFixed(2)}ms`,
+                    onNone: () => `-`,
+                }),
+            ),
+        ],
+    },
+    {
+        name: 'timeMax',
+        label: 'timeMax',
+        make: ({stats}: StatsContext) => [
+            stats.timeMax.pipe(
+                P.Option.match({
+                    onSome: n => `${n.toFixed(2)}ms`,
+                    onNone: () => `-`,
+                }),
+            ),
+        ],
+    },
+    {
+        name: 'timeMean',
+        label: 'timeMean',
+        make: ({stats}: StatsContext) => [
+            stats.timeMean.pipe(
+                P.Option.match({
+                    onSome: n => `${n.toFixed(2)}ms`,
+                    onNone: () => `-`,
+                }),
+            ),
+        ],
+    },
+    {
+        name: 'timeMedian',
+        label: 'timeMedian',
+        make: ({stats}: StatsContext) => [
+            stats.timeMedian.pipe(
+                P.Option.match({
+                    onSome: n => `${n.toFixed(2)}ms`,
+                    onNone: () => `-`,
+                }),
+            ),
+        ],
+    },
 ];
 
 export const showStats = <I, O, T>({
     testRun,
     displayConfig,
-    selectColumns = ['TP', 'TN', 'FP', 'FN', 'precision', 'recall'],
+    selectColumns = [
+        'TP',
+        'TN',
+        'FP',
+        'FN',
+        'precision',
+        'recall',
+        'timeMean',
+        'timeMedian',
+    ],
 }: {
     testRun: Pick<TestRunResults<I, O, T>, 'stats'>;
     displayConfig?: Partial<DisplayConfig>;

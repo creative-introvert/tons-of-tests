@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {performance} from 'node:perf_hooks';
 
 import * as P from '../prelude.js';
 import type {Classify, Label} from '../Classify.js';
@@ -8,6 +9,7 @@ import {
     defaultIsEqual,
     defaultIsNil,
     makeClassify,
+    median,
     precision,
     recall,
 } from './Classify.js';
@@ -53,6 +55,7 @@ export const TestResultSchema: P.Schema.Schema<TestResult> = P.Schema.Struct({
     expected: P.Schema.Unknown,
     label: LabelSchema,
     tags: P.Schema.Array(P.Schema.String),
+    timeMillis: P.Schema.Number,
 });
 
 const TestRunResults = {
@@ -75,17 +78,20 @@ export const test = <I, O, T>({
     classify: Classify<O, T>;
     ordering: number;
 }): P.Effect.Effect<TestResult<I, O, T>> => {
+    const t0 = performance.now();
     return program(input).pipe(
-        P.Effect.map(result =>
-            TestResult.make({
+        P.Effect.map(result => {
+            const t1 = performance.now();
+            return TestResult.make({
                 ordering,
                 input,
                 result,
                 expected,
                 tags: tags ?? [],
                 label: classify(result, expected),
-            }),
-        ),
+                timeMillis: t1 - t0,
+            });
+        }),
     );
 };
 
@@ -154,6 +160,22 @@ export const runCollectRecord =
             P.Effect.map(run => {
                 run.stats.precision = precision(run.stats);
                 run.stats.recall = recall(run.stats);
+                const times = run.testCaseHashes.map(
+                    hash => run.testResultsByTestCaseHash[hash].timeMillis,
+                );
+
+                run.stats.timeMean = P.Option.some(
+                    times.reduce((mean, n) => mean + n, 0) / times.length,
+                );
+
+                run.stats.timeMax = P.Option.some(
+                    times.reduce((max, n) => Math.max(max, n), 0),
+                );
+                run.stats.timeMin = P.Option.some(
+                    times.reduce((min, n) => Math.min(min, n), Infinity),
+                );
+
+                run.stats.timeMedian = median(times);
                 return run;
             }),
         );

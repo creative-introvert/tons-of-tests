@@ -35,7 +35,11 @@ export type StatsColumnNames =
     | 'FP'
     | 'FN'
     | 'precision'
-    | 'recall';
+    | 'recall'
+    | 'timeMin'
+    | 'timeMax'
+    | 'timeMean'
+    | 'timeMedian';
 
 export type StatsColumn = {
     name: StatsColumnNames;
@@ -53,6 +57,7 @@ export type SummarizeContext = {
 export type SummarizeColumnNames =
     | 'index'
     | 'hash'
+    | 'timeMillis'
     | 'input'
     | 'tags'
     | 'label'

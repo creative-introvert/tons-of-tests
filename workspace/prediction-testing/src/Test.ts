@@ -28,6 +28,7 @@ export type TestResult<I = unknown, O = unknown, T = unknown> = {
     result: O;
     expected: T;
     tags: readonly string[];
+    timeMillis: number;
 };
 
 export type TestRunResults<I = unknown, O = unknown, T = unknown> = TestRun & {
