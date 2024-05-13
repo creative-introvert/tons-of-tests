@@ -7,21 +7,18 @@ import {diff} from './diff.js';
 import {commit} from './commit.js';
 import type {Config} from './Config.js';
 import {makeConfigLayer} from './Config.js';
+import {version} from './version.js';
 
 const cli = Command.run(
     Command.make('prediction-testing').pipe(
         Command.withSubcommands([summarize, diff, commit]),
     ),
-    {
-        name: 'Prediction Testing',
-        // FIXME
-        version: 'v0.0.1',
-    },
+    {name: 'Prediction Testing', version},
 );
 
 export const run = <I = unknown, O = unknown, T = unknown>(
     config: Config<I, O, T>,
-): void =>
+): Promise<void> =>
     P.Effect.suspend(() => cli(process.argv)).pipe(
         P.Effect.provide(
             P.NodeContext.layer.pipe(
@@ -32,5 +29,5 @@ export const run = <I = unknown, O = unknown, T = unknown>(
                 ),
             ),
         ),
-        P.NodeRuntime.runMain,
+        P.Effect.runPromise,
     );
