@@ -1,5 +1,14 @@
 # @creative-introvert/prediction-testing
 
+## 0.3.0
+
+### Minor Changes
+
+- Feat: Basic performance measuring.
+  Feat: Added concurrency setting.
+  Fix(cli): Show correct version.
+  Feat(cli): `run` returns `Promise<void>` instead of `void`.
+
 ## 0.2.4
 
 ### Patch Changes
