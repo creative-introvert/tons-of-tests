@@ -96,7 +96,7 @@ export const all = <I, O, T>(
         classify = makeClassify(defaultIsEqual, defaultIsNil, defaultIsNil),
         name,
     }: TestSuite<I, O, T>,
-    {concurrency}: {concurrency: number} = {concurrency: 1},
+    {concurrency}: {concurrency?: number | undefined} = {concurrency: 1},
 ) =>
     P.Effect.gen(function* () {
         const repository = yield* TestRepository;
@@ -116,7 +116,6 @@ export const all = <I, O, T>(
                     }),
                 {concurrency, unordered: false},
             ),
-            P.Stream.tap(P.Console.log),
             P.Stream.tap(testResult =>
                 repository.insertTestResult(testResult, name),
             ),

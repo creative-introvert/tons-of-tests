@@ -32,7 +32,7 @@ const createFilterLabel =
         });
 
 export const _sumarize = <I = unknown, O = unknown, T = unknown>({
-    labels,
+    labels: maybeLabels,
     shouldRun,
     config: {testSuite, displayConfig, concurrency},
 }: {
@@ -44,7 +44,39 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
         const repository = yield* PT.TestRepository.TestRepository;
         yield* P.Effect.logDebug('repository');
 
-        const filterLabel = createFilterLabel(labels);
+        const filterLabels = (
+            args: PT.Test.TestRunResults,
+        ): PT.Test.TestRunResults =>
+            maybeLabels.pipe(
+                P.Option.match({
+                    onSome: labels => {
+                        const {
+                            testCaseHashes,
+                            testResultsByTestCaseHash,
+                            ...rest
+                        } = args;
+                        const _testCaseHashes: string[] = [];
+                        const _testResultsByTestCaseHash: PT.Test.TestRunResults['testResultsByTestCaseHash'] =
+                            {};
+
+                        for (const hash of testCaseHashes) {
+                            const next = testResultsByTestCaseHash[hash];
+                            if (labels.includes(next.label)) {
+                                _testCaseHashes.push(hash);
+                                _testResultsByTestCaseHash[hash] = next;
+                            }
+                        }
+
+                        return {
+                            testCaseHashes: _testCaseHashes,
+                            testResultsByTestCaseHash:
+                                _testResultsByTestCaseHash,
+                            ...rest,
+                        };
+                    },
+                    onNone: () => args,
+                }),
+            );
 
         const currentTestRun = yield* repository.getOrCreateCurrentTestRun(
             testSuite.name,
@@ -54,31 +86,33 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
         const hasResults = yield* repository.hasResults(currentTestRun);
         yield* P.Effect.logDebug('hasResults');
 
+        const getFromRun = () =>
+            PT.Test.all(testSuite, {
+                concurrency: concurrency || 1,
+            }).pipe(
+                P.Effect.flatMap(PT.Test.runCollectRecord(currentTestRun)),
+                P.Effect.tap(P.Effect.log('from run')),
+            );
+
+        const getFromCache = () =>
+            repository
+                .getTestResultsStream(currentTestRun)
+                .pipe(
+                    PT.Test.runCollectRecord(currentTestRun),
+                    P.Effect.tap(P.Effect.log('from cache')),
+                );
+
         const testRun: PT.Test.TestRunResults = yield* P.Effect.if(
             shouldRun || !hasResults,
-            {
-                onTrue: () =>
-                    PT.Test.all(testSuite, {
-                        concurrency: concurrency || 1,
-                    }).pipe(
-                        P.Effect.flatMap(
-                            PT.Test.runCollectRecord(currentTestRun),
-                        ),
-                        P.Effect.tap(P.Effect.log('from run')),
-                    ),
-                onFalse: () =>
-                    repository
-                        .getTestResultsStream(currentTestRun)
-                        .pipe(
-                            PT.Test.runCollectRecord(currentTestRun),
-                            P.Effect.tap(P.Effect.log('from cache')),
-                        ),
-            },
-        );
+            {onTrue: getFromRun, onFalse: getFromCache},
+        ).pipe(P.Effect.map(filterLabels));
 
         yield* P.Effect.logDebug('testRun');
 
-        const previousTestRun = yield* getPreviousTestRunResults(testSuite);
+        const previousTestRun = (yield* getPreviousTestRunResults(
+            testSuite,
+        )) as P.Option.Option<PT.Test.TestRunResults<I, O, T>>;
+
         yield* P.Effect.logDebug('previousTestRun');
         return {testRun, previousTestRun};
     }).pipe(P.Effect.withLogSpan('summarize'));
@@ -112,7 +146,5 @@ export const summarize = Command.make(
                     PT.Show.stats({testRun}),
                 ].join('\n'),
             );
-            console.timeLog('summarize', 'summarize');
-            console.timeEnd('summarize');
         }),
 );

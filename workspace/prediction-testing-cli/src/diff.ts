@@ -82,30 +82,29 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
                 };
             };
 
-        const getFromRun: P.Effect.Effect<
+        const getFromRun = (): P.Effect.Effect<
             PT.Test.TestRunResults,
             SqlError | P.Result.ParseError | ResultLengthMismatch,
             PT.TestRepository.TestRepository
-        > = P.pipe(
-            PT.Test.all(testSuite, {concurrency: concurrency || 1}),
-            P.Effect.flatMap(PT.Test.runCollectRecord(currentTestRun)),
-            P.Effect.map(filterUnchanged(previousTestRun)),
-        );
-        const getFromCache: P.Effect.Effect<
+        > =>
+            P.pipe(
+                PT.Test.all(testSuite, {concurrency}),
+                P.Effect.flatMap(PT.Test.runCollectRecord(currentTestRun)),
+            );
+
+        const getFromCache = (): P.Effect.Effect<
             PT.Test.TestRunResults,
             SqlError | P.Result.ParseError,
             PT.TestRepository.TestRepository
-        > = repository
-            .getTestResultsStream(currentTestRun)
-            .pipe(
-                PT.Test.runCollectRecord(currentTestRun),
-                P.Effect.map(filterUnchanged(previousTestRun)),
-            );
+        > =>
+            repository
+                .getTestResultsStream(currentTestRun)
+                .pipe(PT.Test.runCollectRecord(currentTestRun));
 
-        const testRun: PT.Test.TestRunResults = yield* P.Effect.if({
-            onTrue: () => getFromRun,
-            onFalse: () => getFromCache,
-        })(shouldRun || !hasResults);
+        const testRun: PT.Test.TestRunResults = yield* P.Effect.if(
+            shouldRun || !hasResults,
+            {onTrue: getFromRun, onFalse: getFromCache},
+        ).pipe(P.Effect.map(filterUnchanged(previousTestRun)));
 
         return {testRun, previousTestRun};
     });

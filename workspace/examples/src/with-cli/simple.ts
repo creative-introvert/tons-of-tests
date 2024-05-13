@@ -7,24 +7,13 @@ void CLI.run({
         name: 'with-cli-simple',
         testCases: [
             {input: {BRAND: '1'}, expected: {BRAND: '1'}},
-            {input: {BRAND: '2'}, expected: {BRAND: '2'}},
-            {
-                input: {BRAND: '3', MODEL: 8100},
-                expected: {BRAND: '3', MODEL: 8100},
-            },
-            {
-                input: {
-                    BRAND: '4',
-                    MODEL: 8400,
-                    MACHINE_TYPE: 'tractor',
-                },
-                expected: {
-                    BRAND: '4',
-                    MODEL: 8400,
-                },
-            },
+            {input: null, expected: {BRAND: '2'}},
+            {input: {BRAND: '3', MODEL: 8100}, expected: null},
+            {input: null, expected: null},
         ],
-        program: ({BRAND, MODEL}) => Effect.sync(() => ({MODEL, BRAND})),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        program: (args: any) =>
+            Effect.sync(() => args && {MODEL: args?.MODEL, BRAND: args?.BRAND}),
     },
     dbPath: 'with-cli-simple.db',
     concurrency: 2,
