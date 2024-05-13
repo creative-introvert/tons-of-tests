@@ -17,7 +17,7 @@ const exitOnDiff = Options.boolean('exit-on-diff').pipe(
 
 export const _diff = <I = unknown, O = unknown, T = unknown>({
     shouldRun,
-    config: {testSuite},
+    config: {testSuite, concurrency},
 }: {
     shouldRun: boolean;
     config: Config<I, O, T>;
@@ -87,7 +87,7 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
             SqlError | P.Result.ParseError | ResultLengthMismatch,
             PT.TestRepository.TestRepository
         > = P.pipe(
-            PT.Test.all(testSuite),
+            PT.Test.all(testSuite, {concurrency: concurrency || 1}),
             P.Effect.flatMap(PT.Test.runCollectRecord(currentTestRun)),
             P.Effect.map(filterUnchanged(previousTestRun)),
         );

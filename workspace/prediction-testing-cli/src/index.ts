@@ -14,8 +14,7 @@ import {version} from '../package.json' assert {type: 'json'};
 
 const PackageJsonSchema = P.Schema.parseJson(
     P.Schema.Struct({
-        // Including the name to avoid accidentally looking
-        // at another package.json, e.g. when we change folder structure.
+        // Including the name to avoid accidentally looking at another package.json, e.g. when we change folder structure.
         name: P.Schema.Literal('@creative-introvert/prediction-testing-cli'),
         version: P.Schema.String,
     }),
