@@ -27,4 +27,5 @@ void CLI.run({
         program: ({BRAND, MODEL}) => Effect.sync(() => ({MODEL, BRAND})),
     },
     dbPath: 'with-cli-simple.db',
+    concurrency: 2,
 });

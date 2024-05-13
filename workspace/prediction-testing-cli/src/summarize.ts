@@ -34,7 +34,7 @@ const createFilterLabel =
 export const _sumarize = <I = unknown, O = unknown, T = unknown>({
     labels,
     shouldRun,
-    config: {testSuite, displayConfig},
+    config: {testSuite, displayConfig, concurrency},
 }: {
     labels: P.Option.Option<readonly PT.Classify.Label[]>;
     shouldRun: boolean;
@@ -58,7 +58,9 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
             shouldRun || !hasResults,
             {
                 onTrue: () =>
-                    PT.Test.all(testSuite).pipe(
+                    PT.Test.all(testSuite, {
+                        concurrency: concurrency || 1,
+                    }).pipe(
                         P.Effect.flatMap(
                             PT.Test.runCollectRecord(currentTestRun),
                         ),

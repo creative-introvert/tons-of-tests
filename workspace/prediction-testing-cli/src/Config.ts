@@ -6,6 +6,7 @@ export type Config<I = unknown, O = unknown, T = unknown> = {
     testSuite: PT.Test.TestSuite<I, O, T>;
     dbPath: string;
     displayConfig?: Partial<PT.DisplayConfig.DisplayConfig> | undefined;
+    concurrency?: number;
 };
 
 export const Config = P.Context.GenericTag<Config>('Config');

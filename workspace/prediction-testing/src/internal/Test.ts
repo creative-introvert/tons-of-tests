@@ -89,12 +89,15 @@ export const test = <I, O, T>({
     );
 };
 
-export const all = <I, O, T>({
-    testCases,
-    program,
-    classify = makeClassify(defaultIsEqual, defaultIsNil, defaultIsNil),
-    name,
-}: TestSuite<I, O, T>) =>
+export const all = <I, O, T>(
+    {
+        testCases,
+        program,
+        classify = makeClassify(defaultIsEqual, defaultIsNil, defaultIsNil),
+        name,
+    }: TestSuite<I, O, T>,
+    {concurrency}: {concurrency: number} = {concurrency: 1},
+) =>
     P.Effect.gen(function* () {
         const repository = yield* TestRepository;
         const currentTestRun =
@@ -105,9 +108,15 @@ export const all = <I, O, T>({
         return P.Stream.fromIterable(testCases).pipe(
             P.Stream.mapEffect(
                 testCase =>
-                    test({ordering: ordering++, testCase, program, classify}),
-                {unordered: false},
+                    test({
+                        ordering: ordering++,
+                        testCase,
+                        program,
+                        classify,
+                    }),
+                {concurrency, unordered: false},
             ),
+            P.Stream.tap(P.Console.log),
             P.Stream.tap(testResult =>
                 repository.insertTestResult(testResult, name),
             ),
