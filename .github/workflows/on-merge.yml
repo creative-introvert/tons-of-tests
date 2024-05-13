@@ -28,7 +28,7 @@ jobs:
           version: pnpm exec changeset version
           commit: "chore: publish"
           title: "chore: publish"
-          publish: pnpm run ci:publish
+          publish: pnpm run changesets-publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{secrets.NPM_TOKEN}}

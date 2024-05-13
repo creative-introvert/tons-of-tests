@@ -1,6 +1,10 @@
 {
     "extends": "./tsconfig.json",
-    "exclude": ["src/**/*.spec.ts"],
+    "exclude": [
+        "src/**/*.spec.ts",
+        "src/pack.ts",
+        "src/replace-version.ts"
+    ],
     "compilerOptions": {
         "stripInternal": true
     }
