@@ -1,5 +1,11 @@
 # @creative-introvert/prediction-testing-cli
 
+## 0.3.1
+
+### Patch Changes
+
+- Fix: import.meta.url in cjs.
+
 ## 0.3.0
 
 ### Minor Changes

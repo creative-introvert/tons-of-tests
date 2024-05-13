@@ -5,6 +5,13 @@
 ### Patch Changes
 
 - Updated dependencies
+  - @creative-introvert/prediction-testing-cli@0.3.1
+
+## null
+
+### Patch Changes
+
+- Updated dependencies
   - @creative-introvert/prediction-testing@0.3.0
   - @creative-introvert/prediction-testing-cli@0.3.0
 
