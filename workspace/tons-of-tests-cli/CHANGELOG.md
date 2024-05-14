@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.4.1
+
+### Patch Changes
+
+- Feat: Make concurrency optional.
+
 ## 0.4.0
 
 ### Minor Changes
