@@ -1,4 +1,3 @@
-import type * as PT from '@creative-introvert/tons-of-tests';
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
 import {Effect} from 'effect';
 
@@ -6,15 +5,12 @@ void CLI.run({
     testSuite: {
         name: 'with-cli-simple',
         testCases: [
-            {input: {BRAND: '1'}, expected: {BRAND: '1'}},
-            {input: null, expected: {BRAND: '2'}},
-            {input: {BRAND: '3', MODEL: 8100}, expected: null},
-            {input: null, expected: null},
+            {input: 1, expected: 1.1},
+            {input: 2, expected: 2.2},
+            {input: 3, expected: 3.3},
         ],
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        program: (args: any) =>
-            Effect.sync(() => args && {MODEL: args?.MODEL, BRAND: args?.BRAND}),
+        program: n =>
+            Effect.sync(() => Number.parseFloat((n * 1.1).toFixed(1))),
     },
     dbPath: 'with-cli-simple.db',
-    concurrency: 2,
 });

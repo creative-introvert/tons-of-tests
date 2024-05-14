@@ -91,7 +91,7 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
                 concurrency: concurrency || 1,
             }).pipe(
                 P.Effect.flatMap(PT.Test.runCollectRecord(currentTestRun)),
-                P.Effect.tap(P.Effect.log('from run')),
+                P.Effect.tap(P.Effect.logDebug('from run')),
             );
 
         const getFromCache = () =>
@@ -99,7 +99,7 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
                 .getTestResultsStream(currentTestRun)
                 .pipe(
                     PT.Test.runCollectRecord(currentTestRun),
-                    P.Effect.tap(P.Effect.log('from cache')),
+                    P.Effect.tap(P.Effect.logDebug('from cache')),
                 );
 
         const testRun: PT.Test.TestRunResults = yield* P.Effect.if(
