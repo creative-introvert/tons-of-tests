@@ -29,7 +29,7 @@ const config: UserConfig = {
     //   // TODO: Should we use `effect/test` instead of `effect-test`?
     //   "effect-test": path.join(__dirname, "packages/effect/test"),
     //   "effect": path.join(__dirname, "packages/effect/src"),
-    // '@creative-introvert/prediction-testing': path.join(__dirname, "packages", "prediction-testing", "src"),
+    // '@creative-introvert/tons-of-tests': path.join(__dirname, "packages", "tons-of-tests", "src"),
     //   ...alias("experimental"),
     //   ...alias("opentelemetry"),
     //   ...alias("platform"),

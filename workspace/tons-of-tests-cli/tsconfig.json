@@ -2,7 +2,7 @@
     "extends": "../../tsconfig.base.json",
     "include": ["src"],
     "references": [
-        { "path": "../prediction-testing" }
+        { "path": "../tons-of-tests" }
     ],
     "compilerOptions": {
         "types": ["node"],

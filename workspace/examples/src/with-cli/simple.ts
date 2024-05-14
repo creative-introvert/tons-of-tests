@@ -1,5 +1,5 @@
-import type * as PT from '@creative-introvert/prediction-testing';
-import * as CLI from '@creative-introvert/prediction-testing-cli';
+import type * as PT from '@creative-introvert/tons-of-tests';
+import * as CLI from '@creative-introvert/tons-of-tests-cli';
 import {Effect} from 'effect';
 
 void CLI.run({

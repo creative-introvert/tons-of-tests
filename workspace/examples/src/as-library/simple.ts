@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 
-import * as PT from '@creative-introvert/prediction-testing';
+import * as PT from '@creative-introvert/tons-of-tests';
 import {Console, Effect, Layer, Option, Stream} from 'effect';
 
 type TestCase = PT.Test.TestCase<unknown, {BRAND: string; MODEL?: number}>;

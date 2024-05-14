@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 
 import {Command} from '@effect/cli';
-import * as PT from '@creative-introvert/prediction-testing';
+import * as PT from '@creative-introvert/tons-of-tests';
 
 import * as P from './prelude.js';
 import {Config} from './Config.js';

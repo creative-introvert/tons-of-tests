@@ -1,4 +1,4 @@
-import type * as PT from '@creative-introvert/prediction-testing';
+import type * as PT from '@creative-introvert/tons-of-tests';
 
 import * as P from './prelude.js';
 

@@ -1,5 +1,5 @@
 import {Command, Options} from '@effect/cli';
-import * as PT from '@creative-introvert/prediction-testing';
+import * as PT from '@creative-introvert/tons-of-tests';
 
 import * as P from './prelude.js';
 import {summarize} from './summarize.js';
@@ -10,7 +10,7 @@ import {makeConfigLayer} from './Config.js';
 import {VERSION} from './version.js';
 
 const cli = Command.run(
-    Command.make('prediction-testing').pipe(
+    Command.make('tons-of-tests').pipe(
         Command.withSubcommands([summarize, diff, commit]),
     ),
     {name: 'Prediction Testing', version: VERSION},

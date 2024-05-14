@@ -1,6 +1,6 @@
 import type {SqlError} from '@effect/sql/Error';
 import {Command, Options} from '@effect/cli';
-import * as PT from '@creative-introvert/prediction-testing';
+import * as PT from '@creative-introvert/tons-of-tests';
 
 import * as P from './prelude.js';
 

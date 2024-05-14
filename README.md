@@ -1,14 +1,14 @@
-# prediction-testing
+# tots (tons-of-tests)
 
-`prediction-testing` is a test runner, simlar to [Jest](https://jestjs.io/), [vitest](https://vitest.dev/) or [ava](https://github.com/avajs/ava), that focuses on testing predictive functions (e.g. search, auto-complete, or ML).
+`tons-of-test`, (or `tots` for short, ) is a test runner, simlar to [Jest](https://jestjs.io/), [vitest](https://vitest.dev/) or [ava](https://github.com/avajs/ava), that focuses on testing predictive functions (e.g. search, auto-complete, or ML).
 
-## When you SHOULD use `prediction-testing`
+## When you SHOULD use `tots`
 
 - you have tons of test cases, and your tests purely compare inputs and outputs of the function under test
 - you are testing a statistical model, or a predictive function, where 100% successful test results are impossible or impractical
 - you are testing a (flaky) legacy system
 
-## When you SHOULD NOT use `prediction-testing`
+## When you SHOULD NOT use `tots`
 
 - when your tests are few, and predominantely example-based; use the conventional test runners instead (jest, ava, vitest)
 - when you require your testing framework to do all sorts of magic (auto-mocking, spies, etc)
@@ -17,7 +17,7 @@
 
 Before looking at code examples, some notes on the design:
 
-1. Unlike tools like jest or vitest, prediction-testing's CLI does not provide a
+1. Unlike tools like jest or vitest, tots's CLI does not provide a
    runtime, but is imported as a library. Check the ["Why No Runtime?" section](#why-no-runtime)
    on the reasoning.
 2. Though only required minimally, the library depends on using
@@ -38,8 +38,8 @@ Further, a cautionary note on stability:
 With your package manager of choice, install the following packages:
 
 ```bash
-@creative-introvert/prediction-testing
-@creative-introvert/prediction-testing-cli
+@creative-introvert/tots
+@creative-introvert/tots-cli
 effect
 ```
 
@@ -53,7 +53,7 @@ Define your test-suite.
 
 ```ts
 // my-test-suite.ts
-import * as CLI from '@creative-introvert/prediction-testing-cli';
+import * as CLI from '@creative-introvert/tots-cli';
 import {Effect} from 'effect';
 
 const myFunction = (input: number) => Promise.resolve(input * 1.7);
@@ -152,7 +152,7 @@ index 21cd713..ab1b6dc 100644
 --- a/my-test-suite.ts
 +++ b/my-test-suite.ts
 @@ -1,7 +1,7 @@
- import * as CLI from '@creative-introvert/prediction-testing-cli';
+ import * as CLI from '@creative-introvert/tots-cli';
  import {Effect} from 'effect';
  
 -const myFunction = (input: number) => Promise.resolve(input * 1.7);
@@ -206,7 +206,7 @@ For full control over execution, and if you're not afraid of using [effect](http
 you may simply import the runner functions individually.
 
 ```ts
-import * as PT from '@creative-introvert/prediction-testing';
+import * as PT from '@creative-introvert/tots';
 import {Console, Duration, Effect, Stream} from 'effect';
 
 type Input = number;
@@ -268,6 +268,6 @@ that vite provides some programatic context), but I have not yet looked deeper
 into that. Though saving me from solving this problem myself, this would likely
 come with its own limitations.
 
-Providing `prediction-testing` as a library is maybe not as satisfying and
+Providing `tots` as a library is maybe not as satisfying and
 convenient as a dedicated binary, but is **vastly** simpler, and far more
 powerful, enabling trivial extensibility for the user.
