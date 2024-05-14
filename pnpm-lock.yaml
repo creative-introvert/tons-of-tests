@@ -71,12 +71,12 @@ importers:
 
   workspace/examples:
     dependencies:
-      '@creative-introvert/prediction-testing':
+      '@creative-introvert/tons-of-tests':
         specifier: workspace:*
-        version: link:../prediction-testing/dist
-      '@creative-introvert/prediction-testing-cli':
+        version: link:../tons-of-tests/dist
+      '@creative-introvert/tons-of-tests-cli':
         specifier: workspace:*
-        version: link:../prediction-testing-cli/dist
+        version: link:../tons-of-tests-cli/dist
       '@effect/platform':
         specifier: ^0.53.0
         version: 0.53.0(@effect/schema@0.66.14(effect@3.1.2)(fast-check@3.18.0))(effect@3.1.2)
@@ -109,7 +109,7 @@ importers:
         specifier: ^5.4.5
         version: 5.4.5
 
-  workspace/prediction-testing:
+  workspace/tons-of-tests:
     dependencies:
       '@effect/platform':
         specifier: ^0.53.0
@@ -168,11 +168,11 @@ importers:
         version: 4.18.2
     publishDirectory: dist
 
-  workspace/prediction-testing-cli:
+  workspace/tons-of-tests-cli:
     dependencies:
-      '@creative-introvert/prediction-testing':
+      '@creative-introvert/tons-of-tests':
         specifier: workspace:*
-        version: link:../prediction-testing/dist
+        version: link:../tons-of-tests/dist
       '@effect/cli':
         specifier: ^0.36.19
         version: 0.36.19(@effect/platform@0.53.0(@effect/schema@0.66.14(effect@3.1.2)(fast-check@3.18.0))(effect@3.1.2))(@effect/printer-ansi@0.33.11(@effect/typeclass@0.24.11(effect@3.1.2))(effect@3.1.2))(@effect/printer@0.33.11(@effect/typeclass@0.24.11(effect@3.1.2))(effect@3.1.2))(@effect/schema@0.66.14(effect@3.1.2)(fast-check@3.18.0))(effect@3.1.2)
@@ -247,10 +247,6 @@ packages:
     peerDependencies:
       '@babel/core': ^7.0.0-0
 
-  '@babel/code-frame@7.23.5':
-    resolution: {integrity: sha512-CgH3s1a96LipHCmSUmYFPwY7MNx8C3avkq7i4Wl3cfa662ldtUe4VM1TPXX70pfmrlWTb6jLqTYrZyT2ZTJBgA==}
-    engines: {node: '>=6.9.0'}
-
   '@babel/code-frame@7.24.2':
     resolution: {integrity: sha512-y5+tLQyV8pg3fsiln67BVLD1P13Eg4lh5RW9mF0zUuvLrv9uIQ4MCL+CRT+FTsBlBjcIan6PGsLcBN0m3ClUyQ==}
     engines: {node: '>=6.9.0'}
@@ -323,10 +319,6 @@ packages:
 
   '@babel/helpers@7.24.4':
     resolution: {integrity: sha512-FewdlZbSiwaVGlgT1DPANDuCHaDMiOo+D/IDYRFYjHOuv66xMSJ7fQwwODwRNAPkADIO/z1EoF/l2BCWlWABDw==}
-    engines: {node: '>=6.9.0'}
-
-  '@babel/highlight@7.23.4':
-    resolution: {integrity: sha512-acGdbYSfp2WheJoJm/EBBBLh/ID8KDc64ISZ9DYtBmC8/Q204PZJLHyzeB5qMzJ5trcOkybd78M4x2KWsUq++A==}
     engines: {node: '>=6.9.0'}
 
   '@babel/highlight@7.24.2':
@@ -3435,11 +3427,6 @@ snapshots:
       '@nicolo-ribaudo/chokidar-2': 2.1.8-no-fsevents.3
       chokidar: 3.6.0
 
-  '@babel/code-frame@7.23.5':
-    dependencies:
-      '@babel/highlight': 7.23.4
-      chalk: 2.4.2
-
   '@babel/code-frame@7.24.2':
     dependencies:
       '@babel/highlight': 7.24.2
@@ -3531,12 +3518,6 @@ snapshots:
       '@babel/types': 7.24.0
     transitivePeerDependencies:
       - supports-color
-
-  '@babel/highlight@7.23.4':
-    dependencies:
-      '@babel/helper-validator-identifier': 7.22.20
-      chalk: 2.4.2
-      js-tokens: 4.0.0
 
   '@babel/highlight@7.24.2':
     dependencies:
@@ -6297,7 +6278,7 @@ snapshots:
 
   parse-json@5.2.0:
     dependencies:
-      '@babel/code-frame': 7.23.5
+      '@babel/code-frame': 7.24.2
       error-ex: 1.3.2
       json-parse-even-better-errors: 2.3.1
       lines-and-columns: 1.2.4
