@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.5.0
+
+### Minor Changes
+
+- Feat: Filter tags.
+
 ## 0.4.1
 
 ### Patch Changes
