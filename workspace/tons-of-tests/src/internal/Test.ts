@@ -106,9 +106,7 @@ export const all = <I, O, T>(
 ) =>
     P.Effect.gen(function* () {
         const repository = yield* TestRepository;
-        const currentTestRun =
-            yield* repository.getOrCreateCurrentTestRun(name);
-        yield* repository.clearTestRun(currentTestRun);
+        yield* repository.getOrCreateCurrentTestRun(name);
 
         let ordering = 0;
         return P.Stream.fromIterable(testCases).pipe(

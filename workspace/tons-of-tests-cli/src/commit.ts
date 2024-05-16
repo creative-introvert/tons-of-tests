@@ -17,7 +17,8 @@ export const _commit = <I = unknown, O = unknown, T = unknown>({
             name: testSuite.name,
             hash: randomUUID(),
         });
-        yield* P.Console.log(`Commited test run.`);
+        yield* repository.clearStale({name: testSuite.name});
+        yield* P.Console.log(`Commited test run and cleared stale.`);
     });
 
 export const commit = Command.make('commit', {}, () =>

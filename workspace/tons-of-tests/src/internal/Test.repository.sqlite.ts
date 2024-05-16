@@ -6,12 +6,13 @@ import type {
     TestRepository as _TestRepository,
     TestResultRead,
     TestRun,
+    TestRunResults,
 } from '../Test.repository.js';
 import {LabelSchema, StatsSchema} from './Classify.js';
 import {split} from './lib/Schema.js';
 import type {TestResult} from '../Test.js';
 
-const tables = {
+export const tables = {
     testResults: 'test-results',
     testRuns: 'test-runs',
     testRunResults: 'test-run-results',
@@ -43,6 +44,11 @@ const HasResultsSchema = P.Schema.Struct({
 }).pipe(P.Schema.Array);
 
 const TestRunsReadSchema = TestRunReadSchema.pipe(P.Schema.Array);
+
+const TestRunResultsSchema = P.Schema.Struct({
+    testRun: P.Schema.Int,
+    testResult: P.Schema.String,
+}).pipe(P.Schema.Array);
 
 export const TestRepository =
     P.Context.GenericTag<_TestRepository>('TestRunRepository');
@@ -87,30 +93,33 @@ const makeTestRepository = P.Effect.gen(function* () {
         );
     `;
 
+    /** Assumes that a `TestRun` with hash=null exists. */
     const insertTestResult = (testResult: TestResult, name: string) =>
-        P.Effect.gen(function* () {
-            const encoded = yield* P.Schema.encode(TestResultWriteSchema)(
-                testResult,
-            );
+        sql.withTransaction(
+            P.Effect.gen(function* () {
+                const encoded = yield* P.Schema.encode(TestResultWriteSchema)(
+                    testResult,
+                );
 
-            yield* sql`
-                INSERT INTO ${sql(tables.testResults)}
-                ${sql.insert(encoded)}
-                ON CONFLICT(id) DO NOTHING;
-            `;
+                yield* sql`
+                    INSERT INTO ${sql(tables.testResults)}
+                    ${sql.insert(encoded)}
+                    ON CONFLICT(id) DO NOTHING;
+                `;
 
-            yield* sql`
-                INSERT INTO ${sql(tables.testRunResults)}
-                VALUES (
-                    (
-                        SELECT id FROM ${sql(tables.testRuns)}
-                        WHERE hash IS NULL AND name = ${name}
-                    ),
-                    ${encoded.id}
-                )
-                ON CONFLICT(testRun, testResult) DO NOTHING;
-            `;
-        });
+                yield* sql`
+                    INSERT INTO ${sql(tables.testRunResults)}
+                    VALUES (
+                        (
+                            SELECT id FROM ${sql(tables.testRuns)}
+                            WHERE hash IS NULL AND name = ${name}
+                        ),
+                        ${encoded.id}
+                    )
+                    ON CONFLICT(testRun, testResult) DO NOTHING;
+                `;
+            }),
+        );
 
     const getTestResultsStream = (
         testRun: TestRun,
@@ -152,22 +161,20 @@ const makeTestRepository = P.Effect.gen(function* () {
             return P.Array.head(p);
         });
 
-    // const getPreviousTestResultsStream = (name: string) =>
-    //     sql<TestResultRead>`
-    //             SELECT res.* FROM ${sql(tables.testResults)} res
-    //                 JOIN ${sql(tables.testRunResults)} runres ON res.hash = runres.testResult
-    //                 JOIN ${sql(tables.testRuns)} runs ON runs.id = runres.testRun
-    //             WHERE runs.hash IS NULL AND runs.name = ${name};
-    //         `.stream.pipe(
-    //         P.Stream.mapEffect(P.Schema.decode(TestResultSchema)),
-    //     );
-
     const getAllTestRuns = P.Effect.gen(function* () {
         const results = yield* sql<TestRun>`
                 SELECT * from ${sql(tables.testRuns)};
             `;
 
         return yield* P.Schema.decode(TestRunsReadSchema)(results);
+    });
+
+    const getAllTestRunResults = P.Effect.gen(function* () {
+        const results = yield* sql<TestRunResults>`
+                SELECT * from ${sql(tables.testRunResults)};
+            `;
+
+        return yield* P.Schema.decode(TestRunResultsSchema)(results);
     });
 
     const getAllTestResults = P.Effect.gen(function* () {
@@ -197,17 +204,49 @@ const makeTestRepository = P.Effect.gen(function* () {
             return current;
         }).pipe(P.Effect.map(P.Array.unsafeGet(0)));
 
-    const clearTestRun = (testRun: TestRun) =>
-        P.Effect.gen(function* () {
-            yield* sql`
-                DELETE FROM ${sql(tables.testRunResults)}
-                WHERE testRun = ${testRun.id};
-            `;
-        });
+    const clearStale = ({name, keep = 1}: {name: string; keep?: number}) =>
+        sql.withTransaction(
+            P.Effect.gen(function* () {
+                const staleTestRuns = yield* P.Schema.decode(
+                    TestRunsReadSchema,
+                )(
+                    yield* sql<TestRun>`
+                        SELECT *
+                        FROM ${sql(tables.testRuns)}
+                        WHERE hash IS NOT NULL
+                        AND name = ${name}
+                        ORDER BY id DESC
+                        LIMIT -1 OFFSET ${keep};
+                    `,
+                );
+
+                if (staleTestRuns.length === 0) {
+                    return;
+                }
+
+                const ids = staleTestRuns.map(r => r.id);
+
+                yield* sql`
+                    DELETE FROM ${sql(tables.testRunResults)}
+                    WHERE testRun IN ${sql.in(ids)};
+                `;
+
+                yield* sql`
+                    DELETE FROM ${sql(tables.testRuns)}
+                    WHERE id IN ${sql.in(ids)};
+                `;
+
+                yield* sql`
+                    DELETE FROM ${sql(tables.testResults)}
+                    WHERE id NOT IN (
+                        SELECT DISTINCT testResult FROM ${sql(tables.testRunResults)}
+                    );
+                `;
+            }),
+        );
 
     const commitCurrentTestRun = ({name, hash}: {name: string; hash: string}) =>
         P.Effect.gen(function* () {
-            // Transaction?
             yield* sql`
                 UPDATE ${sql(tables.testRuns)}
                 SET hash = ${hash}
@@ -225,7 +264,7 @@ const makeTestRepository = P.Effect.gen(function* () {
         });
 
     const service: _TestRepository = {
-        clearTestRun,
+        clearStale,
         commitCurrentTestRun,
         getAllTestResults,
         getAllTestRuns,
@@ -234,6 +273,7 @@ const makeTestRepository = P.Effect.gen(function* () {
         getTestResultsStream,
         hasResults,
         insertTestResult,
+        getAllTestRunResults,
     };
 
     return service;
@@ -244,16 +284,12 @@ export const LiveLayer = P.Layer.effect(TestRepository, makeTestRepository);
 export const makeSqliteLiveLayer = (dbPath: string) =>
     Sqlite.client.layer(
         P.Config.all({
-            filename: P.Config.string(
-                'PREDICTION_TESTING_SQLITE_FILENAME',
-            ).pipe(P.Config.withDefault(dbPath)),
+            filename: P.Config.sync(() => dbPath),
         }),
     );
 
 export const SqliteTestLayer = Sqlite.client.layer(
     P.Config.all({
-        filename: P.Config.string('PREDICTION_TESTING_SQLITE_FILENAME').pipe(
-            P.Config.withDefault('test.db'),
-        ),
+        filename: P.Config.sync(() => ':memory:'),
     }),
 );

@@ -24,8 +24,23 @@ export type TestRun = {
     hash: string | null;
 };
 
+export type TestRunResults = {
+    testRun: number;
+    testResult: string;
+};
+
 export type TestRepository = {
-    clearTestRun: (testRun: TestRun) => Effect.Effect<void, SqlError>;
+    clearStale: ({
+        name,
+        keep,
+    }: {
+        name: string;
+        /**
+         * How many previous test runs to keep.
+         * @default 1
+         */
+        keep?: number;
+    }) => Effect.Effect<void, SqlError | ParseError>;
     getTestResultsStream: (
         testRun: TestRun,
     ) => Stream.Stream<TestResult, SqlError | ParseError>;
@@ -37,6 +52,10 @@ export type TestRepository = {
         SqlError | ParseError
     >;
     getAllTestRuns: Effect.Effect<readonly TestRun[], SqlError | ParseError>;
+    getAllTestRunResults: Effect.Effect<
+        readonly TestRunResults[],
+        SqlError | ParseError
+    >;
     getOrCreateCurrentTestRun: (
         name: string,
     ) => Effect.Effect<TestRun, SqlError>;
