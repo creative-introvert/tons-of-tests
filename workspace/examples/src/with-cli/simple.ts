@@ -5,9 +5,21 @@ void CLI.run({
     testSuite: {
         name: 'with-cli-simple',
         testCases: [
-            {input: 1, expected: 1.1},
-            {input: 2, expected: 2.2},
-            {input: 3, expected: 3.3},
+            {
+                input: 1,
+                expected: 1.1,
+                tags: ['a'],
+            },
+            {
+                input: 2,
+                expected: 2.2,
+                tags: ['a', 'b'],
+            },
+            {
+                input: 3,
+                expected: 3.3,
+                tags: ['b'],
+            },
         ],
         program: n =>
             Effect.sync(() => Number.parseFloat((n * 1.1).toFixed(1))),

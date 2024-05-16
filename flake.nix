@@ -21,6 +21,7 @@
               buildInputs = [
                 act
                 nodejs_18
+                sqlite
                 corepackEnable
               ];
             };
