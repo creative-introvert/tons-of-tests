@@ -1,5 +1,13 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.5.1
+
+### Patch Changes
+
+- Fix: Properly clear stale runs.
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@0.4.1
+
 ## 0.5.0
 
 ### Minor Changes
