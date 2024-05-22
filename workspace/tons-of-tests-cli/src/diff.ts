@@ -122,7 +122,13 @@ export const diff = Command.make(
             });
 
             if (testRun.testCaseHashes.length === 0) {
-                yield* P.Console.log('Nothing to show.');
+                yield* P.Console.log(
+                    [
+                        '┌─────────────────────────┐',
+                        '│ NO TEST RESULTS VISIBLE │',
+                        '└─────────────────────────┘',
+                    ].join('\n'),
+                );
                 return;
             }
 

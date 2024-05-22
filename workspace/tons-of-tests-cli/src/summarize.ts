@@ -154,7 +154,15 @@ export const summarize = Command.make(
             });
 
             if (testRun.testCaseHashes.length === 0) {
-                yield* P.Console.log('Nothing to show.');
+                yield* P.Console.log(
+                    [
+                        '┌─────────────────────────┐',
+                        '│ NO TEST RESULTS VISIBLE │',
+                        '└─────────────────────────┘',
+                        '',
+                        PT.Show.stats({testRun}),
+                    ].join('\n'),
+                );
                 return;
             }
 
