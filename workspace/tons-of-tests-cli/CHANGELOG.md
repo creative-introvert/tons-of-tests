@@ -1,5 +1,17 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.6.0
+
+### Minor Changes
+
+- eff0af7: Feat: Show stats even with empty results.
+
+### Patch Changes
+
+- Updated dependencies [d5a2803]
+- Updated dependencies [9b7ee12]
+  - @creative-introvert/tons-of-tests@0.5.0
+
 ## 0.5.1
 
 ### Patch Changes
