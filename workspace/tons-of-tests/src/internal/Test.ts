@@ -72,11 +72,13 @@ export const test = <I, O, T>({
     program,
     classify,
     ordering,
+    total,
 }: {
     testCase: TestCase<I, T>;
     program: Program<I, O>;
     classify: Classify<O, T>;
     ordering: number;
+    total: number;
 }): P.Effect.Effect<TestResult<I, O, T>> => {
     const t0 = performance.now();
     return program(input).pipe(
@@ -91,6 +93,9 @@ export const test = <I, O, T>({
                 label: classify(result, expected),
                 timeMillis: t1 - t0,
             });
+        }),
+        P.Effect.tap(() => {
+            process.stdout.write(`PROGRESS: ${ordering + 1}/${total}\r`);
         }),
     );
 };
@@ -117,6 +122,7 @@ export const all = <I, O, T>(
                         testCase,
                         program,
                         classify,
+                        total: testCases.length,
                     }),
                 {concurrency, unordered: false},
             ),

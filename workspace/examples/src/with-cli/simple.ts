@@ -22,7 +22,9 @@ void CLI.run({
             },
         ],
         program: n =>
-            Effect.sync(() => Number.parseFloat((n * 1.1).toFixed(1))),
+            Effect.sync(() => Number.parseFloat((n * 1.1).toFixed(1))).pipe(
+                Effect.delay(1_000),
+            ),
     },
     dbPath: 'with-cli-simple.db',
 });
