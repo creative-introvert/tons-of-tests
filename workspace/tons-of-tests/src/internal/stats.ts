@@ -16,6 +16,11 @@ import type {TestRunResults} from '../Test.js';
 
 const columns: StatsColumn[] = [
     {
+        name: 'total',
+        label: '∑',
+        make: ({total}: StatsContext) => [total.toString()],
+    },
+    {
         name: 'TP',
         label: 'TP',
         make: ({stats}: StatsContext) => [
@@ -107,6 +112,7 @@ export const showStats = <I, O, T>({
     testRun,
     displayConfig,
     selectColumns = [
+        'total',
         'TP',
         'TN',
         'FP',
@@ -117,7 +123,7 @@ export const showStats = <I, O, T>({
         'timeMedian',
     ],
 }: {
-    testRun: Pick<TestRunResults<I, O, T>, 'stats'>;
+    testRun: Pick<TestRunResults<I, O, T>, 'stats' | 'testCaseHashes'>;
     displayConfig?: Partial<DisplayConfig>;
     selectColumns?: StatsColumnNames[];
 }): string => {
@@ -127,7 +133,7 @@ export const showStats = <I, O, T>({
 
     const row: [string, string[]][] = _columns.map(({label, make}) => [
         label,
-        make({stats: testRun.stats}),
+        make({stats: testRun.stats, total: testRun.testCaseHashes.length}),
     ]);
 
     const columnWidths = _columns.map((m, i) =>

@@ -26,10 +26,12 @@ export type DiffColumn = {
 };
 
 export type StatsContext = {
+    total: number;
     stats: Stats;
 };
 
 export type StatsColumnNames =
+    | 'total'
     | 'TP'
     | 'TN'
     | 'FP'
