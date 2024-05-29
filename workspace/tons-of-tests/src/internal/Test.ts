@@ -147,9 +147,7 @@ export const runCollectRecord =
                                 result.hashTestCase
                             ] !== undefined
                         ) {
-                            yield* P.Effect.logWarning(
-                                `Skipped duplicate test case. hashTestCase=${result.hashTestCase}`,
-                            );
+                            // Skipped duplicate test case.
                             return run;
                         } else {
                             run.testResultsByTestCaseHash[result.hashTestCase] =
