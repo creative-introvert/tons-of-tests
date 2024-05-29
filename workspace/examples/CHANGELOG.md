@@ -4,6 +4,15 @@
 
 ### Patch Changes
 
+- Updated dependencies [5590533]
+- Updated dependencies [8ed7ae2]
+  - @creative-introvert/tons-of-tests@0.5.1
+  - @creative-introvert/tons-of-tests-cli@0.6.1
+
+## null
+
+### Patch Changes
+
 - Updated dependencies [eff0af7]
 - Updated dependencies [d5a2803]
 - Updated dependencies [9b7ee12]

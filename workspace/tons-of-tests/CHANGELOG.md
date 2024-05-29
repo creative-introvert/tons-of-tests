@@ -1,5 +1,12 @@
 # @creative-introvert/tons-of-tests
 
+## 0.5.1
+
+### Patch Changes
+
+- 5590533: Chore: Update deps.
+- 8ed7ae2: Fix: Remove noisy log.
+
 ## 0.5.0
 
 ### Minor Changes

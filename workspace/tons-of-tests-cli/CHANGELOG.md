@@ -1,5 +1,15 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.6.1
+
+### Patch Changes
+
+- 5590533: Chore: Update deps.
+- 8ed7ae2: Fix: Remove noisy log.
+- Updated dependencies [5590533]
+- Updated dependencies [8ed7ae2]
+  - @creative-introvert/tons-of-tests@0.5.1
+
 ## 0.6.0
 
 ### Minor Changes
