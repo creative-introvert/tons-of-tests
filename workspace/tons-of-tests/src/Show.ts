@@ -66,6 +66,7 @@ export type SummarizeColumnNames =
     | 'expected'
     | 'result'
     | 'result_diff'
+    | 'prev_label'
     | 'prev_result'
     | 'prev_result_diff';
 

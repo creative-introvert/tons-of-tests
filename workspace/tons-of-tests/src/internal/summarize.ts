@@ -16,7 +16,7 @@ import {diff} from './lib/jsondiffpatch/index.js';
 const columns: SummarizeColumn[] = [
     {
         name: 'index',
-        label: '#',
+        label: '#/∑',
         make: ({i, hashes}: SummarizeContext) => [`${i + 1}/${hashes.length}`],
     },
     {
@@ -32,19 +32,25 @@ const columns: SummarizeColumn[] = [
         ],
     },
     {
+        name: 'tags',
+        label: 'tags',
+        make: ({testResult}: SummarizeContext) => testResult.tags as string[],
+    },
+    {
         name: 'input',
         label: 'input',
         make: ({testResult}: SummarizeContext) =>
             JSON.stringify(testResult.input, null, 2).split('\n'),
     },
     {
-        name: 'tags',
-        label: 'tags',
-        make: ({testResult}: SummarizeContext) => testResult.tags as string[],
+        name: 'expected',
+        label: 'expected',
+        make: ({testResult}: SummarizeContext) =>
+            JSON.stringify(testResult.expected, null, 2).split('\n'),
     },
     {
         name: 'label',
-        label: 'label',
+        label: 'label₀',
         make: ({testResult, previousTestResult}: SummarizeContext) => {
             const hasPrevious = P.Option.isSome(previousTestResult);
             const label = testResult.label;
@@ -61,28 +67,37 @@ const columns: SummarizeColumn[] = [
         },
     },
     {
-        name: 'expected',
-        label: 'expected',
-        make: ({testResult}: SummarizeContext) =>
-            JSON.stringify(testResult.expected, null, 2).split('\n'),
-    },
-    {
         name: 'result',
-        label: 'result',
+        label: 'result₀',
         make: ({testResult}: SummarizeContext) =>
             JSON.stringify(testResult.result, null, 2).split('\n'),
     },
     {
         name: 'result_diff',
-        label: 'diff result',
+        label: 'diff result₀',
         make: ({testResult}: SummarizeContext) =>
             formatDiff(diff(testResult.expected, testResult.result))?.split(
                 '\n',
             ) || [],
     },
     {
+        name: 'prev_label',
+        label: 'label₋₁',
+        make: ({previousTestResult}: SummarizeContext) => {
+            const label = P.Option.match(previousTestResult, {
+                onNone: () => '',
+                onSome: _ =>
+                    _.label === 'TP' || _.label === 'TN'
+                        ? colors.green(_.label)
+                        : colors.red(_.label),
+            });
+
+            return [label];
+        },
+    },
+    {
         name: 'prev_result',
-        label: 'previous result',
+        label: 'result₋₁',
         make: ({previousTestResult}: SummarizeContext) =>
             previousTestResult.pipe(
                 P.Option.map(_ =>
@@ -93,7 +108,7 @@ const columns: SummarizeColumn[] = [
     },
     {
         name: 'prev_result_diff',
-        label: 'diff previous result',
+        label: 'diff result₋₁',
         make: ({testResult, previousTestResult}: SummarizeContext) =>
             previousTestResult.pipe(
                 P.Option.map(
@@ -115,11 +130,12 @@ export const showSummary = ({
         'index',
         'hash',
         'timeMillis',
-        'input',
         'tags',
-        'label',
+        'input',
         'expected',
+        'label',
         'result_diff',
+        'prev_label',
         'prev_result_diff',
     ],
 }: {
@@ -136,8 +152,7 @@ export const showSummary = ({
         .filter(c => selectColumns.includes(c.name))
         .filter(
             c =>
-                c.name !== 'prev_result_diff' ||
-                P.Option.isSome(previousTestRun),
+                !c.name.startsWith('prev_') || P.Option.isSome(previousTestRun),
         );
     let columnWidths = _columns.map(m => m.label.length);
 
