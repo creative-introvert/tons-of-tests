@@ -94,9 +94,6 @@ export const test = <I, O, T>({
                 timeMillis: t1 - t0,
             });
         }),
-        P.Effect.tap(() => {
-            process.stdout.write(`PROGRESS: ${ordering + 1}/${total}\r`);
-        }),
     );
 };
 
@@ -110,6 +107,7 @@ export const all = <I, O, T>(
     {concurrency}: {concurrency?: number | undefined} = {concurrency: 1},
 ) =>
     P.Effect.gen(function* () {
+        const total = testCases.length;
         const repository = yield* TestRepository;
         yield* repository.getOrCreateCurrentTestRun(name);
 
@@ -122,13 +120,23 @@ export const all = <I, O, T>(
                         testCase,
                         program,
                         classify,
-                        total: testCases.length,
+                        // FIXME: This is broken for duplicate test cases.
+                        // Need to filter those before running tests?
+                        total,
                     }),
                 {concurrency, unordered: false},
             ),
-            P.Stream.tap(testResult =>
-                repository.insertTestResult(testResult, name),
-            ),
+            P.Stream.tap(testResult => {
+                const i = testResult.ordering + 1;
+                if (i % Math.max(total * 0.05, 10) === 0) {
+                    if (process.env.NODE_ENV === 'development') {
+                        process.stdout.write(`PROGRESS: ${i}/${total}\r`);
+                    } else {
+                        console.log(`PROGRESS: ${i}/${total}\r`);
+                    }
+                }
+                return repository.insertTestResult(testResult, name);
+            }),
         );
     });
 
