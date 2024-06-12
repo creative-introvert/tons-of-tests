@@ -1,8 +1,4 @@
-import * as jdpf from 'jsondiffpatch/formatters/console';
-import * as jsd from 'jsondiffpatch';
-import colors from 'ansi-colors';
 import * as A from 'effect/Array';
-import {dual} from 'effect/Function';
 
 const rows = [
     [
