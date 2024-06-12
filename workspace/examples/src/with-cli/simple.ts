@@ -1,30 +1,20 @@
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
-import {Effect} from 'effect';
+import {Effect, pipe} from 'effect';
+
+import {createMapToDomain} from '../lib/math.js';
+import {createTestCases} from './create-obesity-tests.js';
+
+const mapCAECToObesity = createMapToDomain({min: 0, max: 3}, {min: 0, max: 6});
+
+const predictObesity = ({eatBetweenMeals}: {eatBetweenMeals: number}) =>
+    // Dumb approximation by loosely mapping between the domain.
+    Effect.succeed(mapCAECToObesity(eatBetweenMeals) + 2);
 
 void CLI.run({
     testSuite: {
         name: 'with-cli-simple',
-        testCases: [
-            {
-                input: 1,
-                expected: 1.1,
-                tags: ['a'],
-            },
-            {
-                input: 2,
-                expected: 2.2,
-                tags: ['a', 'b'],
-            },
-            {
-                input: 3,
-                expected: 3.3,
-                tags: ['b'],
-            },
-        ],
-        program: n =>
-            Effect.sync(() => Number.parseFloat((n * 1.1).toFixed(1))).pipe(
-                Effect.delay(1_000),
-            ),
+        testCases: await createTestCases(),
+        program: predictObesity,
     },
     dbPath: 'with-cli-simple.db',
 });
