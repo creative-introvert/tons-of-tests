@@ -3,12 +3,10 @@ import * as path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 import CSV from 'papaparse';
-import * as CLI from '@creative-introvert/tons-of-tests-cli';
-import {Effect, pipe} from 'effect';
+import {pipe} from 'effect';
 import {Schema} from '@effect/schema';
 
 import {BiDirectionalRecord} from '../lib/BiDirectionalRecord.js';
-import {createMapToDomain} from '../lib/math.js';
 
 // source: https://www.kaggle.com/datasets/fatemehmehrparvar/obesity-levels/data
 // license: Attribution 4.0 International (CC BY 4.0)

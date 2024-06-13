@@ -1,5 +1,5 @@
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
-import {Effect, pipe} from 'effect';
+import {Effect} from 'effect';
 
 import {createMapToDomain} from '../lib/math.js';
 import {createTestCases} from './create-obesity-tests.js';
