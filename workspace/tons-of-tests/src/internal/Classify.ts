@@ -84,6 +84,7 @@ export const Stats = {
         timeMedian: P.Option.none(),
         timeMin: P.Option.none(),
         timeMax: P.Option.none(),
+        total: 0,
     }),
 };
 

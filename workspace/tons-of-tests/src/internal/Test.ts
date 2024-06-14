@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
 
 import * as P from '../prelude.js';
-import type {Classify, Label} from '../Classify.js';
+import type {Classify} from '../Classify.js';
 import {
     LabelSchema,
     Stats,
@@ -72,13 +72,11 @@ export const test = <I, O, T>({
     program,
     classify,
     ordering,
-    total,
 }: {
     testCase: TestCase<I, T>;
     program: Program<I, O>;
     classify: Classify<O, T>;
     ordering: number;
-    total: number;
 }): P.Effect.Effect<TestResult<I, O, T>> => {
     const t0 = performance.now();
     return program(input).pipe(
@@ -120,9 +118,6 @@ export const all = <I, O, T>(
                         testCase,
                         program,
                         classify,
-                        // FIXME: This is broken for duplicate test cases.
-                        // Need to filter those before running tests?
-                        total,
                     }),
                 {concurrency, unordered: false},
             ),
@@ -186,6 +181,8 @@ export const runCollectRecord =
                 );
 
                 run.stats.timeMedian = median(times);
+
+                run.stats.total = run.testCaseHashes.length;
                 return run;
             }),
         );

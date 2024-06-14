@@ -10,6 +10,7 @@ export const defaultIsEqual = internal.defaultIsEqual;
 export type Classify<O, T> = (output: O, expected: T) => Label;
 
 export type Stats = Record<Label, number> & {
+    total: number;
     precision: number;
     recall: number;
     timeMin: Option.Option<number>;

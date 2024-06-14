@@ -18,7 +18,7 @@ const columns: StatsColumn[] = [
     {
         name: 'total',
         label: '∑',
-        make: ({total}: StatsContext) => [total.toString()],
+        make: ({stats}: StatsContext) => [stats.total.toString()],
     },
     {
         name: 'TP',
@@ -133,7 +133,7 @@ export const showStats = <I, O, T>({
 
     const row: [string, string[]][] = _columns.map(({label, make}) => [
         label,
-        make({stats: testRun.stats, total: testRun.testCaseHashes.length}),
+        make({ stats: testRun.stats }),
     ]);
 
     const columnWidths = _columns.map((m, i) =>

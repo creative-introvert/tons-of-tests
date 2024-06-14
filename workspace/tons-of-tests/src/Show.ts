@@ -26,7 +26,6 @@ export type DiffColumn = {
 };
 
 export type StatsContext = {
-    total: number;
     stats: Stats;
 };
 
