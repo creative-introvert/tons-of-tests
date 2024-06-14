@@ -30,14 +30,11 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
         );
         const hasResults = yield* repository.hasResults(currentTestRun);
 
-        // FIXME: void type cast
+        // FIXME: avoid type cast
         const previousTestRun = (yield* getPreviousTestRunResults(
             testSuite,
         )) as P.Option.Option<PT.Test.TestRunResults<I, O, T>>;
 
-        // FIXME: I can't filter before runCollectRecord, as
-        // I need to calculate the stats first. Not sure how
-        // to do this better.
         const filterUnchanged =
             (previous: P.Option.Option<PT.Test.TestRunResults>) =>
             ({

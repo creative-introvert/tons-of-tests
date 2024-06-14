@@ -44,6 +44,8 @@ const andTags = Options.text('all-tags').pipe(
     Options.withDescription('Filter tags (AND).'),
 );
 
+// TEST: summarize --labels doesn't affect the db (i.e. same test results are stored)
+// TEST: summarize --run -> commit -> summarize --run is idempotent
 export const _sumarize = <I = unknown, O = unknown, T = unknown>({
     labels: maybeLabels,
     orTags: maybeOrTags,
@@ -113,6 +115,7 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
             }).pipe(
                 P.Effect.flatMap(PT.Test.runCollectRecord(currentTestRun)),
                 P.Effect.tap(P.Effect.logDebug('from run')),
+                P.Effect.map(filter),
             );
 
         const getFromCache = () =>
@@ -121,12 +124,13 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
                 .pipe(
                     PT.Test.runCollectRecord(currentTestRun),
                     P.Effect.tap(P.Effect.logDebug('from cache')),
+                    P.Effect.map(filter),
                 );
 
         const testRun: PT.Test.TestRunResults = yield* P.Effect.if(
             shouldRun || !hasResults,
             {onTrue: getFromRun, onFalse: getFromCache},
-        ).pipe(P.Effect.map(filter));
+        );
 
         yield* P.Effect.logDebug('testRun');
 
