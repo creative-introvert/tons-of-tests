@@ -20,7 +20,7 @@
             mkShell {
               buildInputs = [
                 act
-                nodejs_18
+                nodejs_20
                 sqlite
                 corepackEnable
               ];
