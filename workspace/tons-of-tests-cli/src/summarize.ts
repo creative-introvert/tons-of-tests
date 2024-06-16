@@ -1,4 +1,3 @@
-import type {ResultLengthMismatch, SqlError} from '@effect/sql/Error';
 import {Command, Options} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
 
@@ -44,6 +43,7 @@ const andTags = Options.text('all-tags').pipe(
     Options.withDescription('Filter tags (AND).'),
 );
 
+
 // TEST: summarize --labels doesn't affect the db (i.e. same test results are stored)
 // TEST: summarize --run -> commit -> summarize --run is idempotent
 export const _sumarize = <I = unknown, O = unknown, T = unknown>({
@@ -60,7 +60,7 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
     config: Config<I, O, T>;
 }) =>
     P.Effect.gen(function* () {
-        const repository = yield* PT.TestRepository.TestRepository;
+        const tests = yield* PT.TestRepository.TestRepository;
         yield* P.Effect.logDebug('repository');
 
         const hasLabel = (label: PT.Classify.Label) =>
@@ -101,25 +101,24 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
             };
         };
 
-        const currentTestRun = yield* repository.getOrCreateCurrentTestRun(
+        const currentTestRun = yield* tests.getOrCreateCurrentTestRun(
             testSuite.name,
         );
         yield* P.Effect.logDebug('currentTestRun');
 
-        const hasResults = yield* repository.hasResults(currentTestRun);
+        const hasResults = yield* tests.hasResults(currentTestRun);
         yield* P.Effect.logDebug('hasResults');
 
         const getFromRun = () =>
-            PT.Test.all(testSuite, {
-                concurrency: concurrency || 1,
-            }).pipe(
-                P.Effect.flatMap(PT.Test.runCollectRecord(currentTestRun)),
+            PT.Test.all(testSuite, {concurrency: concurrency || 1}).pipe(
+                P.Stream.tap(_ => tests.insertTestResult(_, testSuite.name)),
+                PT.Test.runCollectRecord(currentTestRun),
                 P.Effect.tap(P.Effect.logDebug('from run')),
                 P.Effect.map(filter),
             );
 
         const getFromCache = () =>
-            repository
+            tests
                 .getTestResultsStream(currentTestRun)
                 .pipe(
                     PT.Test.runCollectRecord(currentTestRun),
@@ -148,7 +147,7 @@ export const summarize = Command.make(
     ({labels, shouldRun, orTags, andTags}) =>
         P.Effect.gen(function* () {
             const config = yield* Config;
-            const {testSuite, displayConfig, dbPath} = config;
+            const {displayConfig} = config;
             const {testRun, previousTestRun} = yield* _sumarize({
                 labels,
                 orTags,

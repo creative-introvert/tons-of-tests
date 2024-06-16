@@ -22,7 +22,6 @@ import type {
     Diff,
 } from '../Test.js';
 import type {TestRun} from '../Test.repository.js';
-import {TestRepository} from './Test.repository.sqlite.js';
 
 export const makeSha256 = <I>(input: I): string => {
     return createHash('sha256').update(JSON.stringify(input)).digest('hex');
@@ -68,15 +67,13 @@ const TestRunResults = {
 };
 
 export const test = <I, O, T>({
-    testCase: {input, expected, tags},
+    testCase: {input, expected, tags, ordering},
     program,
     classify,
-    ordering,
 }: {
-    testCase: TestCase<I, T>;
+    testCase: TestCase<I, T> & {ordering: number};
     program: Program<I, O>;
     classify: Classify<O, T>;
-    ordering: number;
 }): P.Effect.Effect<TestResult<I, O, T>> => {
     const t0 = performance.now();
     return program(input).pipe(
@@ -100,67 +97,47 @@ export const all = <I, O, T>(
         testCases,
         program,
         classify = makeClassify(defaultIsEqual, defaultIsNil, defaultIsNil),
-        name,
     }: TestSuite<I, O, T>,
     {concurrency}: {concurrency?: number | undefined} = {concurrency: 1},
 ) =>
-    P.Effect.gen(function* () {
-        const total = testCases.length;
-        const repository = yield* TestRepository;
-        yield* repository.getOrCreateCurrentTestRun(name);
-
-        let ordering = 0;
-        return P.Stream.fromIterable(testCases).pipe(
-            P.Stream.mapEffect(
-                testCase =>
-                    test({
-                        ordering: ordering++,
-                        testCase,
-                        program,
-                        classify,
-                    }),
-                {concurrency, unordered: false},
-            ),
-            P.Stream.tap(testResult => {
-                const i = testResult.ordering + 1;
-                if (i % Math.max(total * 0.05, 10) === 0) {
-                    if (process.env.NODE_ENV === 'development') {
-                        process.stdout.write(`PROGRESS: ${i}/${total}\r`);
-                    } else {
-                        console.log(`PROGRESS: ${i}/${total}\r`);
-                    }
+    P.pipe(
+        // Keeping the index as the inherit ordering.
+        P.Array.map(testCases, ({..._}, ordering) => ({..._, ordering})),
+        P.Stream.fromIterable,
+        P.Stream.mapEffect(testCase => test({testCase, program, classify}), {
+            concurrency,
+            unordered: false,
+        }),
+        P.Stream.tap(testResult => {
+            const i = testResult.ordering;
+            const total = testCases.length;
+            const n = Math.floor(i % Math.max(total * 0.05, 10));
+            if (i === 0 || n === 0 || i === total) {
+                const s = `PROGRESS: ${i}/${total}\r`;
+                if (process.env.NODE_ENV === 'development') {
+                    process.stdout.write(s);
+                } else {
+                    return P.Console.log(s);
                 }
-                return repository.insertTestResult(testResult, name);
-            }),
-        );
-    });
+            }
+            return P.Effect.void;
+        }),
+    );
 
 export const runCollectRecord =
     (testRun: TestRun) =>
-    <I, O, T, E>(
-        testResults$: P.Stream.Stream<TestResult<I, O, T>, E, TestRepository>,
-    ): P.Effect.Effect<TestRunResults<I, O, T>, E, TestRepository> =>
+    <I, O, T, E, R>(
+        testResults$: P.Stream.Stream<TestResult<I, O, T>, E, R>,
+    ): P.Effect.Effect<TestRunResults<I, O, T>, E, R> =>
         testResults$.pipe(
-            P.Stream.runFoldEffect(
+            P.Stream.runFold(
                 TestRunResults.emptyFromTestRun<I, O, T>(testRun),
-                (run, result) =>
-                    P.Effect.gen(function* () {
-                        if (
-                            run.testResultsByTestCaseHash[
-                                result.hashTestCase
-                            ] !== undefined
-                        ) {
-                            // Skipped duplicate test case.
-                            return run;
-                        } else {
-                            run.testResultsByTestCaseHash[result.hashTestCase] =
-                                result;
-                            run.testCaseHashes.push(result.hashTestCase);
-                            run.stats[result.label]++;
-                        }
-
-                        return run;
-                    }),
+                (run, result) => {
+                    run.testResultsByTestCaseHash[result.hashTestCase] = result;
+                    run.testCaseHashes.push(result.hashTestCase);
+                    run.stats[result.label]++;
+                    return run;
+                },
             ),
             P.Effect.map(run => {
                 run.stats.precision = precision(run.stats);

@@ -7,4 +7,12 @@ export default tseslint.config(
     ...tseslint.configs.strict,
     ...tseslint.configs.stylistic,
     prettier,
+    {
+        rules: {
+            // Category: "This aint no error"
+            '@typescript-eslint/no-unused-vars': 'warn',
+            // Category: "Shut up, I know what I'm doing"
+            '@typescript-eslint/prefer-for-of': 'off',
+        },
+    },
 );
