@@ -5,6 +5,7 @@ import * as PT from '@creative-introvert/tons-of-tests';
 import * as P from './prelude.js';
 import {Config} from './Config.js';
 import {getPreviousTestRunResults, cached} from './common.js';
+import {isNotUndefined} from 'effect/Predicate';
 
 const exitOnDiff = Options.boolean('exit-on-diff').pipe(
     Options.withDescription(
@@ -83,6 +84,14 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
             P.pipe(
                 PT.Test.all(testSuite, {concurrency}),
                 P.Stream.tap(_ => tests.insertTestResult(_, testSuite.name)),
+                P.Stream.catchTag('DuplicateTestResult', e => {
+                    console.warn('Duplicate test result', {
+                        input: e.input,
+                        expected: e.expected,
+                    });
+                    return P.Stream.succeed(undefined);
+                }),
+                P.Stream.filter(isNotUndefined),
                 PT.Test.runCollectRecord(currentTestRun),
                 P.Effect.tap(P.Effect.logDebug('from run')),
                 P.Effect.map(filterUnchanged(previousTestRun)),

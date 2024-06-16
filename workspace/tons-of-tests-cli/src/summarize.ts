@@ -4,6 +4,7 @@ import * as PT from '@creative-introvert/tons-of-tests';
 import * as P from './prelude.js';
 import {Config} from './Config.js';
 import {getPreviousTestRunResults, cached} from './common.js';
+import {isNotUndefined} from 'effect/Predicate';
 
 const LabelSchema = P.Schema.transform(
     P.Schema.String,
@@ -42,7 +43,6 @@ const andTags = Options.text('all-tags').pipe(
     Options.optional,
     Options.withDescription('Filter tags (AND).'),
 );
-
 
 // TEST: summarize --labels doesn't affect the db (i.e. same test results are stored)
 // TEST: summarize --run -> commit -> summarize --run is idempotent
@@ -112,6 +112,14 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
         const getFromRun = () =>
             PT.Test.all(testSuite, {concurrency: concurrency || 1}).pipe(
                 P.Stream.tap(_ => tests.insertTestResult(_, testSuite.name)),
+                P.Stream.catchTag('DuplicateTestResult', e => {
+                    console.warn('Duplicate test result', {
+                        input: e.input,
+                        expected: e.expected,
+                    });
+                    return P.Stream.succeed(undefined);
+                }),
+                P.Stream.filter(isNotUndefined),
                 PT.Test.runCollectRecord(currentTestRun),
                 P.Effect.tap(P.Effect.logDebug('from run')),
                 P.Effect.map(filter),

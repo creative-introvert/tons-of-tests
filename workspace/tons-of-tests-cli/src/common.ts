@@ -36,3 +36,6 @@ export const getPreviousTestRunResults = <
             ),
         );
     });
+
+// eslint-disable-next-line @typescript-eslint/no-invalid-void-type
+export const isNotUndefined = <T>(a: T | undefined | void): a is T => a !== undefined;

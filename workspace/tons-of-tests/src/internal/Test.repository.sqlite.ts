@@ -11,6 +11,7 @@ import type {
 import {LabelSchema, StatsSchema} from './Classify.js';
 import {split} from './lib/Schema.js';
 import type {TestResult} from '../Test.js';
+import {DuplicateTestResult} from '../Error.js';
 
 export const tables = {
     testResults: 'test-results',
@@ -104,10 +105,14 @@ const makeTestRepository = P.Effect.gen(function* () {
 
                 yield* sql`
                     INSERT INTO ${sql(tables.testResults)}
-                    ${sql.insert(encoded)}
-                    ON CONFLICT(id) DO NOTHING;
-                `;
-
+                    ${sql.insert(encoded)};
+                    -- ON CONFLICT(id) DO NOTHING;
+                `.pipe(
+                    P.Effect.catchIf(
+                        _ => _.code === 'SQLITE_CONSTRAINT_PRIMARYKEY',
+                        () => P.Effect.fail(new DuplicateTestResult(testResult)),
+                    ),
+                );
                 yield* sql`
                     INSERT INTO ${sql(tables.testRunResults)}
                     VALUES (
@@ -116,8 +121,9 @@ const makeTestRepository = P.Effect.gen(function* () {
                             WHERE hash IS NULL AND name = ${name}
                         ),
                         ${encoded.id}
-                    )
-                    ON CONFLICT(testRun, testResult) DO NOTHING;
+                    );
+                    -- I'm pretty sure above catches all cases where this conflict would apply.
+                    -- ON CONFLICT(testRun, testResult) DO NOTHING;
                 `;
             }),
         );

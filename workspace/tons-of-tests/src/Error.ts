@@ -1,8 +1,8 @@
+import {TestResult} from './Test.js';
 import * as P from './prelude.js';
 
-export class DuplicateTestCase<I> extends P.Data.TaggedError(
-    'DuplicateTestCase',
-)<{
-    input: I;
-    id: string;
-}> {}
+export class DuplicateTestResult extends P.Data.TaggedError(
+    'DuplicateTestResult',
+)<TestResult> {
+    static tag = 'DuplicateTestResult' as const;
+}

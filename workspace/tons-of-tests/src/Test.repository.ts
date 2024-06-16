@@ -5,6 +5,7 @@ import type {ParseError} from '@effect/schema/ParseResult';
 import * as internal from './internal/Test.repository.sqlite.js';
 import type {Label} from './Classify.js';
 import type {TestResult} from './Test.js';
+import {DuplicateTestResult} from './Error.js';
 
 export type TestResultRead = {
     id: string;
@@ -72,7 +73,10 @@ export type TestRepository = {
     insertTestResult: (
         input: Omit<TestResult, 'createdAt'>,
         name: string,
-    ) => Effect.Effect<void, ResultLengthMismatch | SqlError | ParseError>;
+    ) => Effect.Effect<
+        void,
+        ResultLengthMismatch | SqlError | ParseError | DuplicateTestResult
+    >;
 };
 export const TestRepository = internal.TestRepository;
 export const LiveLayer = internal.LiveLayer;
