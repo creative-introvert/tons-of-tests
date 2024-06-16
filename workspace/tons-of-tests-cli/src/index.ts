@@ -1,4 +1,4 @@
-import {Command, Options} from '@effect/cli';
+import {Command} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
 
 import * as P from './prelude.js';
@@ -18,8 +18,15 @@ const cli = Command.run(
 
 export const run = <I = unknown, O = unknown, T = unknown>(
     config: Config<I, O, T>,
-): Promise<void> =>
+): Promise<string | null> =>
     P.Effect.suspend(() => cli(process.argv)).pipe(
+        P.Effect.flatMap(() =>
+            P.Effect.gen(function* () {
+                const tests = yield* PT.TestRepository.TestRepository;
+                return yield* tests.getLastTestRunHash(config.testSuite.name);
+            }),
+        ),
+        P.Effect.map(P.Option.getOrNull),
         P.Effect.provide(
             P.NodeContext.layer.pipe(
                 P.Layer.merge(makeConfigLayer(config as Config)),

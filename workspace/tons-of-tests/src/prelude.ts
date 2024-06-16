@@ -20,4 +20,4 @@ export * as S from '@effect/schema';
 export * as Record from 'effect/Record';
 export * as Effect from 'effect/Effect';
 export * as Stream from 'effect/Stream';
-export {pipe, dual, hole} from 'effect/Function';
+export {pipe, dual, hole, flow} from 'effect/Function';

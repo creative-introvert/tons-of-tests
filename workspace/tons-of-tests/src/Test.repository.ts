@@ -56,6 +56,9 @@ export type TestRepository = {
         readonly TestRunResults[],
         SqlError | ParseError
     >;
+    getLastTestRunHash: (
+        name: string,
+    ) => Effect.Effect<Option.Option<string>, SqlError>;
     getOrCreateCurrentTestRun: (
         name: string,
     ) => Effect.Effect<TestRun, SqlError>;

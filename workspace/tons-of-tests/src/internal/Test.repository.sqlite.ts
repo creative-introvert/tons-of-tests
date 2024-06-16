@@ -50,6 +50,7 @@ const TestRunResultsSchema = P.Schema.Struct({
     testResult: P.Schema.String,
 }).pipe(P.Schema.Array);
 
+// FIXME: P.Effect.tag
 export const TestRepository =
     P.Context.GenericTag<_TestRepository>('TestRunRepository');
 
@@ -185,6 +186,26 @@ const makeTestRepository = P.Effect.gen(function* () {
         return yield* P.Schema.decode(TestResultsSchema)(results);
     });
 
+    const getLastTestRunHash = (name: string) =>
+        P.Effect.gen(function* () {
+            const current = yield* sql<TestRun>`
+                SELECT *
+                FROM ${sql(tables.testRuns)}
+                WHERE hash IS NOT NULL AND name = ${name}
+                ORDER BY id DESC
+                LIMIT 1;
+            `;
+
+            return current;
+        }).pipe(
+            P.Effect.map(
+                P.flow(
+                    P.Array.get(0),
+                    P.Option.flatMap(_ => P.Option.fromNullable(_.hash)),
+                ),
+            ),
+        );
+
     const getOrCreateCurrentTestRun = (name: string) =>
         P.Effect.gen(function* () {
             const current = yield* sql<TestRun>`
@@ -202,7 +223,7 @@ const makeTestRepository = P.Effect.gen(function* () {
             }
 
             return current;
-        }).pipe(P.Effect.map(P.Array.unsafeGet(0)));
+        }).pipe(P.Effect.map(P.flow(P.Array.head, P.Option.getOrThrow)));
 
     const clearStale = ({name, keep = 1}: {name: string; keep?: number}) =>
         sql.withTransaction(
@@ -269,6 +290,7 @@ const makeTestRepository = P.Effect.gen(function* () {
         getAllTestResults,
         getAllTestRuns,
         getOrCreateCurrentTestRun,
+        getLastTestRunHash,
         getPreviousTestRun,
         getTestResultsStream,
         hasResults,
