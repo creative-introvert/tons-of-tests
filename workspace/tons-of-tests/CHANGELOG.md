@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests
 
+## 0.7.1
+
+### Patch Changes
+
+- Docs: Update README.
+
 ## 0.7.0
 
 ### Minor Changes

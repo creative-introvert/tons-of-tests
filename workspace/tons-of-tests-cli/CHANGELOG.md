@@ -1,5 +1,13 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.9.1
+
+### Patch Changes
+
+- Docs: Update README.
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@0.7.1
+
 ## 0.9.0
 
 ### Minor Changes
