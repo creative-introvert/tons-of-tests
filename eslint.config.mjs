@@ -13,6 +13,7 @@ export default tseslint.config(
             '@typescript-eslint/no-unused-vars': 'warn',
             // Category: "Shut up, I know what I'm doing"
             '@typescript-eslint/prefer-for-of': 'off',
+            '@typescript-eslint/consistent-type-definitions': 'off',
         },
     },
 );

@@ -1,6 +1,3 @@
-import {isDeepStrictEqual} from 'node:util';
-import {randomUUID} from 'node:crypto';
-
 import type {ResultLengthMismatch, SqlError} from '@effect/sql/Error';
 import {Command, Options} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
@@ -23,17 +20,16 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
     config: Config<I, O, T>;
 }) =>
     P.Effect.gen(function* () {
-        const repository = yield* PT.TestRepository.TestRepository;
+        const tests = yield* PT.TestRepository.TestRepository;
 
-        const currentTestRun = yield* repository.getOrCreateCurrentTestRun(
+        const currentTestRun = yield* tests.getOrCreateCurrentTestRun(
             testSuite.name,
         );
-        const hasResults = yield* repository.hasResults(currentTestRun);
+        const hasResults = yield* tests.hasResults(currentTestRun);
 
-        // FIXME: avoid type cast
-        const previousTestRun = (yield* getPreviousTestRunResults(
-            testSuite,
-        )) as P.Option.Option<PT.Test.TestRunResults<I, O, T>>;
+        const previousTestRun: P.Option.Option<
+            PT.Test.TestRunResults<unknown, unknown, unknown>
+        > = yield* getPreviousTestRunResults(testSuite);
 
         const filterUnchanged =
             (previous: P.Option.Option<PT.Test.TestRunResults>) =>
@@ -86,7 +82,10 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
         > =>
             P.pipe(
                 PT.Test.all(testSuite, {concurrency}),
-                P.Effect.flatMap(PT.Test.runCollectRecord(currentTestRun)),
+                P.Stream.tap(_ => tests.insertTestResult(_, testSuite.name)),
+                PT.Test.runCollectRecord(currentTestRun),
+                P.Effect.tap(P.Effect.logDebug('from run')),
+                P.Effect.map(filterUnchanged(previousTestRun)),
             );
 
         const getFromCache = (): P.Effect.Effect<
@@ -94,14 +93,18 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
             SqlError | P.Result.ParseError,
             PT.TestRepository.TestRepository
         > =>
-            repository
+            tests
                 .getTestResultsStream(currentTestRun)
-                .pipe(PT.Test.runCollectRecord(currentTestRun));
+                .pipe(
+                    PT.Test.runCollectRecord(currentTestRun),
+                    P.Effect.tap(P.Effect.logDebug('from cache')),
+                    P.Effect.map(filterUnchanged(previousTestRun)),
+                );
 
         const testRun: PT.Test.TestRunResults = yield* P.Effect.if(
             shouldRun || !hasResults,
             {onTrue: getFromRun, onFalse: getFromCache},
-        ).pipe(P.Effect.map(filterUnchanged(previousTestRun)));
+        );
 
         return {testRun, previousTestRun};
     });
@@ -136,6 +139,8 @@ export const diff = Command.make(
                         previousTestRun,
                         displayConfig,
                     }),
+                    '',
+                    PT.Show.stats({testRun}),
                     '',
                     PT.Show.diff({
                         diff: PT.Test.diff({testRun, previousTestRun}),

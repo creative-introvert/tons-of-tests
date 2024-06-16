@@ -17,4 +17,5 @@ void CLI.run({
         program: predictObesity,
     },
     dbPath: 'with-cli-simple.db',
+    concurrency: 10,
 });

@@ -49,7 +49,7 @@ t.describe('Test.repository.sqlite', () => {
                 testCases: [{input: 'a', expected: 'A!'}],
                 program: s => P.Effect.succeed(s.toUpperCase()),
                 name: nameB,
-            }).pipe(P.Effect.flatMap(P.Stream.runDrain));
+            }).pipe(P.Stream.runDrain);
 
             yield* repository.commitCurrentTestRun({
                 name: nameB,
@@ -60,7 +60,7 @@ t.describe('Test.repository.sqlite', () => {
                 testCases: [{input: 'a', expected: 'A!'}],
                 program: s => P.Effect.succeed(s.toUpperCase() + '!'),
                 name: nameB,
-            }).pipe(P.Effect.flatMap(P.Stream.runDrain));
+            }).pipe(P.Stream.runDrain);
 
             yield* repository.commitCurrentTestRun({
                 name: nameB,
@@ -71,14 +71,14 @@ t.describe('Test.repository.sqlite', () => {
                 testCases: [{input: 'a', expected: 'A!'}],
                 program: s => P.Effect.succeed(s.toUpperCase() + '!!'),
                 name: nameB,
-            }).pipe(P.Effect.flatMap(P.Stream.runDrain));
+            }).pipe(P.Stream.runDrain);
 
             // Set up the main test runs to be cleared.
             yield* T.all({
                 testCases: [{input: 1, expected: 10}],
                 program: n => P.Effect.succeed(n + 1),
                 name: nameA,
-            }).pipe(P.Effect.flatMap(P.Stream.runDrain));
+            }).pipe(P.Stream.runDrain);
 
             yield* repository.commitCurrentTestRun({
                 name: nameA,
@@ -89,7 +89,7 @@ t.describe('Test.repository.sqlite', () => {
                 testCases: [{input: 1, expected: 10}],
                 program: n => P.Effect.succeed(n + 2),
                 name: nameA,
-            }).pipe(P.Effect.flatMap(P.Stream.runDrain));
+            }).pipe(P.Stream.runDrain);
 
             yield* repository.commitCurrentTestRun({
                 name: nameA,
@@ -100,7 +100,7 @@ t.describe('Test.repository.sqlite', () => {
                 testCases: [{input: 1, expected: 10}],
                 program: n => P.Effect.succeed(n * 10),
                 name: nameA,
-            }).pipe(P.Effect.flatMap(P.Stream.runDrain));
+            }).pipe(P.Stream.runDrain);
 
             yield* repository.clearStale({name: nameA});
 
