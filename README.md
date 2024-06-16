@@ -38,8 +38,8 @@ Further, a cautionary note on stability:
 With your package manager of choice, install the following packages:
 
 ```bash
-@creative-introvert/tots
-@creative-introvert/tots-cli
+@creative-introvert/tons-of-tests
+@creative-introvert/tons-of-tests-cli
 effect
 ```
 
@@ -53,15 +53,14 @@ Define your test-suite.
 
 ```ts
 // my-test-suite.ts
-import * as CLI from '@creative-introvert/tots-cli';
+import * as CLI from '@creative-introvert/tons-of-tests-cli';
 import {Effect} from 'effect';
 
 const myFunction = (input: number) => Promise.resolve(input * 1.7);
 
 void CLI.run({
     testSuite: {
-        // Convert myFunction to Effect-returning.
-        program: (input: number) => Effect.promise(() => myFunction(input)),
+        name: 'with-cli-simple',
         testCases: [
             {input: 0, expected: 0},
             {input: 1, expected: 2},
@@ -69,12 +68,10 @@ void CLI.run({
             {input: 3, expected: 4},
             {input: 4, expected: 5},
         ],
+        program: (input: number) => Effect.promise(() => myFunction(input)),
     },
-    testSuiteName: 'simple',
-    // Currently, test results are written to the file-system.
-    // This will be replaced by an SQLite backend soon™.
-    dirPath: '.metrics',
-    filePostfix: 'ptest',
+    dbPath: 'with-cli-simple.db',
+    concurrency: 10,
 });
 ```
 
@@ -83,31 +80,34 @@ void CLI.run({
 ```
 pnpx tsx my-test-suite.ts summarize
 
-=============================================================================
-                                   SUMMARY
-=============================================================================
-index | id       | input | tags | label | expected | result | previous result
------------------------------------------------------------------------------
-1/5   │ 5feceb66 │ 0     │      │ TP    │ 0        │ 0      │ ∅
------------------------------------------------------------------------------
-2/5   │ 6b86b273 │ 1     │      │ FP    │ 2        │ 1.7    │ ∅
------------------------------------------------------------------------------
-3/5   │ d4735e3a │ 2     │      │ FP    │ 3        │ 3.4    │ ∅
------------------------------------------------------------------------------
-4/5   │ 4e074085 │ 3     │      │ FP    │ 4        │ 5.1    │ ∅
------------------------------------------------------------------------------
-5/5   │ 4b227777 │ 4     │      │ FP    │ 5        │ 6.8    │ ∅
-=============================================================================
-index | id       | input | tags | label | expected | result | previous result
-=============================================================================
+┌───────────────────────────────────────────────────────────────────────────┐
+│ SUMMARY                                                                   │
+├─────┬──────────┬────────┬──────┬───────┬──────────┬────────┬──────────────┤
+│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
+│ 1/5 │ bd04cb2c │ 0.69ms │      │ 0     │ 0        │ TP     │              │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
+│ 2/5 │ 562e2cca │ 0.36ms │      │ 1     │ 2        │ FP     │ 2 => 1.7     │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
+│ 3/5 │ a5afd52f │ 3.30ms │      │ 2     │ 3        │ FP     │ 3 => 3.4     │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
+│ 4/5 │ 5f7f8725 │ 1.19ms │      │ 3     │ 4        │ FP     │ 4 => 5.1     │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
+│ 5/5 │ 6cc26923 │ 1.22ms │      │ 4     │ 5        │ FP     │ 5 => 6.8     │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
+│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │
+└─────┴──────────┴────────┴──────┴───────┴──────────┴────────┴──────────────┘
 
-======================================
-                 STATS
-======================================
-TP | TN | FP | FN | precision | recall
---------------------------------------
-1  | 0  | 4  | 0  | 0.20      | 1.00
-======================================
+
+┌────────────────────────────────────────────────────────────────────┐
+│ STATS                                                              │
+├───┬────┬────┬────┬────┬───────────┬────────┬──────────┬────────────┤
+│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
+├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
+│ 5 │ 1  │ 0  │ 4  │ 0  │ 0.20      │ 1.00   │ 1.35ms   │ 1.19ms     │
+├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
+│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
+└───┴────┴────┴────┴────┴───────────┴────────┴──────────┴────────────┘
 ```
 
 #### Summarize With Labels Filter
@@ -115,29 +115,32 @@ TP | TN | FP | FN | precision | recall
 ```
 pnpx tsx my-test-suite.ts summarize --labels TP
 
-=============================================================================
-                                   SUMMARY
-=============================================================================
-index | id       | input | tags | label | expected | result | previous result
------------------------------------------------------------------------------
-1/1   │ 5feceb66 │ 0     │      │ TP    │ 0        │ 0      │ ∅
-=============================================================================
-index | id       | input | tags | label | expected | result | previous result
-=============================================================================
+┌───────────────────────────────────────────────────────────────────────────┐
+│ SUMMARY                                                                   │
+├─────┬──────────┬────────┬──────┬───────┬──────────┬────────┬──────────────┤
+│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
+│ 1/1 │ bd04cb2c │ 0.52ms │      │ 0     │ 0        │ TP     │              │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
+│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │
+└─────┴──────────┴────────┴──────┴───────┴──────────┴────────┴──────────────┘
 
-======================================
-                 STATS
-======================================
-TP | TN | FP | FN | precision | recall
---------------------------------------
-1  | 0  | 0  | 0  | 1.00      | 1.00
-======================================
+
+┌────────────────────────────────────────────────────────────────────┐
+│ STATS                                                              │
+├───┬────┬────┬────┬────┬───────────┬────────┬──────────┬────────────┤
+│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
+├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
+│ 5 │ 1  │ 0  │ 4  │ 0  │ 0.20      │ 1.00   │ 1.23ms   │ 1.28ms     │
+├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
+│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
+└───┴────┴────┴────┴────┴───────────┴────────┴──────────┴────────────┘
 ```
 
 #### Write Test Results
 
 ```bash
-pnpx tsx my-test-suite.ts write
+pnpx tsx my-test-suite.ts commit
 ```
 
 #### Diff
@@ -165,31 +168,45 @@ index 21cd713..ab1b6dc 100644
 ```
 pnpx tsx my-test-suite.ts diff
 # or, if you want it to process.exit(1) on diff
-pnpx tsx my-test-suite.ts diff --ci
+pnpx tsx my-test-suite.ts diff --exit-on-diff
 
-=============================================================================
-                                   SUMMARY
-=============================================================================
-index | id       | input | tags | label | expected | result | previous result
------------------------------------------------------------------------------
-1/4   │ 6b86b273 │ 1     │      │ TP    │ 2        │ 2      │ 1.7
------------------------------------------------------------------------------
-2/4   │ d4735e3a │ 2     │      │ FP    │ 3        │ 4      │ 3.4
------------------------------------------------------------------------------
-3/4   │ 4e074085 │ 3     │      │ FP    │ 4        │ 6      │ 5.1
------------------------------------------------------------------------------
-4/4   │ 4b227777 │ 4     │      │ FP    │ 5        │ 8      │ 6.8
-=============================================================================
-index | id       | input | tags | label | expected | result | previous result
-=============================================================================
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ SUMMARY                                                                                             │
+├─────┬──────────┬────────┬──────┬───────┬──────────┬────────┬──────────────┬─────────┬───────────────┤
+│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │ label₋₁ │ diff result₋₁ │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┼─────────┼───────────────┤
+│ 1/4 │ 562e2cca │ 0.23ms │      │ 1     │ 2        │ TP     │              │ FP      │ 2 => 1.7      │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┼─────────┼───────────────┤
+│ 2/4 │ a5afd52f │ 3.66ms │      │ 2     │ 3        │ FP     │ 3 => 4       │ FP      │ 3 => 3.4      │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┼─────────┼───────────────┤
+│ 3/4 │ 5f7f8725 │ 1.19ms │      │ 3     │ 4        │ FP     │ 4 => 6       │ FP      │ 4 => 5.1      │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┼─────────┼───────────────┤
+│ 4/4 │ 6cc26923 │ 0.98ms │      │ 4     │ 5        │ FP     │ 5 => 8       │ FP      │ 5 => 6.8      │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┼─────────┼───────────────┤
+│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │ label₋₁ │ diff result₋₁ │
+└─────┴──────────┴────────┴──────┴───────┴──────────┴────────┴──────────────┴─────────┴───────────────┘
 
-======================================
-                 DIFF
-======================================
-TP | TN | FP | FN | precision | recall
---------------------------------------
-0  │ 0  │ -1 │ 0  │ 0.05      │ 0.00
-======================================
+
+┌────────────────────────────────────────────────────────────────────┐
+│ STATS                                                              │
+├───┬────┬────┬────┬────┬───────────┬────────┬──────────┬────────────┤
+│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
+├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
+│ 5 │ 2  │ 0  │ 3  │ 0  │ 0.40      │ 1.00   │ 1.30ms   │ 0.98ms     │
+├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
+│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
+└───┴────┴────┴────┴────┴───────────┴────────┴──────────┴────────────┘
+
+
+┌────────────────────────────────────────┐
+│ DIFF                                   │
+├────┬────┬────┬────┬───────────┬────────┤
+│ TP │ TN │ FP │ FN │ precision │ recall │
+├────┼────┼────┼────┼───────────┼────────┤
+│ 1  │ 0  │ -1 │ 0  │ 0.20      │ 0.00   │
+├────┼────┼────┼────┼───────────┼────────┤
+│ TP │ TN │ FP │ FN │ precision │ recall │
+└────┴────┴────┴────┴───────────┴────────┘
 ```
 
 Checkout `workspace/examples/src/with-cli` for more examples.
@@ -200,47 +217,13 @@ pnpx tsx <file-path>
 pnpx tsx ./workspace/examples/src/with-cli/simple.ts
 ```
 
-### Without CLI
 
-For full control over execution, and if you're not afraid of using [effect](https://effect.website/)
-you may simply import the runner functions individually.
-
-```ts
-import * as PT from '@creative-introvert/tots';
-import {Console, Duration, Effect, Stream} from 'effect';
-
-type Input = number;
-type Result = number;
-
-const program = (input: Input) =>
-    Effect.promise(() => Promise.resolve(input * 2)).pipe(
-        Effect.delay(Duration.millis(500)),
-    );
-
-const testCases: PT.TestCase<Input, Result>[] = [
-    {input: 0, expected: 0},
-    {input: 1, expected: 1},
-    {input: 2, expected: 2},
-    {input: 3, expected: 3},
-    {input: 4, expected: 4},
-];
-
-await PT.testAll({
-    testCases,
-    program,
-}).pipe(
-    PT.runFoldEffect,
-    Effect.tap(testRun => Console.log(PT.Show.summary({testRun}))),
-    Effect.runPromise,
-);
-```
-
-Checkout `workspace/examples/src/as-library` for more examples.
+Checkout `workspace/examples` for more examples.
 
 ```bash
 pnpx tsx <file-path>
 # e.g.
-pnpx tsx ./workspace/examples/src/as-library/simple.ts
+pnpx tsx ./workspace/examples/src/with-cli/simple.ts
 ```
 
 ## Why No Runtime?
