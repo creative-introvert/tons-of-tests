@@ -1,10 +1,10 @@
 import type {SqlError} from '@effect/sql/Error';
-import {Command, Options} from '@effect/cli';
+import {Options} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
 
 import * as P from './prelude.js';
 
-export const shouldRun = Options.boolean('run').pipe(
+export const cached = Options.boolean('cached').pipe(
     Options.withDefault(false),
 );
 

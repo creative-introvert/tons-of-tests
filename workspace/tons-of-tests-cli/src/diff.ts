@@ -4,7 +4,7 @@ import * as PT from '@creative-introvert/tons-of-tests';
 
 import * as P from './prelude.js';
 import {Config} from './Config.js';
-import {getPreviousTestRunResults, shouldRun} from './common.js';
+import {getPreviousTestRunResults, cached} from './common.js';
 
 const exitOnDiff = Options.boolean('exit-on-diff').pipe(
     Options.withDescription(
@@ -13,10 +13,10 @@ const exitOnDiff = Options.boolean('exit-on-diff').pipe(
 );
 
 export const _diff = <I = unknown, O = unknown, T = unknown>({
-    shouldRun,
+    cached,
     config: {testSuite, concurrency},
 }: {
-    shouldRun: boolean;
+    cached: boolean;
     config: Config<I, O, T>;
 }) =>
     P.Effect.gen(function* () {
@@ -102,8 +102,8 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
                 );
 
         const testRun: PT.Test.TestRunResults = yield* P.Effect.if(
-            shouldRun || !hasResults,
-            {onTrue: getFromRun, onFalse: getFromCache},
+            cached && hasResults,
+            {onTrue: getFromCache, onFalse: getFromRun},
         );
 
         return {testRun, previousTestRun};
@@ -111,13 +111,13 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
 
 export const diff = Command.make(
     'diff',
-    {exitOnDiff, shouldRun},
-    ({exitOnDiff, shouldRun}) =>
+    {exitOnDiff, cached},
+    ({exitOnDiff, cached}) =>
         P.Effect.gen(function* () {
             const config = yield* Config;
             const {testSuite, displayConfig} = config;
             const {testRun, previousTestRun} = yield* _diff({
-                shouldRun,
+                cached,
                 config,
             });
 

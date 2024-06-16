@@ -3,7 +3,7 @@ import * as PT from '@creative-introvert/tons-of-tests';
 
 import * as P from './prelude.js';
 import {Config} from './Config.js';
-import {getPreviousTestRunResults, shouldRun} from './common.js';
+import {getPreviousTestRunResults, cached} from './common.js';
 
 const LabelSchema = P.Schema.transform(
     P.Schema.String,
@@ -50,13 +50,13 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
     labels: maybeLabels,
     orTags: maybeOrTags,
     andTags: maybeAndTags,
-    shouldRun,
+    cached,
     config: {testSuite, displayConfig, concurrency},
 }: {
     labels: P.Option.Option<readonly PT.Classify.Label[]>;
     orTags: P.Option.Option<readonly string[]>;
     andTags: P.Option.Option<readonly string[]>;
-    shouldRun: boolean;
+    cached: boolean;
     config: Config<I, O, T>;
 }) =>
     P.Effect.gen(function* () {
@@ -127,8 +127,8 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
                 );
 
         const testRun: PT.Test.TestRunResults = yield* P.Effect.if(
-            shouldRun || !hasResults,
-            {onTrue: getFromRun, onFalse: getFromCache},
+            cached && hasResults,
+            {onTrue: getFromCache, onFalse: getFromRun},
         );
 
         yield* P.Effect.logDebug('testRun');
@@ -143,8 +143,8 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
 
 export const summarize = Command.make(
     'summarize',
-    {labels, shouldRun, orTags, andTags},
-    ({labels, shouldRun, orTags, andTags}) =>
+    {labels, cached, orTags, andTags},
+    ({labels, cached, orTags, andTags}) =>
         P.Effect.gen(function* () {
             const config = yield* Config;
             const {displayConfig} = config;
@@ -152,7 +152,7 @@ export const summarize = Command.make(
                 labels,
                 orTags,
                 andTags,
-                shouldRun,
+                cached,
                 config,
             });
 
