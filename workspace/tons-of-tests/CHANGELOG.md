@@ -1,5 +1,14 @@
 # @creative-introvert/tons-of-tests
 
+## 0.6.0
+
+### Minor Changes
+
+- Feat: Clearer progress.
+  Feat: Add previous label column.
+  Feat: Show stats in diff.
+  Fix: Incorrect stats.
+
 ## 0.5.1
 
 ### Patch Changes

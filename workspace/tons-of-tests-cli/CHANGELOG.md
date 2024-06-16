@@ -1,5 +1,19 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.7.0
+
+### Minor Changes
+
+- Feat: Clearer progress.
+  Feat: Add previous label column.
+  Feat: Show stats in diff.
+  Fix: Incorrect stats.
+
+### Patch Changes
+
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@0.6.0
+
 ## 0.6.1
 
 ### Patch Changes
