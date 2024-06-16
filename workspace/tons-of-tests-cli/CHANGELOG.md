@@ -1,5 +1,16 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.9.0
+
+### Minor Changes
+
+- Feat: Always return last test run hash.
+
+### Patch Changes
+
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@0.7.0
+
 ## 0.8.0
 
 ### Minor Changes

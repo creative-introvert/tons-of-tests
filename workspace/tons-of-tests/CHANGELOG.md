@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests
 
+## 0.7.0
+
+### Minor Changes
+
+- Feat: Always return last test run hash.
+
 ## 0.6.0
 
 ### Minor Changes
