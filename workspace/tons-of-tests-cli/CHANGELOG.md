@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.8.0
+
+### Minor Changes
+
+- Feat: Rework --run as --cached.
+
 ## 0.7.0
 
 ### Minor Changes
