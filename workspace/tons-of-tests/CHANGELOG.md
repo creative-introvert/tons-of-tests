@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests
 
+## 0.7.2
+
+### Patch Changes
+
+- Chore: Update deps.
+
 ## 0.7.1
 
 ### Patch Changes
