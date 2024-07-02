@@ -6,6 +6,8 @@ export type Label = 'TP' | 'TN' | 'FP' | 'FN';
 
 export const values = internal.values;
 export const defaultIsEqual = internal.defaultIsEqual;
+export const defaultIsNil = internal.defaultIsNil;
+export const makeClassify = internal.makeClassify;
 
 export type Classify<O, T> = (output: O, expected: T) => Label;
 

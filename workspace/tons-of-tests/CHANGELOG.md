@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests
 
+## 0.8.0
+
+### Minor Changes
+
+- 555df78: Feat: Expose makeClassify and defaultIsNil
+
 ## 0.7.2
 
 ### Patch Changes
