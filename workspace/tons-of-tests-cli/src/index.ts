@@ -1,14 +1,14 @@
-import {Command} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
+import {Command} from '@effect/cli';
+import {NodeContext} from '@effect/platform-node';
+import {Effect, Layer, Option} from 'effect';
 
-import {summarize} from './summarize.js';
-import {diff} from './diff.js';
 import {commit} from './commit.js';
 import type {Config} from './Config.js';
 import {makeConfigLayer} from './Config.js';
+import {diff} from './diff.js';
+import {summarize} from './summarize.js';
 import {VERSION} from './version.js';
-import { Effect, Layer, Option } from 'effect';
-import { NodeContext } from '@effect/platform-node';
 
 const cli = Command.run(
     Command.make('tons-of-tests').pipe(

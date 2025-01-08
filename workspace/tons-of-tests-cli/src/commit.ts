@@ -1,10 +1,10 @@
 import {randomUUID} from 'node:crypto';
 
-import {Command} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
+import {Command} from '@effect/cli';
+import {Console, Effect} from 'effect';
 
 import {Config} from './Config.js';
-import { Console, Effect } from 'effect';
 
 export const _commit = <I = unknown, O = unknown, T = unknown>({
     config: {testSuite},

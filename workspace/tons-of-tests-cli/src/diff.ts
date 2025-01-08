@@ -1,11 +1,11 @@
-import type {ResultLengthMismatch, SqlError} from '@effect/sql/SqlError';
-import {Command, Options} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
-import { Console, Effect, Option, pipe, Stream } from 'effect';
-import type { ParseError } from 'effect/ParseResult';
+import {Command, Options} from '@effect/cli';
+import type {ResultLengthMismatch, SqlError} from '@effect/sql/SqlError';
+import {Console, Effect, Option, pipe, Stream} from 'effect';
+import type {ParseError} from 'effect/ParseResult';
 
+import {cached, getPreviousTestRunResults} from './common.js';
 import {Config} from './Config.js';
-import {getPreviousTestRunResults, cached} from './common.js';
 
 const exitOnDiff = Options.boolean('exit-on-diff').pipe(
     Options.withDescription(

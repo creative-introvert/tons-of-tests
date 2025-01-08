@@ -1,5 +1,5 @@
 import type * as PT from '@creative-introvert/tons-of-tests';
-import { Context, Layer } from 'effect';
+import {Context, Layer} from 'effect';
 
 export type Config<I = unknown, O = unknown, T = unknown> = {
     testSuite: PT.Test.TestSuite<I, O, T>;

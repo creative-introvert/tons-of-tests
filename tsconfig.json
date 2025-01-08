@@ -5,10 +5,18 @@
         "allowJs": true,
         "checkJs": false
     },
-    "include": ["*.config.mjs"],
+    "include": [
+        "**/*.config.mjs"
+    ],
     "references": [
-        { "path": "./workspace/tons-of-tests"},
-        { "path": "./workspace/tons-of-tests-cli"},
-        { "path": "./workspace/examples"}
+        {
+            "path": "./workspace/tons-of-tests"
+        },
+        {
+            "path": "./workspace/tons-of-tests-cli"
+        },
+        {
+            "path": "./workspace/examples"
+        }
     ]
 }

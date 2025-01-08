@@ -1,10 +1,11 @@
-import type { Option } from 'effect';
+import type {Option} from 'effect';
+
 import type {Stats} from './Classify.js';
 import type {Diff, TestResult} from './Test.js';
 
-export {showSummary as summarize} from './internal/summarize.js';
 export {showDiff as diff} from './internal/diff.js';
 export {showStats as stats} from './internal/stats.js';
+export {showSummary as summarize} from './internal/summarize.js';
 
 export type DiffContext = {
     diff: Diff;

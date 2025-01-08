@@ -1,27 +1,36 @@
 import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
 
-import type {Classify} from '../Classify.js';
 import {
-    LabelSchema,
-    Stats,
+    Array as A,
+    Console,
+    Effect,
+    Option,
+    pipe,
+    Schema,
+    Stream,
+} from 'effect';
+
+import type {Classify} from '../Classify.js';
+import type {
+    Diff,
+    Program,
+    TestCase,
+    TestResult,
+    TestRunResults,
+    TestSuite,
+} from '../Test.js';
+import type {TestRun} from '../Test.repository.js';
+import {
     defaultIsEqual,
     defaultIsNil,
+    LabelSchema,
     makeClassify,
     median,
     precision,
     recall,
+    Stats,
 } from './Classify.js';
-import type {
-    Program,
-    TestCase,
-    TestSuite,
-    TestResult,
-    TestRunResults,
-    Diff,
-} from '../Test.js';
-import type {TestRun} from '../Test.repository.js';
-import { Schema, Effect, pipe, Stream, Array as A, Console, Option } from 'effect';
 
 export const makeSha256 = <I>(input: I): string => {
     return createHash('sha256').update(JSON.stringify(input)).digest('hex');

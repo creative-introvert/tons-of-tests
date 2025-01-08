@@ -1,16 +1,16 @@
 import colors from 'ansi-colors';
-import {Option, Array, Record} from 'effect';
+import {Array, Option, Record} from 'effect';
 
-import {formatDiff} from './format-diff.js';
 import type {DisplayConfig} from '../DisplayConfig.js';
-import {showBorder, showHeader, showRow, showTitle} from './common.js';
-import type {TestRunResults} from '../Test.js';
-import {makeDefault} from './DisplayConfig.js';
 import type {
     SummarizeColumn,
     SummarizeColumnNames,
     SummarizeContext,
 } from '../Show.js';
+import type {TestRunResults} from '../Test.js';
+import {showBorder, showHeader, showRow, showTitle} from './common.js';
+import {makeDefault} from './DisplayConfig.js';
+import {formatDiff} from './format-diff.js';
 import {diff} from './lib/jsondiffpatch/index.js';
 
 const columns: SummarizeColumn[] = [
@@ -100,9 +100,7 @@ const columns: SummarizeColumn[] = [
         label: 'result₋₁',
         make: ({previousTestResult}: SummarizeContext) =>
             previousTestResult.pipe(
-                Option.map(_ =>
-                    JSON.stringify(_.result, null, 2)?.split('\n'),
-                ),
+                Option.map(_ => JSON.stringify(_.result, null, 2)?.split('\n')),
                 Option.getOrElse<string[]>(() => []),
             ),
     },
@@ -111,9 +109,10 @@ const columns: SummarizeColumn[] = [
         label: 'diff result₋₁',
         make: ({testResult, previousTestResult}: SummarizeContext) =>
             previousTestResult.pipe(
-                Option.map(_ =>
-                    formatDiff(diff(testResult.expected, _.result))?.split(
-                        '\n',
+                Option.map(
+                    _ =>
+                        formatDiff(diff(testResult.expected, _.result))?.split(
+                            '\n',
                         ) || [],
                 ),
                 Option.getOrElse<string[]>(() => []),
@@ -150,8 +149,7 @@ export const showSummary = ({
     const _columns = columns
         .filter(c => selectColumns.includes(c.name))
         .filter(
-            c =>
-                !c.name.startsWith('prev_') || Option.isSome(previousTestRun),
+            c => !c.name.startsWith('prev_') || Option.isSome(previousTestRun),
         );
     let columnWidths = _columns.map(m => m.label.length);
 
@@ -161,9 +159,7 @@ export const showSummary = ({
         const hash = hashes[i];
         const testResult = testRun.testResultsByTestCaseHash[hash];
         const previousTestResult = previousTestRun.pipe(
-            Option.flatMap(_ =>
-                Record.get(_.testResultsByTestCaseHash, hash),
-            ),
+            Option.flatMap(_ => Record.get(_.testResultsByTestCaseHash, hash)),
         );
 
         const row: [string, string[]][] = _columns.map(({label, make}) => [
@@ -182,7 +178,9 @@ export const showSummary = ({
 
         row.forEach(([key, values], i) => {
             if (values.length < maxHeight) {
-                values.push(...Array.makeBy(maxHeight - values.length, () => ''));
+                values.push(
+                    ...Array.makeBy(maxHeight - values.length, () => ''),
+                );
             }
         });
 

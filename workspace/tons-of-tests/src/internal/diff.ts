@@ -1,6 +1,8 @@
 import colors from 'ansi-colors';
 
 import type {DisplayConfig} from '../DisplayConfig.js';
+import type {DiffColumn, DiffColumnNames, DiffContext} from '../Show.js';
+import type {Diff, TestRunResults} from '../Test.js';
 import {
     colorNegative,
     colorPositive,
@@ -10,8 +12,6 @@ import {
     showTitle,
 } from './common.js';
 import {makeDefault} from './DisplayConfig.js';
-import type {Diff, TestRunResults} from '../Test.js';
-import type {DiffColumn, DiffColumnNames, DiffContext} from '../Show.js';
 
 const columns: DiffColumn[] = [
     {

@@ -2,6 +2,8 @@ import colors from 'ansi-colors';
 import {Option} from 'effect';
 
 import type {DisplayConfig} from '../DisplayConfig.js';
+import type {StatsColumn, StatsColumnNames, StatsContext} from '../Show.js';
+import type {TestRunResults} from '../Test.js';
 import {
     colorNegative,
     colorPositive,
@@ -11,8 +13,6 @@ import {
     showTitle,
 } from './common.js';
 import {makeDefault} from './DisplayConfig.js';
-import type {StatsColumn, StatsColumnNames, StatsContext} from '../Show.js';
-import type {TestRunResults} from '../Test.js';
 
 const columns: StatsColumn[] = [
     {
@@ -133,7 +133,7 @@ export const showStats = <I, O, T>({
 
     const row: [string, string[]][] = _columns.map(({label, make}) => [
         label,
-        make({ stats: testRun.stats }),
+        make({stats: testRun.stats}),
     ]);
 
     const columnWidths = _columns.map((m, i) =>

@@ -1,8 +1,8 @@
-import {Options} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
-import type { SqlError } from '@effect/sql/SqlError';
-import type { ParseError } from 'effect/ParseResult';
-import { Effect, Option } from 'effect';
+import {Options} from '@effect/cli';
+import type {SqlError} from '@effect/sql/SqlError';
+import {Effect, Option} from 'effect';
+import type {ParseError} from 'effect/ParseResult';
 
 export const cached = Options.boolean('cached').pipe(
     Options.withDefault(false),

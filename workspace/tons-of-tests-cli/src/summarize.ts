@@ -1,15 +1,13 @@
-import {Command, Options} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
-import { Schema, Option, Stream, Effect, Console } from 'effect';
+import {Command, Options} from '@effect/cli';
+import {Console, Effect, Option, Schema, Stream} from 'effect';
 
+import {cached, getPreviousTestRunResults} from './common.js';
 import {Config} from './Config.js';
-import {getPreviousTestRunResults, cached} from './common.js';
 
 const LabelSchema = Schema.transform(
     Schema.String,
-    Schema.Array(
-        Schema.String.pipe(Schema.compose(PT.Classify.LabelSchema)),
-    ),
+    Schema.Array(Schema.String.pipe(Schema.compose(PT.Classify.LabelSchema))),
     {
         decode: s => s.split(','),
         encode: xs => xs.join(','),
@@ -42,7 +40,6 @@ const andTags = Options.text('all-tags').pipe(
     Options.optional,
     Options.withDescription('Filter tags (AND).'),
 );
-
 
 // TEST: summarize --labels doesn't affect the db (i.e. same test results are stored)
 // TEST: summarize --run -> commit -> summarize --run is idempotent

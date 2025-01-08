@@ -1,5 +1,5 @@
-import * as t from 'vitest';
 import * as c from 'ansi-colors';
+import * as t from 'vitest';
 
 import {formatDiff} from './format-diff.js';
 import {diff} from './lib/jsondiffpatch/index.js';
@@ -24,7 +24,7 @@ t.describe('format-diff', () => {
         {a: {foo: undefined}, b: {foo: 1}, expected: `{\n  foo: 1\n}`},
         {a: {foo: 1}, b: {foo: undefined}, expected: `{\n  foo: 1\n}`},
     ])('non-empty diff', ({a, b, expected}) => {
-        const result = c.unstyle(formatDiff(diff(a, b))!);
+        const result = c.unstyle(formatDiff(diff(a, b)) ?? '');
         t.expect(result).toEqual(expected);
     });
 });

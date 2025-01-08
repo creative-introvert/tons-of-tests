@@ -1,11 +1,12 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import ansi from 'ansi-colors';
 
-import BaseFormatter from './lib/jsondiffpatch/formatters/base.js';
 import type {
     BaseFormatterContext,
     DeltaType,
     NodeType,
 } from './lib/jsondiffpatch/formatters/base.js';
+import BaseFormatter from './lib/jsondiffpatch/formatters/base.js';
 import type {
     AddedDelta,
     ArrayDelta,
@@ -17,7 +18,7 @@ import type {
     TextDiffDelta,
 } from './lib/jsondiffpatch/index.js';
 
-const colors: {[key: string]: ansi.StyleFunction} = {
+const colors: Record<string, ansi.StyleFunction> = {
     added: ansi.yellowBright,
     deleted: ansi.red,
     error: ansi.white.bgRed,
@@ -77,7 +78,7 @@ class ConsoleFormatter extends BaseFormatter<ConsoleFormatterContext> {
         err: unknown,
     ) {
         context.pushColor(colors.error);
-        // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+
         context.out(`[ERROR]${err}`);
         context.popColor();
     }

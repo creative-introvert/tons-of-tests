@@ -1,6 +1,6 @@
-import * as t from '@effect/vitest';
 import * as Sql from '@effect/sql';
-import { Console, Effect, Stream } from 'effect';
+import * as t from '@effect/vitest';
+import {Console, Effect, Stream} from 'effect';
 
 import type * as Test from '../Test.js';
 import * as T from './Test.js';

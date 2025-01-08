@@ -1,4 +1,5 @@
-import { Effect, Option } from 'effect';
+import {Effect, Option} from 'effect';
+
 import type {Classify, Label, Stats} from './Classify.js';
 import * as internal from './internal/Test.js';
 import type {TestRun} from './Test.repository.js';

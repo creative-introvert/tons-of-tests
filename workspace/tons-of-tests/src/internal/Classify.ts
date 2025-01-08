@@ -1,10 +1,12 @@
 import {isDeepStrictEqual} from 'node:util';
+
+import {Option, Schema} from 'effect';
+
 import type {
     Classify as TClassify,
     Label as TLabel,
     Stats as _Stats,
 } from '../Classify.js';
-import { Schema, Option } from 'effect';
 
 export const values = {
     TN: 'TN',

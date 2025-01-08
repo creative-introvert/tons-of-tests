@@ -1,8 +1,9 @@
 import * as path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import { NodeContext, NodeRuntime } from '@effect/platform-node';
-import { Effect } from 'effect';
-import { FileSystem } from '@effect/platform';
+
+import {FileSystem} from '@effect/platform';
+import {NodeContext, NodeRuntime} from '@effect/platform-node';
+import {Effect} from 'effect';
 
 const getVersion = Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -21,7 +22,4 @@ const replaceVersion = Effect.gen(function* () {
     yield* fs.writeFileString(filePath, `export const VERSION = '${version}';`);
 });
 
-replaceVersion.pipe(
-    Effect.provide(NodeContext.layer),
-    NodeRuntime.runMain,
-);
+replaceVersion.pipe(Effect.provide(NodeContext.layer), NodeRuntime.runMain);

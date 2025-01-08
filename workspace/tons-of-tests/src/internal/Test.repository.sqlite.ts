@@ -1,6 +1,19 @@
 import * as Sql from '@effect/sql';
 import * as Sqlite from '@effect/sql-sqlite-node';
+import {
+    Array as A,
+    Config,
+    Context,
+    Effect,
+    flow,
+    Layer,
+    Option,
+    ParseResult,
+    Schema,
+    Stream,
+} from 'effect';
 
+import type {TestResult} from '../Test.js';
 import type {
     TestRepository as _TestRepository,
     TestResultRead,
@@ -9,8 +22,6 @@ import type {
 } from '../Test.repository.js';
 import {LabelSchema, StatsSchema} from './Classify.js';
 import {split} from './lib/Schema.js';
-import type {TestResult} from '../Test.js';
-import { Context, Effect, Schema, ParseResult, Stream, Array as A, flow, Option, Config, Layer } from 'effect';
 
 export const tables = {
     testResults: 'test-results',
@@ -228,9 +239,7 @@ const makeTestRepository = Effect.gen(function* () {
     const clearStale = ({name, keep = 1}: {name: string; keep?: number}) =>
         sql.withTransaction(
             Effect.gen(function* () {
-                const staleTestRuns = yield* Schema.decode(
-                    TestRunsReadSchema,
-                )(
+                const staleTestRuns = yield* Schema.decode(TestRunsReadSchema)(
                     yield* sql<TestRun>`
                         SELECT *
                         FROM ${sql(tables.testRuns)}
@@ -304,6 +313,8 @@ const makeTestRepository = Effect.gen(function* () {
 export const LiveLayer = Layer.effect(TestRepository, makeTestRepository);
 
 export const makeSqliteLiveLayer = (dbPath: string) =>
-    Sqlite.SqliteClient.layer({ filename: dbPath, });
+    Sqlite.SqliteClient.layer({filename: dbPath});
 
-export const SqliteTestLayer = Sqlite.SqliteClient.layer({filename: ':memory:'});
+export const SqliteTestLayer = Sqlite.SqliteClient.layer({
+    filename: ':memory:',
+});
