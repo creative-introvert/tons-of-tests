@@ -14,7 +14,7 @@ const cli = Command.run(
     Command.make('tons-of-tests').pipe(
         Command.withSubcommands([summarize, diff, commit]),
     ),
-    {name: 'Prediction Testing', version: VERSION},
+    {name: 'Tons Of Tests CLI', version: VERSION},
 );
 
 export const run = <I = unknown, O = unknown, T = unknown>(

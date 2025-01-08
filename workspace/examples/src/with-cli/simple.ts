@@ -16,5 +16,5 @@ void CLI.run({
         program: (input: number) => Effect.promise(() => myFunction(input)),
     },
     dbPath: 'with-cli-simple.db',
-    concurrency: 10,
+    concurrency: 1,
 });
