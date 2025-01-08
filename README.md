@@ -1,41 +1,30 @@
 # tots (tons-of-tests)
 
-`tons-of-test`, (or `tots` for short, ) is a test runner, simlar to [Jest](https://jestjs.io/), [vitest](https://vitest.dev/) or [ava](https://github.com/avajs/ava), that focuses on testing predictive functions (e.g. search, auto-complete, or ML).
+A specialized test runner for predictive functions, focusing on scenarios where 100% accuracy isn't expected or practical. Similar to Jest, vitest, or ava, but designed specifically for testing search, auto-complete, ML models, and statistical functions.
 
-## When you SHOULD use `tots`
+## When to Use
 
-- you have tons of test cases, and your tests purely compare inputs and outputs of the function under test
-- you are testing a statistical model, or a predictive function, where 100% successful test results are impossible or impractical
-- you are testing a (flaky) legacy system
+✅ **Perfect for:**
+- Large test suites comparing input/output pairs
+- Statistical/ML model testing where perfect accuracy isn't possible
+- Testing flaky legacy systems
 
-## When you SHOULD NOT use `tots`
+❌ **Not recommended for:**
+- Small, example-based test suites (use Jest/vitest instead)
+- Tests requiring advanced mocking or spy functionality
 
-- when your tests are few, and predominantely example-based; use the conventional test runners instead (jest, ava, vitest)
-- when you require your testing framework to do all sorts of magic (auto-mocking, spies, etc)
+## Key Design Notes
 
-## Before Getting Started
+1. **Library-based**: Unlike Jest/vitest, tots is imported as a library rather than used as a standalone runtime
+2. **Effect-based**: Requires [effect](https://effect.website/) as a dependency - your tested functions must return an [Effect](https://effect.website/docs/guides/essentials/the-effect-type)
 
-Before looking at code examples, some notes on the design:
+> ⚠️ **Note**: This library is in alpha. Expect frequent breaking changes without warning. A beta phase with migration guidance is planned.
 
-1. Unlike tools like jest or vitest, tots's CLI does not provide a
-   runtime, but is imported as a library. Check the ["Why No Runtime?" section](#why-no-runtime)
-   on the reasoning.
-2. Though only required minimally, the library depends on using
-   [effect](https://effect.website/) (the missing standard library for
-   TypeScript). At minimum, your function under test has to return an [Effect](https://effect.website/docs/guides/essentials/the-effect-type).
-   If your function doesn't already do so, checkout the [Usage](#usage) below, to see how to trivially convert it.
+## Getting Started
 
-Further, a cautionary note on stability:
+### Installation
 
-- The library is still in alpha, and will, regularly, without warning, release
-  breaking changes.
-- A beta phase is planned, which will keep releasing breaking changes, but
-  provide guidance on migration paths, or even code-mods for automatic
-  migration.
-
-## Usage
-
-With your package manager of choice, install the following packages:
+Install the required packages with your preferred package manager:
 
 ```bash
 @creative-introvert/tons-of-tests
@@ -43,13 +32,9 @@ With your package manager of choice, install the following packages:
 effect
 ```
 
-The examples use `pnpm` and `pnpx` +  `tsx` to execute the files. Replace with
-whatever you use in your setup (e.g. `npm` and `ts-node`, or `yarn` and `tsc +
-node`, etc.)
+### Basic Example
 
-### With CLI
-
-Define your test-suite.
+Define your test suite:
 
 ```ts
 // my-test-suite.ts
@@ -145,9 +130,9 @@ pnpx tsx my-test-suite.ts commit
 
 #### Diff
 
-Assuming you have (1) previous test results, and (2) something changed, e.g. the
-inputs/expecations of your test suite, or the function-under-test
-implementation.
+The diff command compares your current test results with previously committed results. This is useful when you've made changes to either:
+- Your test suite's inputs or expected values
+- The implementation of the function being tested
 
 ```diff
 diff --git a/my-test-suite.ts b/my-test-suite.ts
@@ -228,29 +213,25 @@ pnpx tsx ./workspace/examples/src/with-cli/simple.ts
 
 ## Why No Runtime?
 
-Tools like jest and vitest provide a dedicated CLI, which the user can run,
-separately from other entrypoints into their app. For example, jest provides
-the `jest` binary, which, magically, finds all the test files, and executes
-them, reporting on the results.
+Most test runners like Jest and Vitest come with their own command-line interface (CLI). When you run `jest` or `vitest`, these tools automatically find your test files, execute them, and report results.
 
-Unfortunately, this comes with a lot of complexity:
+While convenient, this approach introduces significant complexity:
 
-1. Unless the user provides their tests as ES5 JavaScript (not a thing these
-   days), jest has to figure out how transpile/compile the source. Given the
-   level of, let's call it, variation in JavaScript land (Typescript, and its
-   many different configurations, custom runtimes like svelte, ESM vs CommonJS,
-   etc), this is no easy feat. The code required for enabling this would easily
-   overshadow the actual test runner in terms of complexity.
-2. As `jest` (etc) essentially behave as a _framework_ (jest calls _your_ code)
-   as opposed to a _library_ (you call jest), customization requires additional
-   complexity in the framework, which now has to provide various entrypoints
-   into its execution.
+1. **Build System Complexity**: Modern JavaScript/TypeScript projects use various build tools and configurations. A test runner needs complex logic to handle:
+   - TypeScript compilation with different configurations
+   - Module systems (ESM vs CommonJS)
+   - Framework-specific code (React, Svelte, etc.)
+   - Custom babel/esbuild/swc configurations
 
-Alternatively, the library could hook into an existing test runner (I've seen
-that vite provides some programatic context), but I have not yet looked deeper
-into that. Though saving me from solving this problem myself, this would likely
-come with its own limitations.
+2. **Framework vs Library Trade-offs**: Test runners like Jest are frameworks - they control the execution flow and call your code. This means:
+   - The framework needs to provide many configuration options
+   - Customization requires understanding framework internals
+   - Extensions must fit within the framework's constraints
 
-Providing `tots` as a library is maybe not as satisfying and
-convenient as a dedicated binary, but is **vastly** simpler, and far more
-powerful, enabling trivial extensibility for the user.
+While we could integrate with existing test runners like Vitest, this would still impose their limitations and complexity.
+
+Instead, `tots` is designed as a library that you import and use directly in your code. While this means writing a bit more boilerplate, it offers:
+- Simpler implementation with fewer moving parts
+- Full control over test execution
+- Easy integration with your existing build tools
+- Unlimited extensibility through normal JavaScript/TypeScript code
