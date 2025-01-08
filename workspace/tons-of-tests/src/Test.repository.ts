@@ -1,10 +1,10 @@
 import type {Effect, Option, Stream} from 'effect';
-import type {ResultLengthMismatch, SqlError} from '@effect/sql/Error';
-import type {ParseError} from '@effect/schema/ParseResult';
+import type {ResultLengthMismatch, SqlError} from '@effect/sql/SqlError';
 
 import * as internal from './internal/Test.repository.sqlite.js';
 import type {Label} from './Classify.js';
 import type {TestResult} from './Test.js';
+import type { ParseError } from 'effect/ParseResult';
 
 export type TestResultRead = {
     id: string;

@@ -1,8 +1,8 @@
-import type {SqlError} from '@effect/sql/Error';
 import {Options} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
-
-import * as P from './prelude.js';
+import type { SqlError } from '@effect/sql/SqlError';
+import type { ParseError } from 'effect/ParseResult';
+import { Effect, Option } from 'effect';
 
 export const cached = Options.boolean('cached').pipe(
     Options.withDefault(false),
@@ -14,23 +14,23 @@ export const getPreviousTestRunResults = <
     T = unknown,
 >(
     testSuite: PT.Test.TestSuite<I, O, T>,
-): P.Effect.Effect<
-    P.Option.Option<PT.Test.TestRunResults>,
-    SqlError | P.Result.ParseError,
+): Effect.Effect<
+    Option.Option<PT.Test.TestRunResults>,
+    SqlError | ParseError,
     PT.TestRepository.TestRepository
 > =>
-    P.Effect.gen(function* () {
+    Effect.gen(function* () {
         const repository = yield* PT.TestRepository.TestRepository;
         return yield* repository.getPreviousTestRun(testSuite.name).pipe(
-            P.Effect.flatMap(
-                P.Option.match({
-                    onNone: () => P.Effect.succeed(P.Option.none()),
+            Effect.flatMap(
+                Option.match({
+                    onNone: () => Effect.succeed(Option.none()),
                     onSome: testRun =>
                         repository
                             .getTestResultsStream(testRun)
                             .pipe(
                                 PT.Test.runCollectRecord(testRun),
-                                P.Effect.map(P.Option.some),
+                                Effect.map(Option.some),
                             ),
                 }),
             ),

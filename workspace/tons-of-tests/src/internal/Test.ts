@@ -1,7 +1,6 @@
 import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
 
-import * as P from '../prelude.js';
 import type {Classify} from '../Classify.js';
 import {
     LabelSchema,
@@ -22,6 +21,7 @@ import type {
     Diff,
 } from '../Test.js';
 import type {TestRun} from '../Test.repository.js';
+import { Schema, Effect, pipe, Stream, Array as A, Console, Option } from 'effect';
 
 export const makeSha256 = <I>(input: I): string => {
     return createHash('sha256').update(JSON.stringify(input)).digest('hex');
@@ -45,16 +45,16 @@ const TestResult = {
     },
 };
 
-export const TestResultSchema: P.Schema.Schema<TestResult> = P.Schema.Struct({
-    id: P.Schema.String,
-    hashTestCase: P.Schema.String,
-    ordering: P.Schema.Int,
-    input: P.Schema.Unknown,
-    result: P.Schema.Unknown,
-    expected: P.Schema.Unknown,
+export const TestResultSchema: Schema.Schema<TestResult> = Schema.Struct({
+    id: Schema.String,
+    hashTestCase: Schema.String,
+    ordering: Schema.Int,
+    input: Schema.Unknown,
+    result: Schema.Unknown,
+    expected: Schema.Unknown,
     label: LabelSchema,
-    tags: P.Schema.Array(P.Schema.String),
-    timeMillis: P.Schema.Number,
+    tags: Schema.Array(Schema.String),
+    timeMillis: Schema.Number,
 });
 
 const TestRunResults = {
@@ -74,10 +74,10 @@ export const test = <I, O, T>({
     testCase: TestCase<I, T> & {ordering: number};
     program: Program<I, O>;
     classify: Classify<O, T>;
-}): P.Effect.Effect<TestResult<I, O, T>> => {
+}): Effect.Effect<TestResult<I, O, T>> => {
     const t0 = performance.now();
     return program(input).pipe(
-        P.Effect.map(result => {
+        Effect.map(result => {
             const t1 = performance.now();
             return TestResult.make({
                 ordering,
@@ -100,15 +100,15 @@ export const all = <I, O, T>(
     }: TestSuite<I, O, T>,
     {concurrency}: {concurrency?: number | undefined} = {concurrency: 1},
 ) =>
-    P.pipe(
-        // Keeping the index as the inherit ordering.
-        P.Array.map(testCases, ({..._}, ordering) => ({..._, ordering})),
-        P.Stream.fromIterable,
-        P.Stream.mapEffect(testCase => test({testCase, program, classify}), {
+    pipe(
+        // Keeping the index as the inherent ordering.
+        A.map(testCases, ({..._}, ordering) => ({..._, ordering})),
+        Stream.fromIterable,
+        Stream.mapEffect(testCase => test({testCase, program, classify}), {
             concurrency,
             unordered: false,
         }),
-        P.Stream.tap(testResult => {
+        Stream.tap(testResult => {
             const i = testResult.ordering;
             const total = testCases.length;
             const n = Math.floor(i % Math.max(total * 0.05, 10));
@@ -117,20 +117,20 @@ export const all = <I, O, T>(
                 if (process.env.NODE_ENV === 'development') {
                     process.stdout.write(s);
                 } else {
-                    return P.Console.log(s);
+                    return Console.log(s);
                 }
             }
-            return P.Effect.void;
+            return Effect.void;
         }),
     );
 
 export const runCollectRecord =
     (testRun: TestRun) =>
     <I, O, T, E, R>(
-        testResults$: P.Stream.Stream<TestResult<I, O, T>, E, R>,
-    ): P.Effect.Effect<TestRunResults<I, O, T>, E, R> =>
+        testResults$: Stream.Stream<TestResult<I, O, T>, E, R>,
+    ): Effect.Effect<TestRunResults<I, O, T>, E, R> =>
         testResults$.pipe(
-            P.Stream.runFold(
+            Stream.runFold(
                 TestRunResults.emptyFromTestRun<I, O, T>(testRun),
                 (run, result) => {
                     run.testResultsByTestCaseHash[result.hashTestCase] = result;
@@ -139,21 +139,21 @@ export const runCollectRecord =
                     return run;
                 },
             ),
-            P.Effect.map(run => {
+            Effect.map(run => {
                 run.stats.precision = precision(run.stats);
                 run.stats.recall = recall(run.stats);
                 const times = run.testCaseHashes.map(
                     hash => run.testResultsByTestCaseHash[hash].timeMillis,
                 );
 
-                run.stats.timeMean = P.Option.some(
+                run.stats.timeMean = Option.some(
                     times.reduce((mean, n) => mean + n, 0) / times.length,
                 );
 
-                run.stats.timeMax = P.Option.some(
+                run.stats.timeMax = Option.some(
                     times.reduce((max, n) => Math.max(max, n), 0),
                 );
-                run.stats.timeMin = P.Option.some(
+                run.stats.timeMin = Option.some(
                     times.reduce((min, n) => Math.min(min, n), Infinity),
                 );
 
@@ -169,10 +169,10 @@ export const diff = ({
     previousTestRun,
 }: {
     testRun: TestRunResults;
-    previousTestRun: P.Option.Option<TestRunResults>;
+    previousTestRun: Option.Option<TestRunResults>;
 }): Diff =>
     previousTestRun.pipe(
-        P.Option.match({
+        Option.match({
             onNone: () => stats,
             onSome: ({stats: previousStats}) => ({
                 TP: stats.TP - previousStats.TP,

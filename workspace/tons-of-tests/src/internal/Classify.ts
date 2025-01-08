@@ -1,11 +1,10 @@
 import {isDeepStrictEqual} from 'node:util';
-
-import * as P from '../prelude.js';
 import type {
     Classify as TClassify,
     Label as TLabel,
     Stats as _Stats,
 } from '../Classify.js';
+import { Schema, Option } from 'effect';
 
 export const values = {
     TN: 'TN',
@@ -14,7 +13,7 @@ export const values = {
     FN: 'FN',
 } as const;
 
-export const LabelSchema: P.Schema.Schema<TLabel> = P.Schema.Literal(
+export const LabelSchema: Schema.Schema<TLabel> = Schema.Literal(
     'TP',
     'TN',
     'FP',
@@ -59,17 +58,17 @@ export const makeClassify =
         return values.FN;
     };
 
-export const StatsSchema = P.Schema.Struct({
-    TP: P.Schema.Number,
-    TN: P.Schema.Number,
-    FP: P.Schema.Number,
-    FN: P.Schema.Number,
-    precision: P.Schema.Number,
-    recall: P.Schema.Number,
-    timeMean: P.Schema.Number.pipe(P.Schema.Option),
-    timeMedian: P.Schema.Number.pipe(P.Schema.Option),
-    timeMin: P.Schema.Number.pipe(P.Schema.Option),
-    timeMax: P.Schema.Number.pipe(P.Schema.Option),
+export const StatsSchema = Schema.Struct({
+    TP: Schema.Number,
+    TN: Schema.Number,
+    FP: Schema.Number,
+    FN: Schema.Number,
+    precision: Schema.Number,
+    recall: Schema.Number,
+    timeMean: Schema.Number.pipe(Schema.Option),
+    timeMedian: Schema.Number.pipe(Schema.Option),
+    timeMin: Schema.Number.pipe(Schema.Option),
+    timeMax: Schema.Number.pipe(Schema.Option),
 });
 
 export const Stats = {
@@ -80,10 +79,10 @@ export const Stats = {
         FN: 0,
         precision: 0,
         recall: 0,
-        timeMean: P.Option.none(),
-        timeMedian: P.Option.none(),
-        timeMin: P.Option.none(),
-        timeMax: P.Option.none(),
+        timeMean: Option.none(),
+        timeMedian: Option.none(),
+        timeMin: Option.none(),
+        timeMax: Option.none(),
         total: 0,
     }),
 };
@@ -112,9 +111,9 @@ export const mean = (xs: number[]): number | undefined => {
     return xs.reduce((a, b) => a + b, 0) / xs.length;
 };
 
-export const median = (xs: number[]): P.Option.Option<number> => {
+export const median = (xs: number[]): Option.Option<number> => {
     if (xs.length === 0) {
-        return P.Option.none();
+        return Option.none();
     }
 
     const sorted = xs.slice().sort((a, b) => a - b);
@@ -125,5 +124,5 @@ export const median = (xs: number[]): P.Option.Option<number> => {
             ? (sorted[index - 1] + sorted[index]) / 2
             : sorted[index];
 
-    return P.Option.fromNullable(r);
+    return Option.fromNullable(r);
 };

@@ -1,14 +1,14 @@
 import {Command, Options} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
+import { Schema, Option, Stream, Effect, Console } from 'effect';
 
-import * as P from './prelude.js';
 import {Config} from './Config.js';
 import {getPreviousTestRunResults, cached} from './common.js';
 
-const LabelSchema = P.Schema.transform(
-    P.Schema.String,
-    P.Schema.Array(
-        P.Schema.String.pipe(P.Schema.compose(PT.Classify.LabelSchema)),
+const LabelSchema = Schema.transform(
+    Schema.String,
+    Schema.Array(
+        Schema.String.pipe(Schema.compose(PT.Classify.LabelSchema)),
     ),
     {
         decode: s => s.split(','),
@@ -22,9 +22,9 @@ const labels = Options.text('labels').pipe(
     Options.withDescription('Filter labels (OR).'),
 );
 
-const TagsSchema = P.Schema.transform(
-    P.Schema.String,
-    P.Schema.Array(P.Schema.String),
+const TagsSchema = Schema.transform(
+    Schema.String,
+    Schema.Array(Schema.String),
     {
         decode: s => (s.length === 0 ? [] : s.split(',')),
         encode: xs => xs.join(','),
@@ -53,25 +53,25 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
     cached,
     config: {testSuite, displayConfig, concurrency},
 }: {
-    labels: P.Option.Option<readonly PT.Classify.Label[]>;
-    orTags: P.Option.Option<readonly string[]>;
-    andTags: P.Option.Option<readonly string[]>;
+    labels: Option.Option<readonly PT.Classify.Label[]>;
+    orTags: Option.Option<readonly string[]>;
+    andTags: Option.Option<readonly string[]>;
     cached: boolean;
     config: Config<I, O, T>;
 }) =>
-    P.Effect.gen(function* () {
+    Effect.gen(function* () {
         const tests = yield* PT.TestRepository.TestRepository;
-        yield* P.Effect.logDebug('repository');
+        yield* Effect.logDebug('repository');
 
         const hasLabel = (label: PT.Classify.Label) =>
-            P.Option.isNone(maybeLabels) || maybeLabels.value.includes(label);
+            Option.isNone(maybeLabels) || maybeLabels.value.includes(label);
 
         const hasOrTags = (tags: readonly string[]) =>
-            P.Option.isNone(maybeOrTags) ||
+            Option.isNone(maybeOrTags) ||
             tags.some(tag => maybeOrTags.value.includes(tag));
 
         const hasAndTags = (tags: readonly string[]) =>
-            P.Option.isNone(maybeAndTags) ||
+            Option.isNone(maybeAndTags) ||
             maybeAndTags.value.every(tag => tags.includes(tag));
 
         const filter = (
@@ -104,17 +104,17 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
         const currentTestRun = yield* tests.getOrCreateCurrentTestRun(
             testSuite.name,
         );
-        yield* P.Effect.logDebug('currentTestRun');
+        yield* Effect.logDebug('currentTestRun');
 
         const hasResults = yield* tests.hasResults(currentTestRun);
-        yield* P.Effect.logDebug('hasResults');
+        yield* Effect.logDebug('hasResults');
 
         const getFromRun = () =>
             PT.Test.all(testSuite, {concurrency: concurrency || 1}).pipe(
-                P.Stream.tap(_ => tests.insertTestResult(_, testSuite.name)),
+                Stream.tap(_ => tests.insertTestResult(_, testSuite.name)),
                 PT.Test.runCollectRecord(currentTestRun),
-                P.Effect.tap(P.Effect.logDebug('from run')),
-                P.Effect.map(filter),
+                Effect.tap(Effect.logDebug('from run')),
+                Effect.map(filter),
             );
 
         const getFromCache = () =>
@@ -122,30 +122,30 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
                 .getTestResultsStream(currentTestRun)
                 .pipe(
                     PT.Test.runCollectRecord(currentTestRun),
-                    P.Effect.tap(P.Effect.logDebug('from cache')),
-                    P.Effect.map(filter),
+                    Effect.tap(Effect.logDebug('from cache')),
+                    Effect.map(filter),
                 );
 
-        const testRun: PT.Test.TestRunResults = yield* P.Effect.if(
+        const testRun: PT.Test.TestRunResults = yield* Effect.if(
             cached && hasResults,
             {onTrue: getFromCache, onFalse: getFromRun},
         );
 
-        yield* P.Effect.logDebug('testRun');
+        yield* Effect.logDebug('testRun');
 
         const previousTestRun = (yield* getPreviousTestRunResults(
             testSuite,
-        )) as P.Option.Option<PT.Test.TestRunResults<I, O, T>>;
+        )) as Option.Option<PT.Test.TestRunResults<I, O, T>>;
 
-        yield* P.Effect.logDebug('previousTestRun');
+        yield* Effect.logDebug('previousTestRun');
         return {testRun, previousTestRun};
-    }).pipe(P.Effect.withLogSpan('summarize'));
+    }).pipe(Effect.withLogSpan('summarize'));
 
 export const summarize = Command.make(
     'summarize',
     {labels, cached, orTags, andTags},
     ({labels, cached, orTags, andTags}) =>
-        P.Effect.gen(function* () {
+        Effect.gen(function* () {
             const config = yield* Config;
             const {displayConfig} = config;
             const {testRun, previousTestRun} = yield* _sumarize({
@@ -157,7 +157,7 @@ export const summarize = Command.make(
             });
 
             if (testRun.testCaseHashes.length === 0) {
-                yield* P.Console.log(
+                yield* Console.log(
                     [
                         '┌─────────────────────────┐',
                         '│ NO TEST RESULTS VISIBLE │',
@@ -169,7 +169,7 @@ export const summarize = Command.make(
                 return;
             }
 
-            yield* P.Console.log(
+            yield* Console.log(
                 [
                     PT.Show.summarize({
                         testRun,

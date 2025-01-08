@@ -1,8 +1,9 @@
-import type {ResultLengthMismatch, SqlError} from '@effect/sql/Error';
+import type {ResultLengthMismatch, SqlError} from '@effect/sql/SqlError';
 import {Command, Options} from '@effect/cli';
 import * as PT from '@creative-introvert/tons-of-tests';
+import { Console, Effect, Option, pipe, Stream } from 'effect';
+import type { ParseError } from 'effect/ParseResult';
 
-import * as P from './prelude.js';
 import {Config} from './Config.js';
 import {getPreviousTestRunResults, cached} from './common.js';
 
@@ -19,7 +20,7 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
     cached: boolean;
     config: Config<I, O, T>;
 }) =>
-    P.Effect.gen(function* () {
+    Effect.gen(function* () {
         const tests = yield* PT.TestRepository.TestRepository;
 
         const currentTestRun = yield* tests.getOrCreateCurrentTestRun(
@@ -27,12 +28,12 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
         );
         const hasResults = yield* tests.hasResults(currentTestRun);
 
-        const previousTestRun: P.Option.Option<
+        const previousTestRun: Option.Option<
             PT.Test.TestRunResults<unknown, unknown, unknown>
         > = yield* getPreviousTestRunResults(testSuite);
 
         const filterUnchanged =
-            (previous: P.Option.Option<PT.Test.TestRunResults>) =>
+            (previous: Option.Option<PT.Test.TestRunResults>) =>
             ({
                 testCaseHashes,
                 testResultsByTestCaseHash,
@@ -46,12 +47,12 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
                     const next = testResultsByTestCaseHash[hash];
 
                     const shouldInclude = previous.pipe(
-                        P.Option.flatMap(_ =>
-                            P.Option.fromNullable(
+                        Option.flatMap(_ =>
+                            Option.fromNullable(
                                 _.testResultsByTestCaseHash[hash],
                             ),
                         ),
-                        P.Option.map(
+                        Option.map(
                             prev =>
                                 prev.label !== next.label ||
                                 !PT.Classify.defaultIsEqual(
@@ -59,7 +60,7 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
                                     prev.result,
                                 ),
                         ),
-                        P.Option.getOrElse(() => true),
+                        Option.getOrElse(() => true),
                     );
 
                     if (shouldInclude) {
@@ -75,33 +76,33 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
                 };
             };
 
-        const getFromRun = (): P.Effect.Effect<
+        const getFromRun = (): Effect.Effect<
             PT.Test.TestRunResults,
-            SqlError | P.Result.ParseError | ResultLengthMismatch,
+            SqlError | ParseError | ResultLengthMismatch,
             PT.TestRepository.TestRepository
         > =>
-            P.pipe(
+            pipe(
                 PT.Test.all(testSuite, {concurrency}),
-                P.Stream.tap(_ => tests.insertTestResult(_, testSuite.name)),
+                Stream.tap(_ => tests.insertTestResult(_, testSuite.name)),
                 PT.Test.runCollectRecord(currentTestRun),
-                P.Effect.tap(P.Effect.logDebug('from run')),
-                P.Effect.map(filterUnchanged(previousTestRun)),
+                Effect.tap(Effect.logDebug('from run')),
+                Effect.map(filterUnchanged(previousTestRun)),
             );
 
-        const getFromCache = (): P.Effect.Effect<
+        const getFromCache = (): Effect.Effect<
             PT.Test.TestRunResults,
-            SqlError | P.Result.ParseError,
+            SqlError | ParseError,
             PT.TestRepository.TestRepository
         > =>
             tests
                 .getTestResultsStream(currentTestRun)
                 .pipe(
                     PT.Test.runCollectRecord(currentTestRun),
-                    P.Effect.tap(P.Effect.logDebug('from cache')),
-                    P.Effect.map(filterUnchanged(previousTestRun)),
+                    Effect.tap(Effect.logDebug('from cache')),
+                    Effect.map(filterUnchanged(previousTestRun)),
                 );
 
-        const testRun: PT.Test.TestRunResults = yield* P.Effect.if(
+        const testRun: PT.Test.TestRunResults = yield* Effect.if(
             cached && hasResults,
             {onTrue: getFromCache, onFalse: getFromRun},
         );
@@ -113,7 +114,7 @@ export const diff = Command.make(
     'diff',
     {exitOnDiff, cached},
     ({exitOnDiff, cached}) =>
-        P.Effect.gen(function* () {
+        Effect.gen(function* () {
             const config = yield* Config;
             const {testSuite, displayConfig} = config;
             const {testRun, previousTestRun} = yield* _diff({
@@ -122,7 +123,7 @@ export const diff = Command.make(
             });
 
             if (testRun.testCaseHashes.length === 0) {
-                yield* P.Console.log(
+                yield* Console.log(
                     [
                         '┌─────────────────────────┐',
                         '│ NO TEST RESULTS VISIBLE │',
@@ -132,7 +133,7 @@ export const diff = Command.make(
                 return;
             }
 
-            yield* P.Console.log(
+            yield* Console.log(
                 [
                     PT.Show.summarize({
                         testRun,
@@ -148,7 +149,7 @@ export const diff = Command.make(
                 ].join('\n'),
             );
             if (exitOnDiff) {
-                yield* P.Effect.die('Non-empty diff.');
+                yield* Effect.die('Non-empty diff.');
             }
         }),
 );

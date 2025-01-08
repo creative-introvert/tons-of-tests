@@ -1,6 +1,5 @@
 import colors from 'ansi-colors';
 
-import * as P from '../prelude.js';
 import type {DisplayConfig} from '../DisplayConfig.js';
 import {
     colorNegative,

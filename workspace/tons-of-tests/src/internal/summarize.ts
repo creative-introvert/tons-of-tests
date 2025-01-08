@@ -1,6 +1,6 @@
 import colors from 'ansi-colors';
+import {Option, Array, Record} from 'effect';
 
-import * as P from '../prelude.js';
 import {formatDiff} from './format-diff.js';
 import type {DisplayConfig} from '../DisplayConfig.js';
 import {showBorder, showHeader, showRow, showTitle} from './common.js';
@@ -52,7 +52,7 @@ const columns: SummarizeColumn[] = [
         name: 'label',
         label: 'label₀',
         make: ({testResult, previousTestResult}: SummarizeContext) => {
-            const hasPrevious = P.Option.isSome(previousTestResult);
+            const hasPrevious = Option.isSome(previousTestResult);
             const label = testResult.label;
             const color =
                 label === 'TP' || label === 'TN'
@@ -84,7 +84,7 @@ const columns: SummarizeColumn[] = [
         name: 'prev_label',
         label: 'label₋₁',
         make: ({previousTestResult}: SummarizeContext) => {
-            const label = P.Option.match(previousTestResult, {
+            const label = Option.match(previousTestResult, {
                 onNone: () => '',
                 onSome: _ =>
                     _.label === 'TP' || _.label === 'TN'
@@ -100,10 +100,10 @@ const columns: SummarizeColumn[] = [
         label: 'result₋₁',
         make: ({previousTestResult}: SummarizeContext) =>
             previousTestResult.pipe(
-                P.Option.map(_ =>
+                Option.map(_ =>
                     JSON.stringify(_.result, null, 2)?.split('\n'),
                 ),
-                P.Option.getOrElse<string[]>(() => []),
+                Option.getOrElse<string[]>(() => []),
             ),
     },
     {
@@ -111,13 +111,12 @@ const columns: SummarizeColumn[] = [
         label: 'diff result₋₁',
         make: ({testResult, previousTestResult}: SummarizeContext) =>
             previousTestResult.pipe(
-                P.Option.map(
-                    _ =>
-                        formatDiff(diff(testResult.expected, _.result))?.split(
-                            '\n',
+                Option.map(_ =>
+                    formatDiff(diff(testResult.expected, _.result))?.split(
+                        '\n',
                         ) || [],
                 ),
-                P.Option.getOrElse<string[]>(() => []),
+                Option.getOrElse<string[]>(() => []),
             ),
     },
 ];
@@ -125,7 +124,7 @@ const columns: SummarizeColumn[] = [
 export const showSummary = ({
     testRun,
     displayConfig,
-    previousTestRun = P.Option.none(),
+    previousTestRun = Option.none(),
     selectColumns = [
         'index',
         'hash',
@@ -140,9 +139,9 @@ export const showSummary = ({
     ],
 }: {
     testRun: TestRunResults;
-    previousTestRun?: P.Option.Option<TestRunResults>;
+    previousTestRun?: Option.Option<TestRunResults>;
     displayConfig?: Partial<DisplayConfig> | undefined;
-    selectColumns?: P.Array.NonEmptyArray<SummarizeColumnNames>;
+    selectColumns?: Array.NonEmptyArray<SummarizeColumnNames>;
 }) => {
     const cfg = {...makeDefault(), ...displayConfig};
 
@@ -152,7 +151,7 @@ export const showSummary = ({
         .filter(c => selectColumns.includes(c.name))
         .filter(
             c =>
-                !c.name.startsWith('prev_') || P.Option.isSome(previousTestRun),
+                !c.name.startsWith('prev_') || Option.isSome(previousTestRun),
         );
     let columnWidths = _columns.map(m => m.label.length);
 
@@ -162,8 +161,8 @@ export const showSummary = ({
         const hash = hashes[i];
         const testResult = testRun.testResultsByTestCaseHash[hash];
         const previousTestResult = previousTestRun.pipe(
-            P.Option.flatMap(_ =>
-                P.Record.get(_.testResultsByTestCaseHash, hash),
+            Option.flatMap(_ =>
+                Record.get(_.testResultsByTestCaseHash, hash),
             ),
         );
 
@@ -183,7 +182,7 @@ export const showSummary = ({
 
         row.forEach(([key, values], i) => {
             if (values.length < maxHeight) {
-                values.push(...Array(maxHeight - values.length).fill(''));
+                values.push(...Array.makeBy(maxHeight - values.length, () => ''));
             }
         });
 

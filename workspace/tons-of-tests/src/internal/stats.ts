@@ -1,6 +1,6 @@
 import colors from 'ansi-colors';
+import {Option} from 'effect';
 
-import * as P from '../prelude.js';
 import type {DisplayConfig} from '../DisplayConfig.js';
 import {
     colorNegative,
@@ -63,7 +63,7 @@ const columns: StatsColumn[] = [
         label: 'timeMin',
         make: ({stats}: StatsContext) => [
             stats.timeMin.pipe(
-                P.Option.match({
+                Option.match({
                     onSome: n => `${n.toFixed(2)}ms`,
                     onNone: () => `-`,
                 }),
@@ -75,7 +75,7 @@ const columns: StatsColumn[] = [
         label: 'timeMax',
         make: ({stats}: StatsContext) => [
             stats.timeMax.pipe(
-                P.Option.match({
+                Option.match({
                     onSome: n => `${n.toFixed(2)}ms`,
                     onNone: () => `-`,
                 }),
@@ -87,7 +87,7 @@ const columns: StatsColumn[] = [
         label: 'timeMean',
         make: ({stats}: StatsContext) => [
             stats.timeMean.pipe(
-                P.Option.match({
+                Option.match({
                     onSome: n => `${n.toFixed(2)}ms`,
                     onNone: () => `-`,
                 }),
@@ -99,7 +99,7 @@ const columns: StatsColumn[] = [
         label: 'timeMedian',
         make: ({stats}: StatsContext) => [
             stats.timeMedian.pipe(
-                P.Option.match({
+                Option.match({
                     onSome: n => `${n.toFixed(2)}ms`,
                     onNone: () => `-`,
                 }),

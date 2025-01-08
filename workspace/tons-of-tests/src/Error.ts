@@ -1,6 +1,6 @@
-import * as P from './prelude.js';
+import { Data } from "effect";
 
-export class DuplicateTestCase<I> extends P.Data.TaggedError(
+export class DuplicateTestCase<I> extends Data.TaggedError(
     'DuplicateTestCase',
 )<{
     input: I;

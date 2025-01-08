@@ -1,17 +1,17 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import * as S from '@effect/schema/Schema';
+import * as Schema from 'effect/Schema';
 
-const PackageJsonSchema = S.parseJson(
-    S.Struct({
-        dependencies: S.Record(S.String, S.String),
-        license: S.String.pipe(S.nonEmpty()),
-        name: S.String.pipe(S.nonEmpty()),
-        repository: S.Record(S.String, S.String),
-        sideEffects: S.Array(S.String),
-        tags: S.Array(S.String),
-        version: S.String.pipe(S.nonEmpty()),
+const PackageJsonSchema = Schema.parseJson(
+    Schema.Struct({
+        dependencies: Schema.Record({key: Schema.String, value: Schema.String}),
+        license: Schema.String.pipe(Schema.nonEmptyString()),
+        name: Schema.String.pipe(Schema.nonEmptyString()),
+        repository: Schema.Record({key: Schema.String, value: Schema.String}),
+        sideEffects: Schema.Array(Schema.String),
+        tags: Schema.Array(Schema.String),
+        version: Schema.String.pipe(Schema.nonEmptyString()),
     }),
 );
 
@@ -22,7 +22,7 @@ export const pack = async (workspacePath: string) => {
     const readmePath = path.join(workspacePath, '../../README.md');
 
     await fs.mkdir(distPath, {recursive: true});
-    const pjson = S.decodeSync(PackageJsonSchema)(
+    const pjson = Schema.decodeSync(PackageJsonSchema)(
         await fs.readFile(pjsonPath, {encoding: 'utf-8'}),
     );
 

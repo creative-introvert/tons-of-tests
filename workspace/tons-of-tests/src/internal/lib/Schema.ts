@@ -1,10 +1,10 @@
-import * as P from '../../prelude.js';
+import { Schema } from "effect";
 
 /** Variation of built-in `Schema.split`, omitting empty values. */
 export const split = (
     separator: string,
-): P.Schema.Schema<ReadonlyArray<string>, string> =>
-    P.Schema.transform(P.Schema.String, P.Schema.Array(P.Schema.String), {
+): Schema.Schema<ReadonlyArray<string>, string> =>
+    Schema.transform(Schema.String, Schema.Array(Schema.String), {
         decode: s => (s.length === 0 ? [] : s.split(separator)),
         encode: xs => xs.join(separator),
     });

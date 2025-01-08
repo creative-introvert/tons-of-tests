@@ -1,6 +1,5 @@
 import type * as PT from '@creative-introvert/tons-of-tests';
-
-import * as P from './prelude.js';
+import { Context, Layer } from 'effect';
 
 export type Config<I = unknown, O = unknown, T = unknown> = {
     testSuite: PT.Test.TestSuite<I, O, T>;
@@ -9,7 +8,7 @@ export type Config<I = unknown, O = unknown, T = unknown> = {
     concurrency?: number | undefined;
 };
 
-export const Config = P.Context.GenericTag<Config>('Config');
+export const Config = Context.GenericTag<Config>('Config');
 
 export const makeConfigLayer = (config: Config) =>
-    P.Layer.sync(Config, () => Config.of(config));
+    Layer.sync(Config, () => Config.of(config));

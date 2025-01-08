@@ -1,5 +1,5 @@
+import { Effect, Option } from 'effect';
 import type {Classify, Label, Stats} from './Classify.js';
-import type * as P from './prelude.js';
 import * as internal from './internal/Test.js';
 import type {TestRun} from './Test.repository.js';
 
@@ -16,7 +16,7 @@ export type TestCase<I, T> = {
     tags?: string[];
 };
 
-export type Program<I, O> = (input: I) => P.Effect.Effect<O>;
+export type Program<I, O> = (input: I) => Effect.Effect<O>;
 
 export type TestResult<I = unknown, O = unknown, T = unknown> = {
     id: string;
@@ -44,7 +44,7 @@ export type Diff = Record<Label, number> & {
 
 export type TestResultPredicate<I, O, T> = (args: {
     testResult: TestResult<I, O, T>;
-    previousTestResult: P.Option.Option<TestResult<I, O, T>>;
+    previousTestResult: Option.Option<TestResult<I, O, T>>;
 }) => boolean;
 
 export const all = internal.all;

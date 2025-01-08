@@ -1,7 +1,6 @@
+import type { Option } from 'effect';
 import type {Stats} from './Classify.js';
 import type {Diff, TestResult} from './Test.js';
-import type {TestRunResults} from './Test.js';
-import type * as P from './prelude.js';
 
 export {showSummary as summarize} from './internal/summarize.js';
 export {showDiff as diff} from './internal/diff.js';
@@ -52,7 +51,7 @@ export type SummarizeContext = {
     i: number;
     hashes: string[];
     testResult: TestResult;
-    previousTestResult: P.Option.Option<TestResult>;
+    previousTestResult: Option.Option<TestResult>;
 };
 
 export type SummarizeColumnNames =

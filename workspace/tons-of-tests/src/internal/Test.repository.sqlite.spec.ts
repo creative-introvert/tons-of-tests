@@ -1,14 +1,14 @@
 import * as t from '@effect/vitest';
 import * as Sql from '@effect/sql';
+import { Console, Effect, Stream } from 'effect';
 
-import * as P from '../prelude.js';
 import type * as Test from '../Test.js';
 import * as T from './Test.js';
 import * as TR from './Test.repository.sqlite.js';
 
 type TestCase = Test.TestCase<number, number>;
-const add = (input: number) => P.Effect.succeed(input + 1);
-const subtract = (input: number) => P.Effect.succeed(input - 1);
+const add = (input: number) => Effect.succeed(input + 1);
+const subtract = (input: number) => Effect.succeed(input - 1);
 
 const testCases: TestCase[] = [
     {input: 1, expected: 2},
@@ -18,7 +18,7 @@ const testCases: TestCase[] = [
 
 t.describe('Test.repository.sqlite', () => {
     t.effect('getOrCreateCurrentTestRun', () =>
-        P.Effect.gen(function* () {
+        Effect.gen(function* () {
             const name = 'getOrCreateCurrentTestRun';
             const repository = yield* TR.TestRepository;
             const a = yield* repository.getOrCreateCurrentTestRun(name);
@@ -30,14 +30,14 @@ t.describe('Test.repository.sqlite', () => {
 
             t.assert.notStrictEqual(a, b);
         }).pipe(
-            P.Effect.tapError(e => P.Console.error(e)),
-            P.Effect.provide(TR.LiveLayer),
-            P.Effect.provide(TR.SqliteTestLayer),
+            Effect.tapError(e => Console.error(e)),
+            Effect.provide(TR.LiveLayer),
+            Effect.provide(TR.SqliteTestLayer),
         ),
     );
 
-    t.effect.only('clearStale', () =>
-        P.Effect.gen(function* () {
+    t.effect('clearStale', () =>
+        Effect.gen(function* () {
             const repository = yield* TR.TestRepository;
 
             const nameA = 'to-be-cleared';
@@ -47,9 +47,9 @@ t.describe('Test.repository.sqlite', () => {
             // which are not supposed to be cleared.
             yield* T.all({
                 testCases: [{input: 'a', expected: 'A!'}],
-                program: s => P.Effect.succeed(s.toUpperCase()),
+                program: s => Effect.succeed(s.toUpperCase()),
                 name: nameB,
-            }).pipe(P.Stream.runDrain);
+            }).pipe(Stream.runDrain);
 
             yield* repository.commitCurrentTestRun({
                 name: nameB,
@@ -58,9 +58,9 @@ t.describe('Test.repository.sqlite', () => {
 
             yield* T.all({
                 testCases: [{input: 'a', expected: 'A!'}],
-                program: s => P.Effect.succeed(s.toUpperCase() + '!'),
+                program: s => Effect.succeed(s.toUpperCase() + '!'),
                 name: nameB,
-            }).pipe(P.Stream.runDrain);
+            }).pipe(Stream.runDrain);
 
             yield* repository.commitCurrentTestRun({
                 name: nameB,
@@ -69,16 +69,16 @@ t.describe('Test.repository.sqlite', () => {
 
             yield* T.all({
                 testCases: [{input: 'a', expected: 'A!'}],
-                program: s => P.Effect.succeed(s.toUpperCase() + '!!'),
+                program: s => Effect.succeed(s.toUpperCase() + '!!'),
                 name: nameB,
-            }).pipe(P.Stream.runDrain);
+            }).pipe(Stream.runDrain);
 
             // Set up the main test runs to be cleared.
             yield* T.all({
                 testCases: [{input: 1, expected: 10}],
-                program: n => P.Effect.succeed(n + 1),
+                program: n => Effect.succeed(n + 1),
                 name: nameA,
-            }).pipe(P.Stream.runDrain);
+            }).pipe(Stream.runDrain);
 
             yield* repository.commitCurrentTestRun({
                 name: nameA,
@@ -87,9 +87,9 @@ t.describe('Test.repository.sqlite', () => {
 
             yield* T.all({
                 testCases: [{input: 1, expected: 10}],
-                program: n => P.Effect.succeed(n + 2),
+                program: n => Effect.succeed(n + 2),
                 name: nameA,
-            }).pipe(P.Stream.runDrain);
+            }).pipe(Stream.runDrain);
 
             yield* repository.commitCurrentTestRun({
                 name: nameA,
@@ -98,13 +98,13 @@ t.describe('Test.repository.sqlite', () => {
 
             yield* T.all({
                 testCases: [{input: 1, expected: 10}],
-                program: n => P.Effect.succeed(n * 10),
+                program: n => Effect.succeed(n * 10),
                 name: nameA,
-            }).pipe(P.Stream.runDrain);
+            }).pipe(Stream.runDrain);
 
             yield* repository.clearStale({name: nameA});
 
-            const sql = yield* Sql.client.Client;
+            const sql = yield* Sql.SqlClient.SqlClient;
 
             const all = yield* sql`
                 SELECT
@@ -124,18 +124,18 @@ t.describe('Test.repository.sqlite', () => {
                 {result: '10', id: 6, name: nameA, hash: null},
             ]);
         }).pipe(
-            P.Effect.provide(TR.LiveLayer),
-            P.Effect.provide(TR.SqliteTestLayer),
+            Effect.provide(TR.LiveLayer),
+            Effect.provide(TR.SqliteTestLayer),
         ),
     );
 
     t.effect('insertTestResult', () =>
-        P.Effect.gen(function* () {
+        Effect.gen(function* () {
             const name = 'insertTestResult';
             const repository = yield* TR.TestRepository;
             yield* repository.getOrCreateCurrentTestRun(name);
             const r1 = yield* T.all({testCases, program: add, name}).pipe(
-                P.Stream.runCollect,
+                Stream.runCollect,
             );
             // yield* repository.commitCurrentTestRun({
             //     name,
@@ -153,9 +153,9 @@ t.describe('Test.repository.sqlite', () => {
             //
             // t.assert.equal(r1.length, r2.length);
         }).pipe(
-            P.Effect.tapError(e => P.Console.error(e)),
-            P.Effect.provide(TR.LiveLayer),
-            P.Effect.provide(TR.SqliteTestLayer),
+            Effect.tapError(e => Console.error(e)),
+            Effect.provide(TR.LiveLayer),
+            Effect.provide(TR.SqliteTestLayer),
         ),
     );
 });
