@@ -1,5 +1,13 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.9.4
+
+### Patch Changes
+
+- 7ae1130: Chore: Bump dependencies.
+- Updated dependencies [7ae1130]
+  - @creative-introvert/tons-of-tests@0.8.1
+
 ## 0.9.3
 
 ### Patch Changes

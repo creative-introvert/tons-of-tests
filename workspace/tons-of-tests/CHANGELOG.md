@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests
 
+## 0.8.1
+
+### Patch Changes
+
+- 7ae1130: Chore: Bump dependencies.
+
 ## 0.8.0
 
 ### Minor Changes
