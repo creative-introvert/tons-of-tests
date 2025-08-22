@@ -1,15 +1,14 @@
+import {randomUUID} from 'node:crypto';
 import * as Sql from '@effect/sql';
 import * as t from '@effect/vitest';
 import {Console, Effect, Stream} from 'effect';
-
-import {randomUUID} from 'node:crypto';
 import type * as Test from '../Test.js';
 import * as T from './Test.js';
 import * as TR from './Test.repository.sqlite.js';
 
 type TestCase = Test.TestCase<number, number>;
 const add = (input: number) => Effect.succeed(input + 1);
-const subtract = (input: number) => Effect.succeed(input - 1);
+const _subtract = (input: number) => Effect.succeed(input - 1);
 
 const testCases: TestCase[] = [
     {input: 1, expected: 2},
@@ -151,7 +150,7 @@ t.describe('Test.repository.sqlite', () => {
             const name = 'insertTestResult';
             const repository = yield* TR.TestRepository;
             yield* repository.getOrCreateCurrentTestRun(name);
-            const r1 = yield* T.all({testCases, program: add, name}).pipe(
+            const _r1 = yield* T.all({testCases, program: add, name}).pipe(
                 Stream.runCollect,
             );
             // yield* repository.commitCurrentTestRun({

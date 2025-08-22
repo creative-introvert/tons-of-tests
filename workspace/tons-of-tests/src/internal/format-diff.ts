@@ -139,7 +139,7 @@ class ConsoleFormatter extends BaseFormatter<ConsoleFormatterContext> {
 
     nodeBegin(
         context: ConsoleFormatterContext,
-        key: string,
+        _key: string,
         leftKey: string | number,
         type: DeltaType,
         nodeType: NodeType,
@@ -154,8 +154,8 @@ class ConsoleFormatter extends BaseFormatter<ConsoleFormatterContext> {
 
     nodeEnd(
         context: ConsoleFormatterContext,
-        key: string,
-        leftKey: string | number,
+        _key: string,
+        _leftKey: string | number,
         type: DeltaType,
         nodeType: NodeType,
         isLast: boolean,
@@ -172,7 +172,7 @@ class ConsoleFormatter extends BaseFormatter<ConsoleFormatterContext> {
 
     format_unchanged(
         context: ConsoleFormatterContext,
-        delta: undefined,
+        _delta: undefined,
         left: unknown,
     ) {
         if (typeof left === 'undefined') {
@@ -183,7 +183,7 @@ class ConsoleFormatter extends BaseFormatter<ConsoleFormatterContext> {
 
     format_movedestination(
         context: ConsoleFormatterContext,
-        delta: undefined,
+        _delta: undefined,
         left: unknown,
     ) {
         if (typeof left === 'undefined') {

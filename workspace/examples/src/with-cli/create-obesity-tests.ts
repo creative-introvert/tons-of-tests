@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {Schema, pipe} from 'effect';
+import {pipe, Schema} from 'effect';
 import CSV from 'papaparse';
 
 import {BiDirectionalRecord} from '../lib/BiDirectionalRecord.js';

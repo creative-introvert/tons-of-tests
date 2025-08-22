@@ -3,8 +3,8 @@ import type {Effect, Option, Stream} from 'effect';
 import type {ParseError} from 'effect/ParseResult';
 
 import type {Label} from './Classify.js';
-import type {TestResult} from './Test.js';
 import * as internal from './internal/Test.repository.sqlite.js';
+import type {TestResult} from './Test.js';
 
 export type TestResultRead = {
     id: string;
@@ -43,7 +43,9 @@ export type TestRepository = {
     }) => Effect.Effect<void, SqlError | ParseError>;
     clearUncommitedTestResults: ({
         name,
-    }: {name: string}) => Effect.Effect<void, SqlError | ParseError>;
+    }: {
+        name: string;
+    }) => Effect.Effect<void, SqlError | ParseError>;
     getTestResultsStream: (
         testRun: TestRun,
     ) => Stream.Stream<TestResult, SqlError | ParseError>;

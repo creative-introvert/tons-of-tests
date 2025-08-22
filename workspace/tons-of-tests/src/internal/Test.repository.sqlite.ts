@@ -6,20 +6,20 @@ import {
     Console,
     Context,
     Effect,
+    flow,
     Layer,
     Option,
     ParseResult,
     Schema,
     Stream,
-    flow,
 } from 'effect';
 
 import type {TestResult} from '../Test.js';
 import type {
+    TestRepository as _TestRepository,
     TestResultRead,
     TestRun,
     TestRunResults,
-    TestRepository as _TestRepository,
 } from '../Test.repository.js';
 import {LabelSchema, StatsSchema} from './Classify.js';
 import {split} from './lib/Schema.js';

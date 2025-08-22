@@ -9,8 +9,8 @@ import type {
 } from '../Show.js';
 import type {TestRunResults} from '../Test.js';
 import {defaultIsEqual} from './Classify.js';
-import {makeDefault} from './DisplayConfig.js';
 import {showBorder, showHeader, showRow, showTitle} from './common.js';
+import {makeDefault} from './DisplayConfig.js';
 import {formatDiff} from './format-diff.js';
 import {diff} from './lib/jsondiffpatch/index.js';
 
@@ -190,11 +190,11 @@ export const showSummary = ({
         );
 
         const maxHeight = row.reduce(
-            (n, [key, values]) => Math.max(n, values.length),
+            (n, [_key, values]) => Math.max(n, values.length),
             1,
         );
 
-        row.forEach(([key, values], i) => {
+        row.forEach(([_key, values], _i) => {
             if (values.length < maxHeight) {
                 values.push(
                     ...Array.makeBy(maxHeight - values.length, () => ''),

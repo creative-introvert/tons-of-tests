@@ -1,8 +1,8 @@
 import {Effect, Option} from 'effect';
 
 import type {Classify, Label, Stats} from './Classify.js';
-import type {TestRun} from './Test.repository.js';
 import * as internal from './internal/Test.js';
+import type {TestRun} from './Test.repository.js';
 
 export type TestSuite<I = unknown, O = unknown, T = unknown> = {
     testCases: TestCase<I, T>[];

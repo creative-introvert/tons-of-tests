@@ -6,9 +6,9 @@ import {
     Console,
     Effect,
     Option,
+    pipe,
     Schema,
     Stream,
-    pipe,
 } from 'effect';
 
 import type {Classify} from '../Classify.js';
@@ -22,14 +22,14 @@ import type {
 } from '../Test.js';
 import type {TestRun} from '../Test.repository.js';
 import {
-    LabelSchema,
-    Stats,
     defaultIsEqual,
     defaultIsNil,
+    LabelSchema,
     makeClassify,
     median,
     precision,
     recall,
+    Stats,
 } from './Classify.js';
 
 export const makeSha256 = <I>(input: I): string => {

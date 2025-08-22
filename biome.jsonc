@@ -6,17 +6,15 @@
         "useIgnoreFile": true
     },
     "files": {
-        "ignoreUnknown": false
+        "ignoreUnknown": false,
+        "includes": ["**", "!**/jsondiffpatch"]
     },
     "formatter": {
         "enabled": true,
-        "ignore": [
-            // We have some javascript files to check, but they usually have mjs, cjs extensions.
-            "**/*.js"
-        ],
+        "includes": ["**", "!**/*.js"],
         "useEditorconfig": true
     },
-    "organizeImports": { "enabled": true },
+    "assist": { "actions": { "source": { "organizeImports": "on" } } },
     "linter": {
         "enabled": true,
         // To avoid any excessive, semantic changes to code in introducing biome, I've
@@ -40,7 +38,9 @@
                     "level": "warn",
                     // Auto-fix will break code.
                     "fix": "none"
-                }
+                },
+                // We use this in a couple of places.
+                "noCommaOperator": "warn"
             },
             "suspicious": {
                 "noAssignInExpressions": "warn",
@@ -53,8 +53,6 @@
                 "noRedeclare": "warn"
             },
             "style": {
-                // We use this in a couple of places.
-                "noCommaOperator": "warn",
                 // Required by nestjs.
                 "useImportType": "off",
                 "noNonNullAssertion": {
@@ -68,7 +66,7 @@
                 "noDangerouslySetInnerHtml": "off"
             },
             // Unsure if we will ever use these.
-            "a11y": { "all": false }
+            "a11y": {}
         }
     },
     "javascript": {

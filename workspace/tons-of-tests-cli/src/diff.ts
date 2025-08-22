@@ -1,7 +1,7 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {Command, Options} from '@effect/cli';
 import type {ResultLengthMismatch, SqlError} from '@effect/sql/SqlError';
-import {Console, Effect, Option, Stream, pipe} from 'effect';
+import {Console, Effect, Option, pipe, Stream} from 'effect';
 import type {ParseError} from 'effect/ParseResult';
 
 import {Config} from './Config.js';

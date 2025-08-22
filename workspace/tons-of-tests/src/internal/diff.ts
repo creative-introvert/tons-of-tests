@@ -3,7 +3,6 @@ import colors from 'ansi-colors';
 import type {DisplayConfig} from '../DisplayConfig.js';
 import type {DiffColumn, DiffColumnNames, DiffContext} from '../Show.js';
 import type {Diff} from '../Test.js';
-import {makeDefault} from './DisplayConfig.js';
 import {
     colorNegative,
     colorPositive,
@@ -12,6 +11,7 @@ import {
     showRow,
     showTitle,
 } from './common.js';
+import {makeDefault} from './DisplayConfig.js';
 
 const columns: DiffColumn[] = [
     {
@@ -70,7 +70,7 @@ export const showDiff = ({
     const cfg = {...makeDefault(), ...displayConfig};
     const _columns = columns.filter(c => selectColumns.includes(c.name));
 
-    const display = {
+    const _display = {
         precision: diff.precision.toFixed(2),
         recall: diff.recall.toFixed(2),
     };

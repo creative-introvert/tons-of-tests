@@ -3,9 +3,9 @@ import {isDeepStrictEqual} from 'node:util';
 import {Option, Schema} from 'effect';
 
 import type {
+    Stats as _Stats,
     Classify as TClassify,
     Label as TLabel,
-    Stats as _Stats,
 } from '../Classify.js';
 
 export const values = {

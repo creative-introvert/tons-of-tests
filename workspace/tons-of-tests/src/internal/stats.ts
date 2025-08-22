@@ -4,7 +4,6 @@ import {Option} from 'effect';
 import type {DisplayConfig} from '../DisplayConfig.js';
 import type {StatsColumn, StatsColumnNames, StatsContext} from '../Show.js';
 import type {TestRunResults} from '../Test.js';
-import {makeDefault} from './DisplayConfig.js';
 import {
     colorNegative,
     colorPositive,
@@ -13,6 +12,7 @@ import {
     showRow,
     showTitle,
 } from './common.js';
+import {makeDefault} from './DisplayConfig.js';
 
 const columns: StatsColumn[] = [
     {

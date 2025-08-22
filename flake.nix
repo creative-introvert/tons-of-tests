@@ -15,9 +15,10 @@
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
-        nodejs = pkgs.nodejs_22;
-        corepackEnable = pkgs.runCommand "corepack-enable" { } ''
+        stable = nixpkgs.legacyPackages.${system};
+        unstable = nixpkgs-unstable.legacyPackages.${system};
+        nodejs = stable.nodejs_22;
+        corepackEnable = stable.runCommand "corepack-enable" { } ''
           mkdir -p $out/bin
           ${nodejs}/bin/corepack enable --install-directory $out/bin
         '';
@@ -25,14 +26,14 @@
       {
         devShells = {
           default =
-            with pkgs;
+            with stable;
             mkShell {
-              BIOME_BINARY = "${pkgs.biome}/bin/biome";
+              BIOME_BINARY = "${unstable.biome}/bin/biome";
               buildInputs = [
                 # see https://github.com/biomejs/biome-vscode/issues/295
                 # nixos can't deal with statically linked binaries, so
                 # we need to use the biome nix package
-                biome
+                unstable.biome
                 nodejs
                 sqlite
                 corepackEnable
