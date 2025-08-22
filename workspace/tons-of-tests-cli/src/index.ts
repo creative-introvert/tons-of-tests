@@ -27,7 +27,6 @@ export const run = <I = unknown, O = unknown, T = unknown>(
                 return yield* tests.getLastTestRunHash(config.testSuite.name);
             }),
         ),
-        a => a,
         Effect.map(Option.getOrNull),
         Effect.provide(
             NodeContext.layer.pipe(
