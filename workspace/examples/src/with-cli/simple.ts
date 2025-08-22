@@ -1,3 +1,4 @@
+import {Classify} from '@creative-introvert/tons-of-tests';
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
 import {Effect} from 'effect';
 
@@ -13,6 +14,9 @@ void CLI.run({
             {input: 3, expected: 4},
             {input: 4, expected: 5},
         ],
+        classify: Classify.makeClassify({
+            isEqual: (a, b) => Math.abs(b - a) <= 0.4,
+        }),
         program: (input: number) => Effect.promise(() => myFunction(input)),
     },
     dbPath: 'with-cli-simple.db',

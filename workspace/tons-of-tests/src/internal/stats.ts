@@ -4,6 +4,7 @@ import {Option} from 'effect';
 import type {DisplayConfig} from '../DisplayConfig.js';
 import type {StatsColumn, StatsColumnNames, StatsContext} from '../Show.js';
 import type {TestRunResults} from '../Test.js';
+import {makeDefault} from './DisplayConfig.js';
 import {
     colorNegative,
     colorPositive,
@@ -12,7 +13,6 @@ import {
     showRow,
     showTitle,
 } from './common.js';
-import {makeDefault} from './DisplayConfig.js';
 
 const columns: StatsColumn[] = [
     {
@@ -65,7 +65,7 @@ const columns: StatsColumn[] = [
             stats.timeMin.pipe(
                 Option.match({
                     onSome: n => `${n.toFixed(2)}ms`,
-                    onNone: () => `-`,
+                    onNone: () => '-',
                 }),
             ),
         ],
@@ -77,7 +77,7 @@ const columns: StatsColumn[] = [
             stats.timeMax.pipe(
                 Option.match({
                     onSome: n => `${n.toFixed(2)}ms`,
-                    onNone: () => `-`,
+                    onNone: () => '-',
                 }),
             ),
         ],
@@ -89,7 +89,7 @@ const columns: StatsColumn[] = [
             stats.timeMean.pipe(
                 Option.match({
                     onSome: n => `${n.toFixed(2)}ms`,
-                    onNone: () => `-`,
+                    onNone: () => '-',
                 }),
             ),
         ],
@@ -101,7 +101,7 @@ const columns: StatsColumn[] = [
             stats.timeMedian.pipe(
                 Option.match({
                     onSome: n => `${n.toFixed(2)}ms`,
-                    onNone: () => `-`,
+                    onNone: () => '-',
                 }),
             ),
         ],

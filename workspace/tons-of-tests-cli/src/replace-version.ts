@@ -18,7 +18,7 @@ const replaceVersion = Effect.gen(function* () {
     const dirname = path.dirname(fileURLToPath(import.meta.url));
     const version = yield* getVersion;
 
-    const filePath = path.join(dirname, `./version.ts`);
+    const filePath = path.join(dirname, './version.ts');
     yield* fs.writeFileString(filePath, `export const VERSION = '${version}';`);
 });
 

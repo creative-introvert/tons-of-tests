@@ -8,11 +8,19 @@ import type {
     SummarizeContext,
 } from '../Show.js';
 import type {TestRunResults} from '../Test.js';
-import {showBorder, showHeader, showRow, showTitle} from './common.js';
+import {defaultIsEqual} from './Classify.js';
 import {makeDefault} from './DisplayConfig.js';
+import {showBorder, showHeader, showRow, showTitle} from './common.js';
 import {formatDiff} from './format-diff.js';
 import {diff} from './lib/jsondiffpatch/index.js';
 
+// TODO: new column, "state"?
+// "pass -> fail" [red]
+// "fail -> pass" [green]
+// "fail (new)" [yellow]
+// "pass (new)" [blue]
+// Requires passing in `isEqual`, i.e. can't just use the `defaultIsEqual`.
+// Also solves "diff" having the same issue.
 const columns: SummarizeColumn[] = [
     {
         name: 'index',
@@ -22,7 +30,17 @@ const columns: SummarizeColumn[] = [
     {
         name: 'hash',
         label: 'hash',
-        make: ({i, hashes}: SummarizeContext) => [hashes[i].slice(0, 8)],
+        make: ({i, hashes, previousTestResult}: SummarizeContext) => {
+            // TODO: Highlight more:
+            // 1. red when test "changed bad"
+            // 2. green when test "changed good"
+            // 3. blue when test is new?
+            const color = Option.isNone(previousTestResult)
+                ? colors.green
+                : colors.white;
+            const hash = hashes[i].slice(0, 8);
+            return [color(hash)];
+        },
     },
     {
         name: 'timeMillis',
@@ -50,7 +68,7 @@ const columns: SummarizeColumn[] = [
     },
     {
         name: 'label',
-        label: 'label₀',
+        label: 'label',
         make: ({testResult, previousTestResult}: SummarizeContext) => {
             const hasPrevious = Option.isSome(previousTestResult);
             const label = testResult.label;
@@ -68,13 +86,13 @@ const columns: SummarizeColumn[] = [
     },
     {
         name: 'result',
-        label: 'result₀',
+        label: 'result',
         make: ({testResult}: SummarizeContext) =>
             JSON.stringify(testResult.result, null, 2).split('\n'),
     },
     {
         name: 'result_diff',
-        label: 'diff result₀',
+        label: 'diff result',
         make: ({testResult}: SummarizeContext) =>
             formatDiff(diff(testResult.expected, testResult.result))?.split(
                 '\n',

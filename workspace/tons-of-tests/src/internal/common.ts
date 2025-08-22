@@ -32,7 +32,7 @@ export const showBorder = (
         bottom: cfg.cornerBottom,
     };
 
-    return (
+    return `${
         l[position] +
         columnWidths.reduce(
             (s, w, i, xs) =>
@@ -42,9 +42,8 @@ export const showBorder = (
                     : cfg.horizontal.repeat(w + cfg.columnPadding)),
             '',
         ) +
-        r[position] +
-        '\n'
-    );
+        r[position]
+    }\n`;
 };
 
 export const showHeader = (
@@ -52,16 +51,14 @@ export const showHeader = (
     columnWidths: number[],
     columns: {label: string}[],
 ): string => {
-    return (
+    return `${
         columns
             .map(
                 ({label}, i) =>
-                    cfg.vertical + ' ' + label.padEnd(columnWidths[i]) + ' ',
+                    `${cfg.vertical} ${label.padEnd(columnWidths[i])} `,
             )
-            .join('') +
-        cfg.vertical +
-        '\n'
-    );
+            .join('') + cfg.vertical
+    }\n`;
 };
 
 export const showTitle = (
@@ -70,7 +67,7 @@ export const showTitle = (
     title: string,
 ): string => {
     const diff = title.length - colors.stripColor(title).length;
-    return (
+    return `${
         showBorder(cfg, columnWidths, 'top-title') +
         cfg.vertical +
         title
@@ -78,10 +75,8 @@ export const showTitle = (
             .padEnd(
                 diff + columnWidths.reduce(sum) + columnWidths.length * 3 - 1,
             ) +
-        cfg.vertical +
-        '\n' +
-        showBorder(cfg, columnWidths, 'bottom-title')
-    );
+        cfg.vertical
+    }\n${showBorder(cfg, columnWidths, 'bottom-title')}`;
 };
 
 export const showRow = (
@@ -98,9 +93,9 @@ export const showRow = (
             const u = colors.stripColor(x);
             const w = columnWidths[columnIndex];
             const n = w + x.length - u.length;
-            s += cfg.vertical + ' ' + x.padEnd(n) + ' ';
+            s += `${cfg.vertical} ${x.padEnd(n)} `;
         }
-        s += cfg.vertical + '\n';
+        s += `${cfg.vertical}\n`;
     }
     return s;
 };

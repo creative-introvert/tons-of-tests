@@ -9,7 +9,7 @@ insert_final_newline = true
 indent_style = space
 indent_size = 2
 
-[*.{js,jsx,json,ts,tsx,cjs,mjs}]
+[*.{js,jsx,json,jsonc,ts,tsx,cjs,mjs}]
 indent_style = space
 indent_size = 4
 

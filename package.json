@@ -5,25 +5,20 @@
     "scripts": {
         "changesets-version": "changeset version && pnpm run -r postversion",
         "changesets-publish": "pnpm run build && pnpm --filter \"*tons-of-tests*\" run build && changeset publish",
+        "check": "biome check --log-kind=compact --diagnostic-level=error",
+        "check:fix": "biome check --write --unsafe",
         "cli": "tsx workspace/cli/src/bin.ts",
         "build": "tsc --build",
         "build:watch": "tsc --build --watch"
     },
     "devDependencies": {
-        "@changesets/changelog-github": "^0.5.0",
-        "@changesets/cli": "^2.27.11",
-        "@effect/vitest": "^0.16.1",
-        "@eslint/js": "^9.17.0",
-        "@types/eslint__js": "^8.42.3",
-        "@types/node": "^22.10.5",
-        "eslint": "^9.17.0",
-        "eslint-config-prettier": "^9.1.0",
-        "eslint-plugin-prettier": "^5.2.1",
-        "eslint-plugin-simple-import-sort": "^12.1.1",
-        "prettier": "^3.4.2",
-        "tsx": "^4.19.2",
-        "typescript": "^5.7.2",
-        "typescript-eslint": "^8.19.1",
-        "vitest": "^2.1.8"
+        "@biomejs/biome": "^2.2.0",
+        "@changesets/changelog-github": "^0.5.1",
+        "@changesets/cli": "^2.29.6",
+        "@effect/vitest": "^0.25.1",
+        "@types/node": "^24.3.0",
+        "tsx": "^4.20.4",
+        "typescript": "^5.9.2",
+        "vitest": "^3.2.4"
     }
 }

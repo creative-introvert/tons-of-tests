@@ -58,7 +58,7 @@ t.describe('Test.repository.sqlite', () => {
 
             yield* T.all({
                 testCases: [{input: 'a', expected: 'A!'}],
-                program: s => Effect.succeed(s.toUpperCase() + '!'),
+                program: s => Effect.succeed(`${s.toUpperCase()}!`),
                 name: nameB,
             }).pipe(Stream.runDrain);
 
@@ -69,7 +69,7 @@ t.describe('Test.repository.sqlite', () => {
 
             yield* T.all({
                 testCases: [{input: 'a', expected: 'A!'}],
-                program: s => Effect.succeed(s.toUpperCase() + '!!'),
+                program: s => Effect.succeed(`${s.toUpperCase()}!!`),
                 name: nameB,
             }).pipe(Stream.runDrain);
 

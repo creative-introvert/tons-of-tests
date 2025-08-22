@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 
 import * as PT from '@creative-introvert/tons-of-tests';
 import {Command} from '@effect/cli';
-import {Console, Effect} from 'effect';
+import {Effect} from 'effect';
 
 import {Config} from './Config.js';
 
@@ -18,7 +18,6 @@ export const _commit = <I = unknown, O = unknown, T = unknown>({
             hash: randomUUID(),
         });
         yield* repository.clearStale({name: testSuite.name});
-        yield* Console.log(`Commited test run and cleared stale.`);
     });
 
 export const commit = Command.make('commit', {}, () =>

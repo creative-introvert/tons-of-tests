@@ -6,9 +6,9 @@ import {
     Console,
     Effect,
     Option,
-    pipe,
     Schema,
     Stream,
+    pipe,
 } from 'effect';
 
 import type {Classify} from '../Classify.js';
@@ -22,14 +22,14 @@ import type {
 } from '../Test.js';
 import type {TestRun} from '../Test.repository.js';
 import {
+    LabelSchema,
+    Stats,
     defaultIsEqual,
     defaultIsNil,
-    LabelSchema,
     makeClassify,
     median,
     precision,
     recall,
-    Stats,
 } from './Classify.js';
 
 export const makeSha256 = <I>(input: I): string => {
@@ -105,7 +105,7 @@ export const all = <I, O, T>(
     {
         testCases,
         program,
-        classify = makeClassify(defaultIsEqual, defaultIsNil, defaultIsNil),
+        classify = makeClassify({isEqual: defaultIsEqual}),
     }: TestSuite<I, O, T>,
     {concurrency}: {concurrency?: number | undefined} = {concurrency: 1},
 ) =>
@@ -118,10 +118,10 @@ export const all = <I, O, T>(
             unordered: false,
         }),
         Stream.tap(testResult => {
-            const i = testResult.ordering;
+            const i = testResult.ordering + 1;
             const total = testCases.length;
             const n = Math.floor(i % Math.max(total * 0.05, 10));
-            if (i === 0 || n === 0 || i === total) {
+            if (i === 1 || n === 0 || i === total) {
                 const s = `PROGRESS: ${i}/${total}\r`;
                 if (process.env.NODE_ENV === 'development') {
                     process.stdout.write(s);
@@ -163,7 +163,10 @@ export const runCollectRecord =
                     times.reduce((max, n) => Math.max(max, n), 0),
                 );
                 run.stats.timeMin = Option.some(
-                    times.reduce((min, n) => Math.min(min, n), Infinity),
+                    times.reduce(
+                        (min, n) => Math.min(min, n),
+                        Number.POSITIVE_INFINITY,
+                    ),
                 );
 
                 run.stats.timeMedian = median(times);
