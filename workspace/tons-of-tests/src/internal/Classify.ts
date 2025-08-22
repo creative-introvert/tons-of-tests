@@ -3,9 +3,9 @@ import {isDeepStrictEqual} from 'node:util';
 import {Option, Schema} from 'effect';
 
 import type {
+    Stats as _Stats,
     Classify as TClassify,
     Label as TLabel,
-    Stats as _Stats,
 } from '../Classify.js';
 
 export const values = {
@@ -35,11 +35,20 @@ export const defaultIsEqual = <A, B>(a: A, b: B): boolean =>
 export const defaultIsNil = <I>(x: I): boolean => x === null || x === undefined;
 
 export const makeClassify =
-    <O, T>(
-        isEqual: (output: O, expected: T) => boolean,
-        isOutputNil: (output: O) => boolean = defaultIsNil,
-        isExpectedNil: (expected: T) => boolean = defaultIsNil,
-    ): TClassify<O, T> =>
+    <O, T>({
+        isEqual,
+        isOutputNil = defaultIsNil,
+        isExpectedNil = defaultIsNil,
+    }: {
+        /**
+         * Ideally, `isEqual` should remain the same over the lifetime of a test suite.
+         * As previous test results are not re-evaluated (at this time) using an updated
+         * `isEqual`, they might be confusing.
+         */
+        isEqual: (output: O, expected: T) => boolean;
+        isOutputNil?: (output: O) => boolean;
+        isExpectedNil?: (expected: T) => boolean;
+    }): TClassify<O, T> =>
     (output, expected) => {
         const eq = isEqual(output, expected);
         const oNil = isOutputNil(output);
@@ -91,19 +100,19 @@ export const Stats = {
 
 export const precision = (m: _Stats): number => {
     const r = m.TP / (m.TP + m.FP);
-    return isNaN(r) ? 0 : r;
+    return Number.isNaN(r) ? 0 : r;
 };
 
 export const recall = (m: _Stats): number => {
     const r = m.TP / (m.TP + m.FN);
-    return isNaN(r) ? 0 : r;
+    return Number.isNaN(r) ? 0 : r;
 };
 
 export const min = (xs: number[]): number =>
-    xs.reduce((min, x) => (x < min ? x : min), Infinity);
+    xs.reduce((min, x) => (x < min ? x : min), Number.POSITIVE_INFINITY);
 
 export const max = (xs: number[]): number =>
-    xs.reduce((max, x) => (x > max ? x : max), -Infinity);
+    xs.reduce((max, x) => (x > max ? x : max), Number.NEGATIVE_INFINITY);
 
 export const mean = (xs: number[]): number | undefined => {
     if (xs.length === 0) {

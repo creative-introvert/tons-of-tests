@@ -3,9 +3,9 @@ import {Command} from '@effect/cli';
 import {NodeContext} from '@effect/platform-node';
 import {Effect, Layer, Option} from 'effect';
 
-import {commit} from './commit.js';
 import type {Config} from './Config.js';
 import {makeConfigLayer} from './Config.js';
+import {commit} from './commit.js';
 import {diff} from './diff.js';
 import {summarize} from './summarize.js';
 import {VERSION} from './version.js';
@@ -27,7 +27,6 @@ export const run = <I = unknown, O = unknown, T = unknown>(
                 return yield* tests.getLastTestRunHash(config.testSuite.name);
             }),
         ),
-        a => a,
         Effect.map(Option.getOrNull),
         Effect.provide(
             NodeContext.layer.pipe(

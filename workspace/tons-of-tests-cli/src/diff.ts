@@ -4,8 +4,8 @@ import type {ResultLengthMismatch, SqlError} from '@effect/sql/SqlError';
 import {Console, Effect, Option, pipe, Stream} from 'effect';
 import type {ParseError} from 'effect/ParseResult';
 
-import {cached, getPreviousTestRunResults} from './common.js';
 import {Config} from './Config.js';
+import {cached, getPreviousTestRunResults} from './common.js';
 
 const exitOnDiff = Options.boolean('exit-on-diff').pipe(
     Options.withDescription(
@@ -55,6 +55,7 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
                         Option.map(
                             prev =>
                                 prev.label !== next.label ||
+                                // FIXME: pass in from config
                                 !PT.Classify.defaultIsEqual(
                                     next.result,
                                     prev.result,

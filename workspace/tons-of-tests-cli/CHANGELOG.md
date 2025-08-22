@@ -1,5 +1,35 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.10.0
+
+### Minor Changes
+
+- Feat: fix long-standing bug, biome, etc
+
+  feat:
+
+  - update dependencies, including effect
+  - makeClassify takes a record instead of position args
+    technically, this is a breaking change, but I doubt anyone is
+    actually using this arg
+  - remove the subscript "0" from cli labels, results, it was confusing
+
+  fix:
+
+  - longstanding issue where test runs would get "corrupted"
+    the underlying issue was complicated: (1) summarize kept writing new
+    test results to the current test run, without purging prior results,
+    (2) commit would commit even without test results in the current
+    run, and thus (3) clearing stale test runs would remove the wrong
+    stuff
+
+### Patch Changes
+
+- 7ae1130: Chore: Bump dependencies.
+- Updated dependencies [7ae1130]
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@0.9.0
+
 ## 0.9.3
 
 ### Patch Changes

@@ -2,8 +2,8 @@ import * as PT from '@creative-introvert/tons-of-tests';
 import {Command, Options} from '@effect/cli';
 import {Console, Effect, Option, Schema, Stream} from 'effect';
 
-import {cached, getPreviousTestRunResults} from './common.js';
 import {Config} from './Config.js';
+import {cached, getPreviousTestRunResults} from './common.js';
 
 const LabelSchema = Schema.transform(
     Schema.String,
@@ -107,11 +107,19 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
         yield* Effect.logDebug('hasResults');
 
         const getFromRun = () =>
-            PT.Test.all(testSuite, {concurrency: concurrency || 1}).pipe(
-                Stream.tap(_ => tests.insertTestResult(_, testSuite.name)),
-                PT.Test.runCollectRecord(currentTestRun),
-                Effect.tap(Effect.logDebug('from run')),
-                Effect.map(filter),
+            tests.clearUncommitedTestResults({name: testSuite.name}).pipe(
+                Effect.flatMap(() =>
+                    PT.Test.all(testSuite, {
+                        concurrency: concurrency || 1,
+                    }).pipe(
+                        Stream.tap(_ =>
+                            tests.insertTestResult(_, testSuite.name),
+                        ),
+                        PT.Test.runCollectRecord(currentTestRun),
+                        Effect.tap(Effect.logDebug('from run')),
+                        Effect.map(filter),
+                    ),
+                ),
             );
 
         const getFromCache = () =>

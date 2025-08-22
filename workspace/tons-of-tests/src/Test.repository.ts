@@ -41,6 +41,11 @@ export type TestRepository = {
          */
         keep?: number;
     }) => Effect.Effect<void, SqlError | ParseError>;
+    clearUncommitedTestResults: ({
+        name,
+    }: {
+        name: string;
+    }) => Effect.Effect<void, SqlError | ParseError>;
     getTestResultsStream: (
         testRun: TestRun,
     ) => Stream.Stream<TestResult, SqlError | ParseError>;
@@ -68,7 +73,7 @@ export type TestRepository = {
     commitCurrentTestRun: (input: {
         name: string;
         hash: string;
-    }) => Effect.Effect<void, SqlError>;
+    }) => Effect.Effect<void, SqlError | ParseError>;
     insertTestResult: (
         input: Omit<TestResult, 'createdAt'>,
         name: string,

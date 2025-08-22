@@ -5,7 +5,10 @@ import * as Schema from 'effect/Schema';
 
 const PackageJsonSchema = Schema.parseJson(
     Schema.Struct({
-        dependencies: Schema.Record({key: Schema.String, value: Schema.String}),
+        dependencies: Schema.Record({
+            key: Schema.String,
+            value: Schema.String,
+        }),
         license: Schema.String.pipe(Schema.nonEmptyString()),
         name: Schema.String.pipe(Schema.nonEmptyString()),
         repository: Schema.Record({key: Schema.String, value: Schema.String}),

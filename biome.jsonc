@@ -1,0 +1,84 @@
+{
+    "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+    "vcs": {
+        "enabled": true,
+        "clientKind": "git",
+        "useIgnoreFile": true
+    },
+    "files": {
+        "ignoreUnknown": false,
+        "includes": ["**", "!**/jsondiffpatch"]
+    },
+    "formatter": {
+        "enabled": true,
+        "includes": ["**", "!**/*.js"],
+        "useEditorconfig": true
+    },
+    "assist": { "actions": { "source": { "organizeImports": "on" } } },
+    "linter": {
+        "enabled": true,
+        // To avoid any excessive, semantic changes to code in introducing biome, I've
+        // set some built-in rules to "warn". I would like to enable those in the future, one-by-one.
+        "rules": {
+            "recommended": true,
+            "correctness": {
+                "useExhaustiveDependencies": "warn",
+                "noUnusedImports": {
+                    "level": "warn",
+                    // prevent annoying removal of imports on save
+                    "fix": "none"
+                }
+            },
+            "performance": {
+                "noAccumulatingSpread": "warn"
+            },
+            "complexity": {
+                "noBannedTypes": "warn",
+                "useOptionalChain": {
+                    "level": "warn",
+                    // Auto-fix will break code.
+                    "fix": "none"
+                },
+                // We use this in a couple of places.
+                "noCommaOperator": "warn"
+            },
+            "suspicious": {
+                "noAssignInExpressions": "warn",
+                "noImplicitAnyLet": "warn",
+                "noShadowRestrictedNames": "warn",
+                // We know what we're doing.
+                "noArrayIndexKey": "off",
+                "noExplicitAny": "warn",
+                // Handled by typescript.
+                "noRedeclare": "warn"
+            },
+            "style": {
+                // Required by nestjs.
+                "useImportType": "off",
+                "noNonNullAssertion": {
+                    "level": "warn",
+                    // Auto-fix will break code.
+                    "fix": "none"
+                }
+            },
+            "security": {
+                // We know what we're doing.
+                "noDangerouslySetInnerHtml": "off"
+            },
+            // Unsure if we will ever use these.
+            "a11y": {}
+        }
+    },
+    "javascript": {
+        "parser": {
+            "unsafeParameterDecoratorsEnabled": true
+        },
+        "formatter": {
+            "quoteStyle": "single",
+            "trailingCommas": "all",
+            "semicolons": "always",
+            "arrowParentheses": "asNeeded",
+            "bracketSpacing": false
+        }
+    }
+}

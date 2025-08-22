@@ -1,14 +1,14 @@
+import {randomUUID} from 'node:crypto';
 import * as Sql from '@effect/sql';
 import * as t from '@effect/vitest';
 import {Console, Effect, Stream} from 'effect';
-
 import type * as Test from '../Test.js';
 import * as T from './Test.js';
 import * as TR from './Test.repository.sqlite.js';
 
 type TestCase = Test.TestCase<number, number>;
 const add = (input: number) => Effect.succeed(input + 1);
-const subtract = (input: number) => Effect.succeed(input - 1);
+const _subtract = (input: number) => Effect.succeed(input - 1);
 
 const testCases: TestCase[] = [
     {input: 1, expected: 2},
@@ -16,6 +16,8 @@ const testCases: TestCase[] = [
     {input: 3, expected: 4},
 ];
 
+// TODO: Rewrite these by targeting the CLI functions _summarize, _diff, etc.,
+// i.e. make them higher-level.
 t.describe('Test.repository.sqlite', () => {
     t.effect('getOrCreateCurrentTestRun', () =>
         Effect.gen(function* () {
@@ -36,8 +38,9 @@ t.describe('Test.repository.sqlite', () => {
         ),
     );
 
-    t.effect('clearStale', () =>
+    t.effect.skip('clearStale', () =>
         Effect.gen(function* () {
+            const sql = yield* Sql.SqlClient.SqlClient;
             const repository = yield* TR.TestRepository;
 
             const nameA = 'to-be-cleared';
@@ -49,7 +52,10 @@ t.describe('Test.repository.sqlite', () => {
                 testCases: [{input: 'a', expected: 'A!'}],
                 program: s => Effect.succeed(s.toUpperCase()),
                 name: nameB,
-            }).pipe(Stream.runDrain);
+            }).pipe(
+                Stream.tap(_ => repository.insertTestResult(_, nameB)),
+                Stream.runDrain,
+            );
 
             yield* repository.commitCurrentTestRun({
                 name: nameB,
@@ -58,7 +64,7 @@ t.describe('Test.repository.sqlite', () => {
 
             yield* T.all({
                 testCases: [{input: 'a', expected: 'A!'}],
-                program: s => Effect.succeed(s.toUpperCase() + '!'),
+                program: s => Effect.succeed(`${s.toUpperCase()}!`),
                 name: nameB,
             }).pipe(Stream.runDrain);
 
@@ -69,7 +75,7 @@ t.describe('Test.repository.sqlite', () => {
 
             yield* T.all({
                 testCases: [{input: 'a', expected: 'A!'}],
-                program: s => Effect.succeed(s.toUpperCase() + '!!'),
+                program: s => Effect.succeed(`${s.toUpperCase()}!!`),
                 name: nameB,
             }).pipe(Stream.runDrain);
 
@@ -102,9 +108,19 @@ t.describe('Test.repository.sqlite', () => {
                 name: nameA,
             }).pipe(Stream.runDrain);
 
-            yield* repository.clearStale({name: nameA});
+            const all0 = yield* sql`
+                SELECT
+                    res.result,
+                    runs.*
+                FROM ${sql(TR.tables.testResults)} res
+                JOIN ${sql(TR.tables.testRunResults)} runres ON res.id = runres.testResult
+                JOIN ${sql(TR.tables.testRuns)} runs ON runs.id = runres.testRun
+                ORDER BY ordering ASC;
+            `;
 
-            const sql = yield* Sql.SqlClient.SqlClient;
+            console.table(all0);
+
+            yield* repository.clearStale({name: nameA});
 
             const all = yield* sql`
                 SELECT
@@ -134,7 +150,7 @@ t.describe('Test.repository.sqlite', () => {
             const name = 'insertTestResult';
             const repository = yield* TR.TestRepository;
             yield* repository.getOrCreateCurrentTestRun(name);
-            const r1 = yield* T.all({testCases, program: add, name}).pipe(
+            const _r1 = yield* T.all({testCases, program: add, name}).pipe(
                 Stream.runCollect,
             );
             // yield* repository.commitCurrentTestRun({

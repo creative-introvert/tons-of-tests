@@ -3,6 +3,7 @@ import * as Sqlite from '@effect/sql-sqlite-node';
 import {
     Array as A,
     Config,
+    Console,
     Context,
     Effect,
     flow,
@@ -47,21 +48,32 @@ const TestResultsSchema = TestResultWriteSchema.pipe(Schema.Array);
 const TestRunReadSchema: Schema.Schema<TestRun> = Schema.Struct({
     id: Schema.Int,
     name: Schema.String,
+    // TODO: Is this a hash, or uuid?
     hash: Schema.String.pipe(Schema.NullOr),
 });
 
-const HasResultsSchema = Schema.Struct({
-    count: Schema.Int,
-}).pipe(Schema.Array);
+const CountSchema = Schema.Tuple(
+    Schema.Struct({
+        count: Schema.Int,
+    }),
+).pipe(
+    Schema.transform(Schema.Int, {
+        decode: ([{count}]) => count,
+        encode: count => [{count}],
+    }),
+);
 
 const TestRunsReadSchema = TestRunReadSchema.pipe(Schema.Array);
+const CurrentTestRunSchema = Schema.Tuple(TestRunReadSchema).pipe(
+    Schema.transform(TestRunReadSchema, {encode: _ => [_], decode: ([_]) => _}),
+);
 
 const TestRunResultsSchema = Schema.Struct({
     testRun: Schema.Int,
     testResult: Schema.String,
 }).pipe(Schema.Array);
 
-// FIXME: P.Effect.tag
+// FIXME: Effect.tag
 export const TestRepository =
     Context.GenericTag<_TestRepository>('TestRunRepository');
 
@@ -69,6 +81,8 @@ export type TestRepository = _TestRepository;
 
 const makeTestRepository = Effect.gen(function* () {
     const sql = yield* Sql.SqlClient.SqlClient;
+
+    yield* sql`PRAGMA auto_vacuum = FULL;`;
 
     yield* sql`
         CREATE TABLE IF NOT EXISTS ${sql(tables.testRuns)}(
@@ -157,8 +171,8 @@ const makeTestRepository = Effect.gen(function* () {
                 SELECT COUNT(*) count FROM ${sql(tables.testRunResults)}
                 WHERE testRun = ${testRun.id};
             `;
-            const r = yield* Schema.decode(HasResultsSchema)(b);
-            return r[0].count > 0;
+            const r = yield* Schema.decodeUnknown(CountSchema)(b);
+            return r > 0;
         });
 
     const getPreviousTestRun = (name: string) =>
@@ -243,8 +257,7 @@ const makeTestRepository = Effect.gen(function* () {
                     yield* sql<TestRun>`
                         SELECT *
                         FROM ${sql(tables.testRuns)}
-                        WHERE hash IS NOT NULL
-                        AND name = ${name}
+                        WHERE hash IS NOT NULL AND name = ${name}
                         ORDER BY id DESC
                         LIMIT -1 OFFSET ${keep};
                     `,
@@ -272,11 +285,60 @@ const makeTestRepository = Effect.gen(function* () {
                         SELECT DISTINCT testResult FROM ${sql(tables.testRunResults)}
                     );
                 `;
+
+                yield* Console.log('Cleared stale test runs.');
+            }),
+        );
+
+    const clearUncommitedTestResults = ({name}: {name: string}) =>
+        sql.withTransaction(
+            Effect.gen(function* () {
+                const currentTestRun = yield* Schema.decodeUnknown(
+                    CurrentTestRunSchema,
+                )(
+                    yield* sql<TestRun>`
+                        SELECT *
+                        FROM ${sql(tables.testRuns)}
+                        WHERE hash IS NULL AND name = ${name};
+                    `,
+                );
+
+                yield* sql`
+                    DELETE FROM ${sql(tables.testRunResults)}
+                    WHERE testRun = ${currentTestRun.id};
+                `;
+
+                yield* sql`
+                    DELETE FROM ${sql(tables.testResults)}
+                    WHERE id NOT IN (
+                        SELECT DISTINCT testResult FROM ${sql(tables.testRunResults)}
+                    );
+                `;
             }),
         );
 
     const commitCurrentTestRun = ({name, hash}: {name: string; hash: string}) =>
         Effect.gen(function* () {
+            const currentTestRunResults = yield* Schema.decodeUnknown(
+                CountSchema,
+            )(
+                yield* sql`
+                    SELECT COUNT(*) count FROM ${sql(tables.testRunResults)}
+                    WHERE testRun = (
+                        SELECT id
+                        FROM ${sql(tables.testRuns)}
+                        WHERE hash IS NULL AND name = ${name}
+                    );
+            `,
+            );
+
+            if (currentTestRunResults === 0) {
+                yield* Console.log(
+                    'Current run has no test results, not commiting.',
+                );
+                return;
+            }
+
             yield* sql`
                 UPDATE ${sql(tables.testRuns)}
                 SET hash = ${hash}
@@ -291,10 +353,12 @@ const makeTestRepository = Effect.gen(function* () {
                 INSERT INTO ${sql(tables.testRuns)}
                 ${sql.insert({name})};
             `;
+            yield* Console.log('Commited test run.');
         });
 
     const service: _TestRepository = {
         clearStale,
+        clearUncommitedTestResults,
         commitCurrentTestRun,
         getAllTestResults,
         getAllTestRuns,
