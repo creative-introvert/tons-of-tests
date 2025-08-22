@@ -48,7 +48,9 @@
                 "noShadowRestrictedNames": "warn",
                 // We know what we're doing.
                 "noArrayIndexKey": "off",
-                "noExplicitAny": "warn"
+                "noExplicitAny": "warn",
+                // Handled by typescript.
+                "noRedeclare": "warn"
             },
             "style": {
                 // We use this in a couple of places.
