@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests
 
+## 0.9.1
+
+### Patch Changes
+
+- Chore: Update Deps.
+
 ## 0.9.0
 
 ### Minor Changes

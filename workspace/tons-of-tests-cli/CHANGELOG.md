@@ -1,5 +1,13 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 0.10.1
+
+### Patch Changes
+
+- Chore: Update Deps.
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@0.9.1
+
 ## 0.10.0
 
 ### Minor Changes
