@@ -34,8 +34,7 @@ const mkFN = (args: {
     expected: number;
     timeMillis: number;
     ordering?: number;
-}): AnyResult =>
-    mkResult<null, number>({...args, result: null, label: 'FN'});
+}): AnyResult => mkResult<null, number>({...args, result: null, label: 'FN'});
 
 const mkTN = (args: {
     input: number;
@@ -61,40 +60,82 @@ t.describe('runCollectRecord', () => {
         t.expect(out.testResultsByTestCaseHash).toStrictEqual({});
     });
 
-    t.test('mixed labels -> correct counts, precision, recall, time stats', async () => {
-        const results: AnyResult[] = [
-            mkResult({input: 1, expected: 1, result: 1, label: 'TP', timeMillis: 10}),
-            mkResult({input: 2, expected: 2, result: 2, label: 'TP', timeMillis: 20}),
-            mkResult({input: 3, expected: 3, result: 4, label: 'FP', timeMillis: 30}),
-            mkFN({input: 4, expected: 4, timeMillis: 40}),
-            mkTN({input: 5, timeMillis: 50}),
-        ];
-        const out = await collect(results);
-        t.expect(out.stats.TP).toBe(2);
-        t.expect(out.stats.FP).toBe(1);
-        t.expect(out.stats.FN).toBe(1);
-        t.expect(out.stats.TN).toBe(1);
-        t.expect(out.stats.total).toBe(5);
-        t.expect(out.stats.precision).toBeCloseTo(2 / 3);
-        t.expect(out.stats.recall).toBeCloseTo(2 / 3);
-        t.expect(Option.getOrThrow(out.stats.timeMin)).toBe(10);
-        t.expect(Option.getOrThrow(out.stats.timeMax)).toBe(50);
-        t.expect(Option.getOrThrow(out.stats.timeMean)).toBeCloseTo(30);
-        t.expect(Option.getOrThrow(out.stats.timeMedian)).toBe(30);
-    });
+    t.test(
+        'mixed labels -> correct counts, precision, recall, time stats',
+        async () => {
+            const results: AnyResult[] = [
+                mkResult({
+                    input: 1,
+                    expected: 1,
+                    result: 1,
+                    label: 'TP',
+                    timeMillis: 10,
+                }),
+                mkResult({
+                    input: 2,
+                    expected: 2,
+                    result: 2,
+                    label: 'TP',
+                    timeMillis: 20,
+                }),
+                mkResult({
+                    input: 3,
+                    expected: 3,
+                    result: 4,
+                    label: 'FP',
+                    timeMillis: 30,
+                }),
+                mkFN({input: 4, expected: 4, timeMillis: 40}),
+                mkTN({input: 5, timeMillis: 50}),
+            ];
+            const out = await collect(results);
+            t.expect(out.stats.TP).toBe(2);
+            t.expect(out.stats.FP).toBe(1);
+            t.expect(out.stats.FN).toBe(1);
+            t.expect(out.stats.TN).toBe(1);
+            t.expect(out.stats.total).toBe(5);
+            t.expect(out.stats.precision).toBeCloseTo(2 / 3);
+            t.expect(out.stats.recall).toBeCloseTo(2 / 3);
+            t.expect(Option.getOrThrow(out.stats.timeMin)).toBe(10);
+            t.expect(Option.getOrThrow(out.stats.timeMax)).toBe(50);
+            t.expect(Option.getOrThrow(out.stats.timeMean)).toBeCloseTo(30);
+            t.expect(Option.getOrThrow(out.stats.timeMedian)).toBe(30);
+        },
+    );
 
     // Dedup invariant — {input, expected} collapses into one entry, but
     // `testCaseHashes` keeps the full ordering list. Easy to break if
     // someone "simplifies" the map later.
-    t.test('duplicate hashTestCase keeps one entry, hashes-array preserves length', async () => {
-        const a = mkResult({input: 1, expected: 1, result: 1, label: 'TP', timeMillis: 1, ordering: 0});
-        const b = mkResult({input: 1, expected: 1, result: 2, label: 'FP', timeMillis: 2, ordering: 1});
-        const out = await collect([a, b]);
-        t.expect(Object.keys(out.testResultsByTestCaseHash)).toHaveLength(1);
-        t.expect(out.testCaseHashes).toHaveLength(2);
-        // last-write-wins
-        t.expect(out.testResultsByTestCaseHash[a.hashTestCase].label).toBe('FP');
-    });
+    t.test(
+        'duplicate hashTestCase keeps one entry, hashes-array preserves length',
+        async () => {
+            const a = mkResult({
+                input: 1,
+                expected: 1,
+                result: 1,
+                label: 'TP',
+                timeMillis: 1,
+                ordering: 0,
+            });
+            const b = mkResult({
+                input: 1,
+                expected: 1,
+                result: 2,
+                label: 'FP',
+                timeMillis: 2,
+                ordering: 1,
+            });
+            const out = await collect([a, b]);
+            t.expect(Object.keys(out.testResultsByTestCaseHash)).toHaveLength(
+                1,
+            );
+            t.expect(out.testCaseHashes).toHaveLength(2);
+            // last-write-wins
+            t.expect(out.testResultsByTestCaseHash[a.hashTestCase].label).toBe(
+                'FP',
+            );
+        },
+    );
 });
 
 t.describe('Test.diff', () => {
@@ -113,13 +154,45 @@ t.describe('Test.diff', () => {
             description: 'no previous run -> returns raw stats',
             previous: Option.none<ReturnType<typeof mkRunResults>>(),
             current: mkStats({TP: 3, FP: 1, precision: 0.75, recall: 0.5}),
-            expected: {TP: 3, FP: 1, TN: 0, FN: 0, precision: 0.75, recall: 0.5},
+            expected: {
+                TP: 3,
+                FP: 1,
+                TN: 0,
+                FN: 0,
+                precision: 0.75,
+                recall: 0.5,
+            },
         },
         {
             description: 'with previous -> field-by-field delta',
-            previous: Option.some(mkRunResults(mkStats({TP: 1, FP: 1, TN: 1, FN: 1, precision: 0.5, recall: 0.5}))),
-            current: mkStats({TP: 3, FP: 0, TN: 2, FN: 1, precision: 1, recall: 0.75}),
-            expected: {TP: 2, FP: -1, TN: 1, FN: 0, precision: 0.5, recall: 0.25},
+            previous: Option.some(
+                mkRunResults(
+                    mkStats({
+                        TP: 1,
+                        FP: 1,
+                        TN: 1,
+                        FN: 1,
+                        precision: 0.5,
+                        recall: 0.5,
+                    }),
+                ),
+            ),
+            current: mkStats({
+                TP: 3,
+                FP: 0,
+                TN: 2,
+                FN: 1,
+                precision: 1,
+                recall: 0.75,
+            }),
+            expected: {
+                TP: 2,
+                FP: -1,
+                TN: 1,
+                FN: 0,
+                precision: 0.5,
+                recall: 0.25,
+            },
         },
     ])('$description', ({previous, current, expected}) => {
         const testRun = mkRunResults(current);

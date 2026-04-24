@@ -196,9 +196,7 @@ export const showSummary = ({
 
         row.forEach(([_key, values], _i) => {
             if (values.length < maxHeight) {
-                values.push(
-                    ...A.makeBy(maxHeight - values.length, () => ''),
-                );
+                values.push(...A.makeBy(maxHeight - values.length, () => ''));
             }
         });
 

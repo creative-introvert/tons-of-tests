@@ -142,8 +142,10 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
                     Effect.map(filter),
                 );
 
-        const testRun: PT.Test.TestRunResults<I, O, T> =
-            yield* (cached && hasResults ? getFromCache() : getFromRun());
+        const testRun: PT.Test.TestRunResults<I, O, T> = yield* cached &&
+        hasResults
+            ? getFromCache()
+            : getFromRun();
 
         yield* Effect.logDebug('testRun');
 

@@ -95,8 +95,10 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
                 )
                 .pipe(foldOver, Effect.tap(Effect.logDebug('from cache')));
 
-        const testRun: PT.Test.TestRunResults<I, O, T> =
-            yield* (cached && hasResults ? getFromCache() : getFromRun());
+        const testRun: PT.Test.TestRunResults<I, O, T> = yield* cached &&
+        hasResults
+            ? getFromCache()
+            : getFromRun();
 
         return {testRun, previousTestRun};
     });

@@ -129,55 +129,67 @@ export const makeTestRepository = Effect.gen(function* () {
         testResults: ReadonlyArray<TestResult>,
         testRun: TestRun,
     ) =>
-        sql.withTransaction(
-            Effect.gen(function* () {
-                if (testResults.length === 0) return;
+        sql
+            .withTransaction(
+                Effect.gen(function* () {
+                    if (testResults.length === 0) return;
 
-                const encoded = yield* Effect.forEach(testResults, _ =>
-                    Schema.encode(TestResultWriteSchema)(_).pipe(
-                        Effect.mapError(
-                            RepositoryDecodeError.from('insertTestResults'),
+                    const encoded = yield* Effect.forEach(testResults, _ =>
+                        Schema.encode(TestResultWriteSchema)(_).pipe(
+                            Effect.mapError(
+                                RepositoryDecodeError.from('insertTestResults'),
+                            ),
                         ),
-                    ),
-                );
+                    );
 
-                for (let i = 0; i < encoded.length; i += INSERT_BATCH_SIZE) {
-                    const chunk = encoded.slice(i, i + INSERT_BATCH_SIZE);
-                    yield* sql`
+                    for (
+                        let i = 0;
+                        i < encoded.length;
+                        i += INSERT_BATCH_SIZE
+                    ) {
+                        const chunk = encoded.slice(i, i + INSERT_BATCH_SIZE);
+                        yield* sql`
                         INSERT INTO ${sql(tables.testResults)}
                         ${sql.insert(chunk)}
                         ON CONFLICT(id) DO NOTHING;
                     `.pipe(
-                        Effect.mapError(
-                            RepositoryWriteError.from('insertTestResults'),
-                        ),
-                    );
-                }
+                            Effect.mapError(
+                                RepositoryWriteError.from('insertTestResults'),
+                            ),
+                        );
+                    }
 
-                // Junction rows reference the resolved testRun.id directly,
-                // so no correlated subquery.
-                const junction = encoded.map(_ => ({
-                    testRun: testRun.id,
-                    testResult: _.id,
-                }));
-                for (let i = 0; i < junction.length; i += INSERT_BATCH_SIZE) {
-                    const chunk = junction.slice(i, i + INSERT_BATCH_SIZE);
-                    yield* sql`
+                    // Junction rows reference the resolved testRun.id directly,
+                    // so no correlated subquery.
+                    const junction = encoded.map(_ => ({
+                        testRun: testRun.id,
+                        testResult: _.id,
+                    }));
+                    for (
+                        let i = 0;
+                        i < junction.length;
+                        i += INSERT_BATCH_SIZE
+                    ) {
+                        const chunk = junction.slice(i, i + INSERT_BATCH_SIZE);
+                        yield* sql`
                         INSERT INTO ${sql(tables.testRunResults)}
                         ${sql.insert(chunk)}
                         ON CONFLICT(testRun, testResult) DO NOTHING;
                     `.pipe(
-                        Effect.mapError(
-                            RepositoryWriteError.from('insertTestResults'),
-                        ),
-                    );
-                }
-            }),
-        ).pipe(
-            Effect.catchTag('SqlError', e =>
-                Effect.fail(RepositoryWriteError.from('insertTestResults')(e)),
-            ),
-        );
+                            Effect.mapError(
+                                RepositoryWriteError.from('insertTestResults'),
+                            ),
+                        );
+                    }
+                }),
+            )
+            .pipe(
+                Effect.catchTag('SqlError', e =>
+                    Effect.fail(
+                        RepositoryWriteError.from('insertTestResults')(e),
+                    ),
+                ),
+            );
 
     const insertTestResult = (testResult: TestResult, testRun: TestRun) =>
         insertTestResults([testResult], testRun);
@@ -245,9 +257,7 @@ export const makeTestRepository = Effect.gen(function* () {
             const b = yield* sql<{count: number}>`
                 SELECT COUNT(*) count FROM ${sql(tables.testRunResults)}
                 WHERE testRun = ${testRun.id};
-            `.pipe(
-                Effect.mapError(RepositoryQueryError.fromSql('hasResults')),
-            );
+            `.pipe(Effect.mapError(RepositoryQueryError.fromSql('hasResults')));
             const r = yield* Schema.decodeUnknown(CountSchema)(b).pipe(
                 Effect.mapError(RepositoryDecodeError.from('hasResults')),
             );
@@ -277,9 +287,7 @@ export const makeTestRepository = Effect.gen(function* () {
     const getAllTestRuns = Effect.gen(function* () {
         const results = yield* sql<TestRun>`
             SELECT * from ${sql(tables.testRuns)};
-        `.pipe(
-            Effect.mapError(RepositoryQueryError.fromSql('getAllTestRuns')),
-        );
+        `.pipe(Effect.mapError(RepositoryQueryError.fromSql('getAllTestRuns')));
         return yield* Schema.decodeUnknown(TestRunsReadSchema)(results).pipe(
             Effect.mapError(RepositoryDecodeError.from('getAllTestRuns')),
         );
@@ -294,9 +302,7 @@ export const makeTestRepository = Effect.gen(function* () {
             ),
         );
         return yield* Schema.decodeUnknown(TestRunResultsSchema)(results).pipe(
-            Effect.mapError(
-                RepositoryDecodeError.from('getAllTestRunResults'),
-            ),
+            Effect.mapError(RepositoryDecodeError.from('getAllTestRunResults')),
         );
     });
 
@@ -319,9 +325,7 @@ export const makeTestRepository = Effect.gen(function* () {
             ORDER BY id DESC
             LIMIT 1;
         `.pipe(
-            Effect.mapError(
-                RepositoryQueryError.fromSql('getLastTestRunHash'),
-            ),
+            Effect.mapError(RepositoryQueryError.fromSql('getLastTestRunHash')),
             Effect.map(
                 flow(
                     A.get(0),
@@ -331,206 +335,216 @@ export const makeTestRepository = Effect.gen(function* () {
         );
 
     const getOrCreateCurrentTestRun = (name: string) =>
-        sql.withTransaction(
-            Effect.gen(function* () {
-                const currentRaw = yield* sql<TestRun>`
+        sql
+            .withTransaction(
+                Effect.gen(function* () {
+                    const currentRaw = yield* sql<TestRun>`
                     SELECT *
                     FROM ${sql(tables.testRuns)}
                     WHERE hash IS NULL AND name = ${name}
                     ORDER BY id DESC
                     LIMIT 1;
                 `.pipe(
-                    Effect.mapError(
-                        RepositoryQueryError.fromSql(
-                            'getOrCreateCurrentTestRun',
+                        Effect.mapError(
+                            RepositoryQueryError.fromSql(
+                                'getOrCreateCurrentTestRun',
+                            ),
                         ),
-                    ),
-                );
+                    );
 
-                const current = yield* Schema.decodeUnknown(
-                    TestRunsReadSchema,
-                )(currentRaw).pipe(
-                    Effect.mapError(
-                        RepositoryDecodeError.from(
-                            'getOrCreateCurrentTestRun',
+                    const current = yield* Schema.decodeUnknown(
+                        TestRunsReadSchema,
+                    )(currentRaw).pipe(
+                        Effect.mapError(
+                            RepositoryDecodeError.from(
+                                'getOrCreateCurrentTestRun',
+                            ),
                         ),
-                    ),
-                );
+                    );
 
-                const existing = A.head(current);
-                if (Option.isSome(existing)) {
-                    return existing.value;
-                }
+                    const existing = A.head(current);
+                    if (Option.isSome(existing)) {
+                        return existing.value;
+                    }
 
-                const insertedRaw = yield* sql<TestRun>`
+                    const insertedRaw = yield* sql<TestRun>`
                     INSERT INTO ${sql(tables.testRuns)}
                     ${sql.insert({name})}
                     RETURNING *;
                 `.pipe(
-                    Effect.mapError(
-                        RepositoryWriteError.from(
-                            'getOrCreateCurrentTestRun',
+                        Effect.mapError(
+                            RepositoryWriteError.from(
+                                'getOrCreateCurrentTestRun',
+                            ),
                         ),
-                    ),
-                );
+                    );
 
-                const inserted = yield* Schema.decodeUnknown(
-                    TestRunsReadSchema,
-                )(insertedRaw).pipe(
-                    Effect.mapError(
-                        RepositoryDecodeError.from(
-                            'getOrCreateCurrentTestRun',
+                    const inserted = yield* Schema.decodeUnknown(
+                        TestRunsReadSchema,
+                    )(insertedRaw).pipe(
+                        Effect.mapError(
+                            RepositoryDecodeError.from(
+                                'getOrCreateCurrentTestRun',
+                            ),
                         ),
-                    ),
-                );
+                    );
 
-                return yield* A.head(inserted).pipe(
-                    Option.match({
-                        onNone: () =>
-                            Effect.fail(new TestRunNotCreated({name})),
-                        onSome: Effect.succeed,
-                    }),
-                );
-            }),
-        ).pipe(
-            Effect.catchTag('SqlError', e =>
-                Effect.fail(
-                    RepositoryQueryError.fromSql(
-                        'getOrCreateCurrentTestRun',
-                    )(e),
+                    return yield* A.head(inserted).pipe(
+                        Option.match({
+                            onNone: () =>
+                                Effect.fail(new TestRunNotCreated({name})),
+                            onSome: Effect.succeed,
+                        }),
+                    );
+                }),
+            )
+            .pipe(
+                Effect.catchTag('SqlError', e =>
+                    Effect.fail(
+                        RepositoryQueryError.fromSql(
+                            'getOrCreateCurrentTestRun',
+                        )(e),
+                    ),
                 ),
-            ),
-        );
+            );
 
     const clearStale = ({name, keep = 1}: {name: string; keep?: number}) =>
-        sql.withTransaction(
-            Effect.gen(function* () {
-                const raw = yield* sql<TestRun>`
+        sql
+            .withTransaction(
+                Effect.gen(function* () {
+                    const raw = yield* sql<TestRun>`
                     SELECT *
                     FROM ${sql(tables.testRuns)}
                     WHERE hash IS NOT NULL AND name = ${name}
                     ORDER BY id DESC
                     LIMIT -1 OFFSET ${keep};
                 `.pipe(
-                    Effect.mapError(
-                        RepositoryQueryError.fromSql('clearStale'),
-                    ),
-                );
+                        Effect.mapError(
+                            RepositoryQueryError.fromSql('clearStale'),
+                        ),
+                    );
 
-                const staleTestRuns = yield* Schema.decodeUnknown(
-                    TestRunsReadSchema,
-                )(raw).pipe(
-                    Effect.mapError(RepositoryDecodeError.from('clearStale')),
-                );
+                    const staleTestRuns = yield* Schema.decodeUnknown(
+                        TestRunsReadSchema,
+                    )(raw).pipe(
+                        Effect.mapError(
+                            RepositoryDecodeError.from('clearStale'),
+                        ),
+                    );
 
-                if (staleTestRuns.length === 0) {
-                    return;
-                }
+                    if (staleTestRuns.length === 0) {
+                        return;
+                    }
 
-                const ids = staleTestRuns.map(r => r.id);
+                    const ids = staleTestRuns.map(r => r.id);
 
-                yield* sql`
+                    yield* sql`
                     DELETE FROM ${sql(tables.testRunResults)}
                     WHERE testRun IN ${sql.in(ids)};
                 `.pipe(
-                    Effect.mapError(RepositoryWriteError.from('clearStale')),
-                );
+                        Effect.mapError(
+                            RepositoryWriteError.from('clearStale'),
+                        ),
+                    );
 
-                yield* sql`
+                    yield* sql`
                     DELETE FROM ${sql(tables.testRuns)}
                     WHERE id IN ${sql.in(ids)};
                 `.pipe(
-                    Effect.mapError(RepositoryWriteError.from('clearStale')),
-                );
+                        Effect.mapError(
+                            RepositoryWriteError.from('clearStale'),
+                        ),
+                    );
 
-                yield* sql`
+                    yield* sql`
                     DELETE FROM ${sql(tables.testResults)}
                     WHERE id NOT IN (
                         SELECT DISTINCT testResult FROM ${sql(tables.testRunResults)}
                     );
                 `.pipe(
-                    Effect.mapError(RepositoryWriteError.from('clearStale')),
-                );
+                        Effect.mapError(
+                            RepositoryWriteError.from('clearStale'),
+                        ),
+                    );
 
-                yield* Console.log('Cleared stale test runs.');
-            }),
-        ).pipe(
-            Effect.catchTag('SqlError', e =>
-                Effect.fail(RepositoryWriteError.from('clearStale')(e)),
-            ),
-        );
+                    yield* Console.log('Cleared stale test runs.');
+                }),
+            )
+            .pipe(
+                Effect.catchTag('SqlError', e =>
+                    Effect.fail(RepositoryWriteError.from('clearStale')(e)),
+                ),
+            );
 
     const clearUncommitedTestResults = ({name}: {name: string}) =>
-        sql.withTransaction(
-            Effect.gen(function* () {
-                const currentRaw = yield* sql<TestRun>`
+        sql
+            .withTransaction(
+                Effect.gen(function* () {
+                    const currentRaw = yield* sql<TestRun>`
                     SELECT *
                     FROM ${sql(tables.testRuns)}
                     WHERE hash IS NULL AND name = ${name}
                     ORDER BY id DESC
                     LIMIT 1;
                 `.pipe(
-                    Effect.mapError(
-                        RepositoryQueryError.fromSql(
-                            'clearUncommitedTestResults',
+                        Effect.mapError(
+                            RepositoryQueryError.fromSql(
+                                'clearUncommitedTestResults',
+                            ),
                         ),
-                    ),
-                );
+                    );
 
-                const current = yield* Schema.decodeUnknown(
-                    TestRunsReadSchema,
-                )(currentRaw).pipe(
-                    Effect.mapError(
-                        RepositoryDecodeError.from(
-                            'clearUncommitedTestResults',
+                    const current = yield* Schema.decodeUnknown(
+                        TestRunsReadSchema,
+                    )(currentRaw).pipe(
+                        Effect.mapError(
+                            RepositoryDecodeError.from(
+                                'clearUncommitedTestResults',
+                            ),
                         ),
-                    ),
-                );
+                    );
 
-                const currentTestRun = A.head(current);
-                if (Option.isNone(currentTestRun)) {
-                    return;
-                }
+                    const currentTestRun = A.head(current);
+                    if (Option.isNone(currentTestRun)) {
+                        return;
+                    }
 
-                yield* sql`
+                    yield* sql`
                     DELETE FROM ${sql(tables.testRunResults)}
                     WHERE testRun = ${currentTestRun.value.id};
                 `.pipe(
-                    Effect.mapError(
-                        RepositoryWriteError.from(
-                            'clearUncommitedTestResults',
+                        Effect.mapError(
+                            RepositoryWriteError.from(
+                                'clearUncommitedTestResults',
+                            ),
                         ),
-                    ),
-                );
+                    );
 
-                yield* sql`
+                    yield* sql`
                     DELETE FROM ${sql(tables.testResults)}
                     WHERE id NOT IN (
                         SELECT DISTINCT testResult FROM ${sql(tables.testRunResults)}
                     );
                 `.pipe(
-                    Effect.mapError(
-                        RepositoryWriteError.from(
-                            'clearUncommitedTestResults',
+                        Effect.mapError(
+                            RepositoryWriteError.from(
+                                'clearUncommitedTestResults',
+                            ),
+                        ),
+                    );
+                }),
+            )
+            .pipe(
+                Effect.catchTag('SqlError', e =>
+                    Effect.fail(
+                        RepositoryWriteError.from('clearUncommitedTestResults')(
+                            e,
                         ),
                     ),
-                );
-            }),
-        ).pipe(
-            Effect.catchTag('SqlError', e =>
-                Effect.fail(
-                    RepositoryWriteError.from('clearUncommitedTestResults')(e),
                 ),
-            ),
-        );
+            );
 
-    const commitCurrentTestRun = ({
-        name,
-        hash,
-    }: {
-        name: string;
-        hash: string;
-    }) =>
+    const commitCurrentTestRun = ({name, hash}: {name: string; hash: string}) =>
         Effect.gen(function* () {
             const currentTestRunResults = yield* Schema.decodeUnknown(
                 CountSchema,
@@ -604,4 +618,3 @@ export const makeTestRepository = Effect.gen(function* () {
 
     return service;
 });
-

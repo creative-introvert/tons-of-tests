@@ -20,8 +20,7 @@ export class RepositoryWriteError extends Schema.TaggedError<RepositoryWriteErro
     {operation: Schema.String, cause: SqlCause},
 ) {
     static from =
-        (operation: string) =>
-        (cause: SqlError | ResultLengthMismatch) =>
+        (operation: string) => (cause: SqlError | ResultLengthMismatch) =>
             new RepositoryWriteError({operation, cause});
 }
 

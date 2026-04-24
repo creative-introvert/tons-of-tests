@@ -1,15 +1,7 @@
 import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
 
-import {
-    Array as A,
-    Effect,
-    Option,
-    pipe,
-    Schema,
-    Sink,
-    Stream,
-} from 'effect';
+import {Array as A, Effect, Option, pipe, Schema, Sink, Stream} from 'effect';
 
 import type {Classify} from '../Classify.js';
 import {Stats} from '../Classify.js';

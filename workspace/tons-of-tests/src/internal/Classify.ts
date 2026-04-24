@@ -11,12 +11,7 @@ export const values = {
     FN: 'FN',
 } as const;
 
-export const LabelSchema = Schema.Literal(
-    'TP',
-    'TN',
-    'FP',
-    'FN',
-);
+export const LabelSchema = Schema.Literal('TP', 'TN', 'FP', 'FN');
 
 export const defaultIsEqual = <A, B>(a: A, b: B): boolean =>
     // FIXME: Expensive, but don't know how else to cheaply remove
