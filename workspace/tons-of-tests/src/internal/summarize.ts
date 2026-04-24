@@ -1,5 +1,5 @@
 import colors from 'ansi-colors';
-import {Array, Option, Record} from 'effect';
+import {Array as A, Option, Record} from 'effect';
 
 import type {DisplayConfig} from '../DisplayConfig.js';
 import type {
@@ -158,7 +158,7 @@ export const showSummary = ({
     testRun: TestRunResults;
     previousTestRun?: Option.Option<TestRunResults>;
     displayConfig?: Partial<DisplayConfig> | undefined;
-    selectColumns?: Array.NonEmptyArray<SummarizeColumnNames>;
+    selectColumns?: A.NonEmptyArray<SummarizeColumnNames>;
 }) => {
     const cfg = {...makeDefault(), ...displayConfig};
 
@@ -196,9 +196,7 @@ export const showSummary = ({
 
         row.forEach(([_key, values], _i) => {
             if (values.length < maxHeight) {
-                values.push(
-                    ...Array.makeBy(maxHeight - values.length, () => ''),
-                );
+                values.push(...A.makeBy(maxHeight - values.length, () => ''));
             }
         });
 

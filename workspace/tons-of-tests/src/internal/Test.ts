@@ -1,17 +1,10 @@
 import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
 
-import {
-    Array as A,
-    Console,
-    Effect,
-    Option,
-    pipe,
-    Schema,
-    Stream,
-} from 'effect';
+import {Array as A, Effect, Option, pipe, Schema, Sink, Stream} from 'effect';
 
 import type {Classify} from '../Classify.js';
+import {Stats} from '../Classify.js';
 import type {
     Diff,
     Program,
@@ -29,7 +22,6 @@ import {
     median,
     precision,
     recall,
-    Stats,
 } from './Classify.js';
 
 export const makeSha256 = <I>(input: I): string => {
@@ -120,18 +112,39 @@ export const all = <I, O, T>(
         Stream.tap(testResult => {
             const i = testResult.ordering + 1;
             const total = testCases.length;
-            const n = Math.floor(i % Math.max(total * 0.05, 10));
-            if (i === 1 || n === 0 || i === total) {
-                const s = `PROGRESS: ${i}/${total}\r`;
-                if (process.env.NODE_ENV === 'development') {
-                    process.stdout.write(s);
-                } else {
-                    return Console.log(s);
-                }
-            }
-            return Effect.void;
+            const stride = Math.max(Math.floor(total * 0.05), 10);
+            const isMilestone = i === 1 || i === total || i % stride === 0;
+            return isMilestone
+                ? Effect.logInfo(`progress ${i}/${total}`)
+                : Effect.void;
         }),
     );
+
+type FoldAcc<I, O, T> = {
+    testResultsByTestCaseHash: Record<string, TestResult<I, O, T>>;
+    testCaseHashes: string[];
+    times: number[];
+    TP: number;
+    TN: number;
+    FP: number;
+    FN: number;
+    timeSum: number;
+    timeMin: number;
+    timeMax: number;
+};
+
+const emptyAcc = <I, O, T>(): FoldAcc<I, O, T> => ({
+    testResultsByTestCaseHash: {},
+    testCaseHashes: [],
+    times: [],
+    TP: 0,
+    TN: 0,
+    FP: 0,
+    FN: 0,
+    timeSum: 0,
+    timeMin: Number.POSITIVE_INFINITY,
+    timeMax: Number.NEGATIVE_INFINITY,
+});
 
 export const runCollectRecord =
     (testRun: TestRun) =>
@@ -139,40 +152,58 @@ export const runCollectRecord =
         testResults$: Stream.Stream<TestResult<I, O, T>, E, R>,
     ): Effect.Effect<TestRunResults<I, O, T>, E, R> =>
         testResults$.pipe(
-            Stream.runFold(
-                TestRunResults.emptyFromTestRun<I, O, T>(testRun),
-                (run, result) => {
-                    run.testResultsByTestCaseHash[result.hashTestCase] = result;
-                    run.testCaseHashes.push(result.hashTestCase);
-                    run.stats[result.label]++;
-                    return run;
-                },
+            Stream.run(
+                // Sink.foldLeft threads the accumulator by reference within a
+                // single fiber, so mutating in place is safe and avoids
+                // rebuilding the object per element.
+                Sink.foldLeft(
+                    emptyAcc<I, O, T>(),
+                    (acc, r: TestResult<I, O, T>) => {
+                        acc.testResultsByTestCaseHash[r.hashTestCase] = r;
+                        acc.testCaseHashes.push(r.hashTestCase);
+                        acc.times.push(r.timeMillis);
+                        acc.timeSum += r.timeMillis;
+                        if (r.timeMillis < acc.timeMin)
+                            acc.timeMin = r.timeMillis;
+                        if (r.timeMillis > acc.timeMax)
+                            acc.timeMax = r.timeMillis;
+                        if (r.label === 'TP') acc.TP++;
+                        else if (r.label === 'TN') acc.TN++;
+                        else if (r.label === 'FP') acc.FP++;
+                        else acc.FN++;
+                        return acc;
+                    },
+                ),
             ),
-            Effect.map(run => {
-                run.stats.precision = precision(run.stats);
-                run.stats.recall = recall(run.stats);
-                const times = run.testCaseHashes.map(
-                    hash => run.testResultsByTestCaseHash[hash].timeMillis,
-                );
+            Effect.map(acc => {
+                const total = acc.testCaseHashes.length;
+                const hasTimes = acc.times.length > 0;
+                const stats = new Stats({
+                    TP: acc.TP,
+                    TN: acc.TN,
+                    FP: acc.FP,
+                    FN: acc.FN,
+                    total,
+                    precision: precision({TP: acc.TP, FP: acc.FP}),
+                    recall: recall({TP: acc.TP, FN: acc.FN}),
+                    timeMean: hasTimes
+                        ? Option.some(acc.timeSum / acc.times.length)
+                        : Option.none(),
+                    timeMin: hasTimes
+                        ? Option.some(acc.timeMin)
+                        : Option.none(),
+                    timeMax: hasTimes
+                        ? Option.some(acc.timeMax)
+                        : Option.none(),
+                    timeMedian: median(acc.times),
+                });
 
-                run.stats.timeMean = Option.some(
-                    times.reduce((mean, n) => mean + n, 0) / times.length,
-                );
-
-                run.stats.timeMax = Option.some(
-                    times.reduce((max, n) => Math.max(max, n), 0),
-                );
-                run.stats.timeMin = Option.some(
-                    times.reduce(
-                        (min, n) => Math.min(min, n),
-                        Number.POSITIVE_INFINITY,
-                    ),
-                );
-
-                run.stats.timeMedian = median(times);
-
-                run.stats.total = run.testCaseHashes.length;
-                return run;
+                return {
+                    ...testRun,
+                    testResultsByTestCaseHash: acc.testResultsByTestCaseHash,
+                    testCaseHashes: acc.testCaseHashes,
+                    stats,
+                };
             }),
         );
 

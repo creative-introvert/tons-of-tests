@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests
 
+## 1.0.0
+
+### Major Changes
+
+- Refactor!: Everything.
+
 ## 0.9.1
 
 ### Patch Changes

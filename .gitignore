@@ -3,6 +3,7 @@ node_modules
 .corepack
 
 .cache
+.pnpm-store
 
 # typescript
 **/*.tsbuildinfo

@@ -1,5 +1,16 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 1.0.0
+
+### Major Changes
+
+- Refactor!: Everything.
+
+### Patch Changes
+
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@1.0.0
+
 ## 0.10.1
 
 ### Patch Changes

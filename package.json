@@ -1,24 +1,25 @@
 {
     "private": true,
     "license": "MIT",
-    "packageManager": "pnpm@9.0.2",
+    "packageManager": "pnpm@10.12.1",
     "scripts": {
         "changesets-version": "changeset version && pnpm run -r postversion",
         "changesets-publish": "pnpm run build && pnpm --filter \"*tons-of-tests*\" run build && changeset publish",
-        "check": "biome check --log-kind=compact --diagnostic-level=error",
-        "check:fix": "biome check --write --unsafe",
+        "check": "oxlint && oxfmt --check",
+        "check:fix": "oxlint --fix && oxfmt",
         "cli": "tsx workspace/cli/src/bin.ts",
-        "build": "tsc --build",
-        "build:watch": "tsc --build --watch"
+        "build": "tsgo --build",
+        "build:watch": "tsgo --build --watch"
     },
     "devDependencies": {
-        "@biomejs/biome": "^2.2.4",
-        "@changesets/changelog-github": "^0.5.1",
-        "@changesets/cli": "^2.29.7",
-        "@effect/vitest": "^0.26.0",
+        "@changesets/changelog-github": "^0.6.0",
+        "@changesets/cli": "^2.31.0",
+        "@effect/vitest": "^0.29.0",
         "@types/node": "^24.6.1",
-        "tsx": "^4.20.6",
-        "typescript": "^5.9.3",
-        "vitest": "^3.2.4"
+        "oxfmt": "^0.46.0",
+        "oxlint": "^1.61.0",
+        "@typescript/native-preview": "beta",
+        "tsx": "^4.21.0",
+        "vitest": "^4.1.5"
     }
 }

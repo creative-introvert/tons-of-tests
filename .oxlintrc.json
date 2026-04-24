@@ -1,0 +1,26 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "ignorePatterns": [
+        "**/jsondiffpatch/**",
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.direnv/**",
+        "**/.pnpm-store/**",
+        "**/.cache/**",
+        "**/.rollup.cache/**"
+    ],
+    "plugins": ["typescript", "unicorn", "oxc", "import"],
+    "categories": {
+        "correctness": "error",
+        "perf": "off",
+        "suspicious": "off"
+    },
+    "rules": {
+        "no-array-index-key": "off",
+        "consistent-type-imports": "off",
+        "no-danger": "off",
+        "no-unused-vars": "off",
+        "unicorn/no-new-array": "off"
+    }
+}

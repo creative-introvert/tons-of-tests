@@ -4,12 +4,12 @@ import * as PT from '@creative-introvert/tons-of-tests';
 import {Command} from '@effect/cli';
 import {Effect} from 'effect';
 
-import {Config} from './Config.js';
+import {AppConfig, type AppConfigShape} from './Config.js';
 
 export const _commit = <I = unknown, O = unknown, T = unknown>({
     config: {testSuite},
 }: {
-    config: Config<I, O, T>;
+    config: AppConfigShape<I, O, T>;
 }) =>
     Effect.gen(function* () {
         const repository = yield* PT.TestRepository.TestRepository;
@@ -22,7 +22,7 @@ export const _commit = <I = unknown, O = unknown, T = unknown>({
 
 export const commit = Command.make('commit', {}, () =>
     Effect.gen(function* () {
-        const config = yield* Config;
+        const config = yield* AppConfig;
         yield* _commit({config});
     }),
 );
