@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests
 
+## 1.1.0
+
+### Minor Changes
+
+- Feat: Expose CLI.effect
+
 ## 1.0.0
 
 ### Major Changes
