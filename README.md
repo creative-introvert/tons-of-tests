@@ -20,6 +20,8 @@ A specialized test runner for predictive functions, focusing on scenarios where 
 
 > ⚠️ **Note**: This library is in alpha. Expect frequent breaking changes without warning. A beta phase with migration guidance is planned.
 
+> 📖 **Upgrading to v1?** See [MIGRATION_GUIDE_V1.md](./MIGRATION_GUIDE_V1.md).
+
 ## Getting Started
 
 ### Installation
