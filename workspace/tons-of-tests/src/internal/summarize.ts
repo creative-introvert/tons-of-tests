@@ -25,7 +25,9 @@ const columns: SummarizeColumn[] = [
     {
         name: 'index',
         label: '#/∑',
-        make: ({i, hashes}: SummarizeContext) => [`${i + 1}/${hashes.length}`],
+        make: ({i, hashes}: SummarizeContext) => [
+            colors.dim(`${i + 1}/${hashes.length}`),
+        ],
     },
     {
         name: 'hash',
@@ -46,7 +48,7 @@ const columns: SummarizeColumn[] = [
         name: 'timeMillis',
         label: 'ms',
         make: ({testResult}: SummarizeContext) => [
-            `${testResult.timeMillis.toFixed(2)}ms`,
+            `${testResult.timeMillis.toFixed(2)}${colors.dim('ms')}`,
         ],
     },
     {

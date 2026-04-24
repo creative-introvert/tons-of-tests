@@ -1,5 +1,24 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 1.1.1
+
+### Patch Changes
+
+- Feat: More subtle cli coloring.
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@1.1.1
+
+## 1.1.0
+
+### Minor Changes
+
+- Feat: Expose CLI.effect
+
+### Patch Changes
+
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@1.1.0
+
 ## 1.0.0
 
 ### Major Changes

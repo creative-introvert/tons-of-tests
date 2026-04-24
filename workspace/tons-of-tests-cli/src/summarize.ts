@@ -2,7 +2,7 @@ import * as PT from '@creative-introvert/tons-of-tests';
 import {Command, Options} from '@effect/cli';
 import {Chunk, Console, Effect, Option, Schema, Stream} from 'effect';
 
-import {AppConfig, type AppConfigShape} from './Config.js';
+import {type AppConfigShape} from './Config.js';
 import {cached, getPreviousTestRunResults} from './common.js';
 
 const LabelSchema = Schema.transform(
@@ -43,7 +43,13 @@ const andTags = Options.text('all-tags').pipe(
 
 // TEST: summarize --labels doesn't affect the db (i.e. same test results are stored)
 // TEST: summarize --run -> commit -> summarize --run is idempotent
-export const _sumarize = <I = unknown, O = unknown, T = unknown>({
+export const _sumarize = <
+    I = unknown,
+    O = unknown,
+    T = unknown,
+    E = never,
+    R = never,
+>({
     labels: maybeLabels,
     orTags: maybeOrTags,
     andTags: maybeAndTags,
@@ -54,7 +60,7 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
     orTags: Option.Option<readonly string[]>;
     andTags: Option.Option<readonly string[]>;
     cached: boolean;
-    config: AppConfigShape<I, O, T>;
+    config: AppConfigShape<I, O, T, E, R>;
 }) =>
     Effect.gen(function* () {
         const tests = yield* PT.TestRepository.TestRepository;
@@ -155,44 +161,52 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
         return {testRun, previousTestRun};
     }).pipe(Effect.withLogSpan('summarize'));
 
-export const summarize = Command.make(
-    'summarize',
-    {labels, cached, orTags, andTags},
-    ({labels, cached, orTags, andTags}) =>
-        Effect.gen(function* () {
-            const config = yield* AppConfig;
-            const {displayConfig} = config;
-            const {testRun, previousTestRun} = yield* _sumarize({
-                labels,
-                orTags,
-                andTags,
-                cached,
-                config,
-            });
+export const summarize = <
+    I = unknown,
+    O = unknown,
+    T = unknown,
+    E = never,
+    R = never,
+>(
+    config: AppConfigShape<I, O, T, E, R>,
+) =>
+    Command.make(
+        'summarize',
+        {labels, cached, orTags, andTags},
+        ({labels, cached, orTags, andTags}) =>
+            Effect.gen(function* () {
+                const {displayConfig} = config;
+                const {testRun, previousTestRun} = yield* _sumarize({
+                    labels,
+                    orTags,
+                    andTags,
+                    cached,
+                    config,
+                });
 
-            if (testRun.testCaseHashes.length === 0) {
+                if (testRun.testCaseHashes.length === 0) {
+                    yield* Console.log(
+                        [
+                            '┌─────────────────────────┐',
+                            '│ NO TEST RESULTS VISIBLE │',
+                            '└─────────────────────────┘',
+                            '',
+                            PT.Show.stats({testRun}),
+                        ].join('\n'),
+                    );
+                    return;
+                }
+
                 yield* Console.log(
                     [
-                        '┌─────────────────────────┐',
-                        '│ NO TEST RESULTS VISIBLE │',
-                        '└─────────────────────────┘',
+                        PT.Show.summarize({
+                            testRun,
+                            previousTestRun,
+                            displayConfig,
+                        }),
                         '',
                         PT.Show.stats({testRun}),
                     ].join('\n'),
                 );
-                return;
-            }
-
-            yield* Console.log(
-                [
-                    PT.Show.summarize({
-                        testRun,
-                        previousTestRun,
-                        displayConfig,
-                    }),
-                    '',
-                    PT.Show.stats({testRun}),
-                ].join('\n'),
-            );
-        }),
-);
+            }),
+    );

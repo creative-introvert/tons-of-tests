@@ -2,7 +2,7 @@ import * as PT from '@creative-introvert/tons-of-tests';
 import {Command, Options} from '@effect/cli';
 import {Chunk, Console, Effect, Option, Schema, Stream, pipe} from 'effect';
 
-import {AppConfig, type AppConfigShape} from './Config.js';
+import {type AppConfigShape} from './Config.js';
 import {cached, getPreviousTestRunResults} from './common.js';
 
 // Raised when `diff --exit-on-diff` is set and the diff is non-empty.
@@ -19,12 +19,18 @@ const exitOnDiff = Options.boolean('exit-on-diff').pipe(
     ),
 );
 
-export const _diff = <I = unknown, O = unknown, T = unknown>({
+export const _diff = <
+    I = unknown,
+    O = unknown,
+    T = unknown,
+    E = never,
+    R = never,
+>({
     cached,
     config: {testSuite, concurrency},
 }: {
     cached: boolean;
-    config: AppConfigShape<I, O, T>;
+    config: AppConfigShape<I, O, T, E, R>;
 }) =>
     Effect.gen(function* () {
         const tests = yield* PT.TestRepository.TestRepository;
@@ -64,11 +70,7 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
                 PT.Test.runCollectRecord(currentTestRun),
             );
 
-        const getFromRun = (): Effect.Effect<
-            PT.Test.TestRunResults<I, O, T>,
-            PT.Error.RepositoryError,
-            PT.TestRepository.TestRepository
-        > =>
+        const getFromRun = () =>
             pipe(
                 PT.Test.all(testSuite, {concurrency}),
                 Stream.grouped(50),
@@ -83,11 +85,7 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
                 Effect.tap(Effect.logDebug('from run')),
             );
 
-        const getFromCache = (): Effect.Effect<
-            PT.Test.TestRunResults<I, O, T>,
-            PT.Error.RepositoryError,
-            PT.TestRepository.TestRepository
-        > =>
+        const getFromCache = () =>
             tests
                 .getTestResultsStream<I, O, T>(
                     currentTestRun,
@@ -103,13 +101,18 @@ export const _diff = <I = unknown, O = unknown, T = unknown>({
         return {testRun, previousTestRun};
     });
 
-export const diff = Command.make(
-    'diff',
-    {exitOnDiff, cached},
-    ({exitOnDiff, cached}) =>
+export const diff = <
+    I = unknown,
+    O = unknown,
+    T = unknown,
+    E = never,
+    R = never,
+>(
+    config: AppConfigShape<I, O, T, E, R>,
+) =>
+    Command.make('diff', {exitOnDiff, cached}, ({exitOnDiff, cached}) =>
         Effect.gen(function* () {
-            const config = yield* AppConfig;
-            const {testSuite, displayConfig} = config;
+            const {displayConfig} = config;
             const {testRun, previousTestRun} = yield* _diff({
                 cached,
                 config,
@@ -147,4 +150,4 @@ export const diff = Command.make(
                 );
             }
         }),
-);
+    );

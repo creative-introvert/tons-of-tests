@@ -4,12 +4,18 @@ import * as PT from '@creative-introvert/tons-of-tests';
 import {Command} from '@effect/cli';
 import {Effect} from 'effect';
 
-import {AppConfig, type AppConfigShape} from './Config.js';
+import {type AppConfigShape} from './Config.js';
 
-export const _commit = <I = unknown, O = unknown, T = unknown>({
+export const _commit = <
+    I = unknown,
+    O = unknown,
+    T = unknown,
+    E = never,
+    R = never,
+>({
     config: {testSuite},
 }: {
-    config: AppConfigShape<I, O, T>;
+    config: AppConfigShape<I, O, T, E, R>;
 }) =>
     Effect.gen(function* () {
         const repository = yield* PT.TestRepository.TestRepository;
@@ -20,9 +26,17 @@ export const _commit = <I = unknown, O = unknown, T = unknown>({
         yield* repository.clearStale({name: testSuite.name});
     });
 
-export const commit = Command.make('commit', {}, () =>
-    Effect.gen(function* () {
-        const config = yield* AppConfig;
-        yield* _commit({config});
-    }),
-);
+export const commit = <
+    I = unknown,
+    O = unknown,
+    T = unknown,
+    E = never,
+    R = never,
+>(
+    config: AppConfigShape<I, O, T, E, R>,
+) =>
+    Command.make('commit', {}, () =>
+        Effect.gen(function* () {
+            yield* _commit({config});
+        }),
+    );

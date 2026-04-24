@@ -10,12 +10,15 @@ const predictObesity = ({eatBetweenMeals}: {eatBetweenMeals: number}) =>
     // Dumb approximation by loosely mapping between the domain.
     Effect.succeed(mapCAECToObesity(eatBetweenMeals) + 2);
 
-void CLI.run({
-    testSuite: {
-        name: 'with-cli-complex',
-        testCases: await createTestCases(),
-        program: predictObesity,
+void CLI.run(
+    {
+        testSuite: {
+            name: 'with-cli-complex',
+            testCases: await createTestCases(),
+            program: predictObesity,
+        },
+        dbPath: 'with-cli-simple.db',
+        concurrency: 1,
     },
-    dbPath: 'with-cli-simple.db',
-    concurrency: 1,
-});
+    process.argv,
+);

@@ -67,15 +67,15 @@ const TestRunResults = {
     }),
 };
 
-export const test = <I, O, T>({
+export const test = <I, O, T, E, R>({
     testCase: {input, expected, tags, ordering},
     program,
     classify,
 }: {
     testCase: TestCase<I, T> & {ordering: number};
-    program: Program<I, O>;
+    program: Program<I, O, E, R>;
     classify: Classify<O, T>;
-}): Effect.Effect<TestResult<I, O, T>> => {
+}): Effect.Effect<TestResult<I, O, T>, E, R> => {
     const t0 = performance.now();
     return program(input).pipe(
         Effect.map(result => {
@@ -93,14 +93,14 @@ export const test = <I, O, T>({
     );
 };
 
-export const all = <I, O, T>(
+export const all = <I, O, T, E, R>(
     {
         testCases,
         program,
         classify = makeClassify({isEqual: defaultIsEqual}),
-    }: TestSuite<I, O, T>,
+    }: TestSuite<I, O, T, E, R>,
     {concurrency}: {concurrency?: number | undefined} = {concurrency: 1},
-) =>
+): Stream.Stream<TestResult<I, O, T>, E, R> =>
     pipe(
         // Keeping the index as the inherent ordering.
         A.map(testCases, ({..._}, ordering) => ({..._, ordering})),
@@ -115,7 +115,7 @@ export const all = <I, O, T>(
             const stride = Math.max(Math.floor(total * 0.05), 10);
             const isMilestone = i === 1 || i === total || i % stride === 0;
             return isMilestone
-                ? Effect.logInfo(`progress ${i}/${total}`)
+                ? Effect.logDebug(`progress ${i}/${total}`)
                 : Effect.void;
         }),
     );

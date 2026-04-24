@@ -242,15 +242,49 @@ Checkout `workspace/examples/src/with-cli` for more examples.
 ```
 pnpx tsx <file-path>
 # e.g.
-pnpx tsx ./workspace/examples/src/with-cli/simple.ts
+pnpx tsx ./workspace/examples/src/with-cli/simple-run.ts
+pnpx tsx ./workspace/examples/src/with-cli/simple-effect.ts
 ```
 
 ### Using the CLI programmatically
 
-`CLI.run(config)` returns `void`. It parses `process.argv`, runs the CLI
-under `NodeRuntime.runMain`, and exits the process. If you need the last
-committed test-run hash from inside another script, use the dedicated
-helper:
+`CLI.run(config, args?)` is the process-entry helper. It parses `args ??
+process.argv`, runs the CLI under `NodeRuntime.runMain`, and returns `void`:
+
+```ts
+import * as CLI from '@creative-introvert/tons-of-tests-cli';
+
+void CLI.run(
+    {
+        testSuite,
+        dbPath: 'with-cli-simple.db',
+    },
+    ['node', 'script', 'summarize'],
+);
+```
+
+Use `CLI.effect(config, args?)` when another Effect application owns the
+runtime or provides dependencies required by `testSuite.program`:
+
+```ts
+import * as CLI from '@creative-introvert/tons-of-tests-cli';
+import {NodeRuntime} from '@effect/platform-node';
+import {Effect} from 'effect';
+
+CLI.effect(
+    {
+        testSuite,
+        dbPath: 'with-cli-simple.db',
+    },
+    ['node', 'script', 'summarize'],
+).pipe(
+    Effect.provide(MyProgramLayer),
+    NodeRuntime.runMain,
+);
+```
+
+If you need the last committed test-run hash from inside another script, use
+the dedicated helper:
 
 ```ts
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
