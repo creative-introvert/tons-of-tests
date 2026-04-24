@@ -2,11 +2,7 @@ import {isDeepStrictEqual} from 'node:util';
 
 import {Option, Schema} from 'effect';
 
-import type {
-    Stats as _Stats,
-    Classify as TClassify,
-    Label as TLabel,
-} from '../Classify.js';
+import type {Classify as TClassify} from '../Classify.js';
 
 export const values = {
     TN: 'TN',
@@ -15,7 +11,7 @@ export const values = {
     FN: 'FN',
 } as const;
 
-export const LabelSchema: Schema.Schema<TLabel> = Schema.Literal(
+export const LabelSchema = Schema.Literal(
     'TP',
     'TN',
     'FP',
@@ -50,7 +46,6 @@ export const makeClassify =
         isExpectedNil?: (expected: T) => boolean;
     }): TClassify<O, T> =>
     (output, expected) => {
-        const eq = isEqual(output, expected);
         const oNil = isOutputNil(output);
         const eNil = isExpectedNil(expected);
 
@@ -58,52 +53,23 @@ export const makeClassify =
             return values.TN;
         }
 
-        if (!oNil && !eNil && eq) {
-            return values.TP;
+        if (!oNil && !eNil) {
+            return isEqual(output, expected) ? values.TP : values.FP;
         }
 
-        if ((!oNil && eNil) || (!oNil && !eNil && !eq)) {
+        if (!oNil && eNil) {
             return values.FP;
         }
 
         return values.FN;
     };
 
-export const StatsSchema = Schema.Struct({
-    TP: Schema.Number,
-    TN: Schema.Number,
-    FP: Schema.Number,
-    FN: Schema.Number,
-    precision: Schema.Number,
-    recall: Schema.Number,
-    timeMean: Schema.Number.pipe(Schema.Option),
-    timeMedian: Schema.Number.pipe(Schema.Option),
-    timeMin: Schema.Number.pipe(Schema.Option),
-    timeMax: Schema.Number.pipe(Schema.Option),
-});
-
-export const Stats = {
-    empty: (): _Stats => ({
-        TP: 0,
-        TN: 0,
-        FP: 0,
-        FN: 0,
-        precision: 0,
-        recall: 0,
-        timeMean: Option.none(),
-        timeMedian: Option.none(),
-        timeMin: Option.none(),
-        timeMax: Option.none(),
-        total: 0,
-    }),
-};
-
-export const precision = (m: _Stats): number => {
+export const precision = (m: {TP: number; FP: number}): number => {
     const r = m.TP / (m.TP + m.FP);
     return Number.isNaN(r) ? 0 : r;
 };
 
-export const recall = (m: _Stats): number => {
+export const recall = (m: {TP: number; FN: number}): number => {
     const r = m.TP / (m.TP + m.FN);
     return Number.isNaN(r) ? 0 : r;
 };

@@ -38,12 +38,13 @@ Define your test suite:
 
 ```ts
 // my-test-suite.ts
+import {Classify} from '@creative-introvert/tons-of-tests';
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
 import {Effect} from 'effect';
 
 const myFunction = (input: number) => Promise.resolve(input * 1.7);
 
-void CLI.run({
+CLI.run({
     testSuite: {
         name: 'with-cli-simple',
         testCases: [
@@ -53,12 +54,20 @@ void CLI.run({
             {input: 3, expected: 4},
             {input: 4, expected: 5},
         ],
+        // `makeClassify` customises how observed vs. expected results are
+        // labelled. `isEqual` decides TP/TN vs FP/FN — here we tolerate a
+        // 0.4 absolute error, so `1.7` passes for `2`, etc.
+        classify: Classify.makeClassify({
+            isEqual: (a, b) => Math.abs(b - a) <= 0.4,
+        }),
         program: (input: number) => Effect.promise(() => myFunction(input)),
     },
     dbPath: 'with-cli-simple.db',
-    concurrency: 10,
+    concurrency: 1,
 });
 ```
+
+> Omit `classify` to get default strict equality; then every non-exact result is labelled FP.
 
 #### Summarize
 
@@ -72,9 +81,9 @@ pnpx tsx my-test-suite.ts summarize
 ├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
 │ 1/5 │ bd04cb2c │ 0.69ms │      │ 0     │ 0        │ TP     │              │
 ├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ 2/5 │ 562e2cca │ 0.36ms │      │ 1     │ 2        │ FP     │ 2 => 1.7     │
+│ 2/5 │ 562e2cca │ 0.36ms │      │ 1     │ 2        │ TP     │ 2 => 1.7     │
 ├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ 3/5 │ a5afd52f │ 3.30ms │      │ 2     │ 3        │ FP     │ 3 => 3.4     │
+│ 3/5 │ a5afd52f │ 3.30ms │      │ 2     │ 3        │ TP     │ 3 => 3.4     │
 ├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
 │ 4/5 │ 5f7f8725 │ 1.19ms │      │ 3     │ 4        │ FP     │ 4 => 5.1     │
 ├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
@@ -89,7 +98,7 @@ pnpx tsx my-test-suite.ts summarize
 ├───┬────┬────┬────┬────┬───────────┬────────┬──────────┬────────────┤
 │ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
 ├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
-│ 5 │ 1  │ 0  │ 4  │ 0  │ 0.20      │ 1.00   │ 1.35ms   │ 1.19ms     │
+│ 5 │ 3  │ 0  │ 2  │ 0  │ 0.60      │ 1.00   │ 1.35ms   │ 1.19ms     │
 ├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
 │ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
 └───┴────┴────┴────┴────┴───────────┴────────┴──────────┴────────────┘
@@ -105,7 +114,11 @@ pnpx tsx my-test-suite.ts summarize --labels TP
 ├─────┬──────────┬────────┬──────┬───────┬──────────┬────────┬──────────────┤
 │ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │
 ├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ 1/1 │ bd04cb2c │ 0.52ms │      │ 0     │ 0        │ TP     │              │
+│ 1/3 │ bd04cb2c │ 0.52ms │      │ 0     │ 0        │ TP     │              │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
+│ 2/3 │ 562e2cca │ 0.41ms │      │ 1     │ 2        │ TP     │ 2 => 1.7     │
+├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
+│ 3/3 │ a5afd52f │ 0.74ms │      │ 2     │ 3        │ TP     │ 3 => 3.4     │
 ├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
 │ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │
 └─────┴──────────┴────────┴──────┴───────┴──────────┴────────┴──────────────┘
@@ -116,11 +129,39 @@ pnpx tsx my-test-suite.ts summarize --labels TP
 ├───┬────┬────┬────┬────┬───────────┬────────┬──────────┬────────────┤
 │ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
 ├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
-│ 5 │ 1  │ 0  │ 4  │ 0  │ 0.20      │ 1.00   │ 1.23ms   │ 1.28ms     │
+│ 5 │ 3  │ 0  │ 2  │ 0  │ 0.60      │ 1.00   │ 1.23ms   │ 1.28ms     │
 ├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
 │ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
 └───┴────┴────┴────┴────┴───────────┴────────┴──────────┴────────────┘
 ```
+
+#### Summarize With Tag Filters
+
+`--tags` includes results matching ANY of the listed tags (OR):
+
+```
+pnpx tsx my-test-suite.ts summarize --tags foo,bar
+```
+
+`--all-tags` includes results matching ALL listed tags (AND):
+
+```
+pnpx tsx my-test-suite.ts summarize --all-tags foo,bar
+```
+
+Both flags compose with `--labels`.
+
+#### Summarize From Cache
+
+`--cached` reads the most recently inserted test results from the local DB
+instead of re-running the program. This is useful when you want to re-format
+or re-filter without incurring the cost of a full run:
+
+```
+pnpx tsx my-test-suite.ts summarize --cached
+```
+
+`diff --cached` behaves the same way for the current-run side of the diff.
 
 #### Write Test Results
 
@@ -202,14 +243,37 @@ pnpx tsx <file-path>
 pnpx tsx ./workspace/examples/src/with-cli/simple.ts
 ```
 
+### Using the CLI programmatically
 
-Checkout `workspace/examples` for more examples.
+`CLI.run(config)` returns `void`. It parses `process.argv`, runs the CLI
+under `NodeRuntime.runMain`, and exits the process. If you need the last
+committed test-run hash from inside another script, use the dedicated
+helper:
 
-```bash
-pnpx tsx <file-path>
-# e.g.
-pnpx tsx ./workspace/examples/src/with-cli/simple.ts
+```ts
+import * as CLI from '@creative-introvert/tons-of-tests-cli';
+
+const hash = await CLI.getLastTestRunHash({
+    testSuite,
+    dbPath: 'with-cli-simple.db',
+});
+// hash: string | null
 ```
+
+If you compose the CLI's `diff` programmatically (via `_diff` or a custom
+harness), `diff --exit-on-diff` fails with a typed `DiffNonEmpty` error
+when the current run has visible diffs:
+
+```ts
+import {DiffNonEmpty} from '@creative-introvert/tons-of-tests-cli';
+
+// ... compose _diff into your own Effect pipeline, then:
+Effect.catchTag('DiffNonEmpty', () => /* handle */);
+```
+
+At the process entry point (`CLI.run`), `DiffNonEmpty` is translated to
+`process.exitCode = 1` — the user-facing "exit with code 1 on diff"
+behavior is unchanged.
 
 ## Why No Runtime?
 

@@ -30,6 +30,11 @@
             # we need to use nix packages rather than the npm prebuilts
             oxlint
             oxfmt
+            sqlite
+            # build tools for better-sqlite3
+            python3
+            gcc
+            gnumake
           ];
         };
       }

@@ -1,12 +1,11 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {Command} from '@effect/cli';
-import {NodeContext} from '@effect/platform-node';
+import {NodeContext, NodeRuntime} from '@effect/platform-node';
 import {Effect, Layer, Option} from 'effect';
 
-import type {Config} from './Config.js';
-import {makeConfigLayer} from './Config.js';
+import {AppConfig, type AppConfigShape} from './Config.js';
 import {commit} from './commit.js';
-import {diff} from './diff.js';
+import {DiffNonEmpty, diff} from './diff.js';
 import {summarize} from './summarize.js';
 import {VERSION} from './version.js';
 
@@ -17,25 +16,40 @@ const cli = Command.run(
     {name: 'Tons Of Tests CLI', version: VERSION},
 );
 
+// Each call builds an independent layer (and therefore an independent
+// SqliteClient). Exported so callers running multiple operations in-process
+// can share a single layer across them.
+export const buildLayer = <I, O, T>(config: AppConfigShape<I, O, T>) =>
+    Layer.mergeAll(
+        NodeContext.layer,
+        AppConfig.layer(config),
+        PT.TestRepository.TestRepository.layer(config.dbPath),
+    );
+
 export const run = <I = unknown, O = unknown, T = unknown>(
-    config: Config<I, O, T>,
-): Promise<string | null> =>
+    config: AppConfigShape<I, O, T>,
+): void =>
     Effect.suspend(() => cli(process.argv)).pipe(
-        Effect.flatMap(() =>
-            Effect.gen(function* () {
-                const tests = yield* PT.TestRepository.TestRepository;
-                return yield* tests.getLastTestRunHash(config.testSuite.name);
+        // Surface DiffNonEmpty as a plain exit code so the user sees "exit 1"
+        // rather than a stack trace. Library consumers that compose `_diff`
+        // directly still observe DiffNonEmpty in the Effect error channel.
+        Effect.catchTag('DiffNonEmpty', () =>
+            Effect.sync(() => {
+                process.exitCode = 1;
             }),
         ),
-        Effect.map(Option.getOrNull),
-        Effect.provide(
-            NodeContext.layer.pipe(
-                Layer.merge(makeConfigLayer(config as Config)),
-                Layer.provideMerge(PT.TestRepository.LiveLayer),
-                Layer.provideMerge(
-                    PT.TestRepository.makeSqliteLiveLayer(config.dbPath),
-                ),
-            ),
-        ),
-        Effect.runPromise,
+        Effect.provide(buildLayer(config)),
+        NodeRuntime.runMain,
     );
+
+export const getLastTestRunHash = <I = unknown, O = unknown, T = unknown>(
+    config: AppConfigShape<I, O, T>,
+): Promise<string | null> =>
+    Effect.gen(function* () {
+        const repo = yield* PT.TestRepository.TestRepository;
+        const hash = yield* repo.getLastTestRunHash(config.testSuite.name);
+        return Option.getOrNull(hash);
+    }).pipe(Effect.provide(buildLayer(config)), Effect.runPromise);
+
+export {DiffNonEmpty};
+export type {AppConfigShape as Config} from './Config.js';

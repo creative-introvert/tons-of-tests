@@ -1,8 +1,8 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {Command, Options} from '@effect/cli';
-import {Console, Effect, Option, Schema, Stream} from 'effect';
+import {Chunk, Console, Effect, Option, Schema, Stream} from 'effect';
 
-import {Config} from './Config.js';
+import {AppConfig, type AppConfigShape} from './Config.js';
 import {cached, getPreviousTestRunResults} from './common.js';
 
 const LabelSchema = Schema.transform(
@@ -54,7 +54,7 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
     orTags: Option.Option<readonly string[]>;
     andTags: Option.Option<readonly string[]>;
     cached: boolean;
-    config: Config<I, O, T>;
+    config: AppConfigShape<I, O, T>;
 }) =>
     Effect.gen(function* () {
         const tests = yield* PT.TestRepository.TestRepository;
@@ -72,12 +72,15 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
             maybeAndTags.value.every(tag => tags.includes(tag));
 
         const filter = (
-            args: PT.Test.TestRunResults,
-        ): PT.Test.TestRunResults => {
+            args: PT.Test.TestRunResults<I, O, T>,
+        ): PT.Test.TestRunResults<I, O, T> => {
             const {testCaseHashes, testResultsByTestCaseHash, ...rest} = args;
             const _testCaseHashes: string[] = [];
-            const _testResultsByTestCaseHash: PT.Test.TestRunResults['testResultsByTestCaseHash'] =
-                {};
+            const _testResultsByTestCaseHash: PT.Test.TestRunResults<
+                I,
+                O,
+                T
+            >['testResultsByTestCaseHash'] = {};
 
             for (const hash of testCaseHashes) {
                 const next = testResultsByTestCaseHash[hash];
@@ -112,9 +115,14 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
                     PT.Test.all(testSuite, {
                         concurrency: concurrency || 1,
                     }).pipe(
-                        Stream.tap(_ =>
-                            tests.insertTestResult(_, testSuite.name),
+                        Stream.grouped(50),
+                        Stream.tap(group =>
+                            tests.insertTestResults(
+                                Chunk.toReadonlyArray(group),
+                                currentTestRun,
+                            ),
                         ),
+                        Stream.flattenChunks,
                         PT.Test.runCollectRecord(currentTestRun),
                         Effect.tap(Effect.logDebug('from run')),
                         Effect.map(filter),
@@ -124,23 +132,22 @@ export const _sumarize = <I = unknown, O = unknown, T = unknown>({
 
         const getFromCache = () =>
             tests
-                .getTestResultsStream(currentTestRun)
+                .getTestResultsStream<I, O, T>(
+                    currentTestRun,
+                    testSuite.schemas,
+                )
                 .pipe(
                     PT.Test.runCollectRecord(currentTestRun),
                     Effect.tap(Effect.logDebug('from cache')),
                     Effect.map(filter),
                 );
 
-        const testRun: PT.Test.TestRunResults = yield* Effect.if(
-            cached && hasResults,
-            {onTrue: getFromCache, onFalse: getFromRun},
-        );
+        const testRun: PT.Test.TestRunResults<I, O, T> =
+            yield* (cached && hasResults ? getFromCache() : getFromRun());
 
         yield* Effect.logDebug('testRun');
 
-        const previousTestRun = (yield* getPreviousTestRunResults(
-            testSuite,
-        )) as Option.Option<PT.Test.TestRunResults<I, O, T>>;
+        const previousTestRun = yield* getPreviousTestRunResults(testSuite);
 
         yield* Effect.logDebug('previousTestRun');
         return {testRun, previousTestRun};
@@ -151,7 +158,7 @@ export const summarize = Command.make(
     {labels, cached, orTags, andTags},
     ({labels, cached, orTags, andTags}) =>
         Effect.gen(function* () {
-            const config = yield* Config;
+            const config = yield* AppConfig;
             const {displayConfig} = config;
             const {testRun, previousTestRun} = yield* _sumarize({
                 labels,

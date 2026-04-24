@@ -1,14 +1,24 @@
-import {Effect, Option} from 'effect';
+import {Effect, Option, type Schema} from 'effect';
 
 import type {Classify, Label, Stats} from './Classify.js';
 import * as internal from './internal/Test.js';
 import type {TestRun} from './Test.repository.js';
+
+export type TestSuiteSchemas<I, O, T> = {
+    input: Schema.Schema<I>;
+    result: Schema.Schema<O>;
+    expected: Schema.Schema<T>;
+};
 
 export type TestSuite<I = unknown, O = unknown, T = unknown> = {
     testCases: TestCase<I, T>[];
     program: Program<I, O>;
     classify?: Classify<O, T>;
     name: string;
+    // Optional per-suite schemas for input/result/expected. When present the
+    // repository decodes cached rows through them so reads return
+    // TestResult<I, O, T> honestly.
+    schemas?: TestSuiteSchemas<I, O, T>;
 };
 
 export type TestCase<I, T> = {
@@ -50,4 +60,5 @@ export type TestResultPredicate<I, O, T> = (args: {
 
 export const all = internal.all;
 export const diff = internal.diff;
+export const makeSha256 = internal.makeSha256;
 export const runCollectRecord = internal.runCollectRecord;
