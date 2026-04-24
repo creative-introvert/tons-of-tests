@@ -10,9 +10,15 @@ export type TestSuiteSchemas<I, O, T> = {
     expected: Schema.Schema<T>;
 };
 
-export type TestSuite<I = unknown, O = unknown, T = unknown> = {
+export type TestSuite<
+    I = unknown,
+    O = unknown,
+    T = unknown,
+    E = never,
+    R = never,
+> = {
     testCases: TestCase<I, T>[];
-    program: Program<I, O>;
+    program: Program<I, O, E, R>;
     classify?: Classify<O, T>;
     name: string;
     // Optional per-suite schemas for input/result/expected. When present the
@@ -27,7 +33,9 @@ export type TestCase<I, T> = {
     tags?: string[];
 };
 
-export type Program<I, O> = (input: I) => Effect.Effect<O>;
+export type Program<I, O, E = never, R = never> = (
+    input: I,
+) => Effect.Effect<O, E, R>;
 
 export type TestResult<I = unknown, O = unknown, T = unknown> = {
     id: string;

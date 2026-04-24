@@ -10,8 +10,10 @@ export const getPreviousTestRunResults = <
     I = unknown,
     O = unknown,
     T = unknown,
+    E = never,
+    R = never,
 >(
-    testSuite: PT.Test.TestSuite<I, O, T>,
+    testSuite: PT.Test.TestSuite<I, O, T, E, R>,
 ): Effect.Effect<
     Option.Option<PT.Test.TestRunResults<I, O, T>>,
     PT.Error.RepositoryError,

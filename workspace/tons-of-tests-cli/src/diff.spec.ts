@@ -117,7 +117,7 @@ t.describe('CLI: _diff', () => {
                             Effect.provide(AppConfig.layer(baseConfig)),
                         );
 
-                        const exit = yield* diffCommand
+                        const exit = yield* diffCommand(changedConfig)
                             .handler({exitOnDiff: true, cached: false})
                             .pipe(
                                 Effect.provide(AppConfig.layer(changedConfig)),
@@ -147,7 +147,7 @@ t.describe('CLI: _diff', () => {
                         Effect.provide(AppConfig.layer(config)),
                     );
 
-                    const exit = yield* diffCommand
+                    const exit = yield* diffCommand(config)
                         .handler({exitOnDiff: true, cached: false})
                         .pipe(
                             Effect.provide(AppConfig.layer(config)),
