@@ -32,18 +32,19 @@ export const showBorder = (
         bottom: cfg.cornerBottom,
     };
 
-    return `${
+    return `${colors.gray(
         l[position] +
-        columnWidths.reduce(
-            (s, w, i, xs) =>
-                s +
-                (i < xs.length - 1
-                    ? cfg.horizontal.repeat(w + cfg.columnPadding) + m[position]
-                    : cfg.horizontal.repeat(w + cfg.columnPadding)),
-            '',
-        ) +
-        r[position]
-    }\n`;
+            columnWidths.reduce(
+                (s, w, i, xs) =>
+                    s +
+                    (i < xs.length - 1
+                        ? cfg.horizontal.repeat(w + cfg.columnPadding) +
+                          m[position]
+                        : cfg.horizontal.repeat(w + cfg.columnPadding)),
+                '',
+            ) +
+            r[position],
+    )}\n`;
 };
 
 export const showHeader = (
@@ -55,9 +56,9 @@ export const showHeader = (
         columns
             .map(
                 ({label}, i) =>
-                    `${cfg.vertical} ${label.padEnd(columnWidths[i])} `,
+                    `${colors.gray(cfg.vertical)} ${colors.dim(label.padEnd(columnWidths[i]))} `,
             )
-            .join('') + cfg.vertical
+            .join('') + colors.gray(cfg.vertical)
     }\n`;
 };
 
@@ -69,13 +70,13 @@ export const showTitle = (
     const diff = title.length - colors.stripColor(title).length;
     return `${
         showBorder(cfg, columnWidths, 'top-title') +
-        cfg.vertical +
+        colors.gray(cfg.vertical) +
         title
             .padStart(title.length + 1)
             .padEnd(
                 diff + columnWidths.reduce(sum) + columnWidths.length * 3 - 1,
             ) +
-        cfg.vertical
+        colors.gray(cfg.vertical)
     }\n${showBorder(cfg, columnWidths, 'bottom-title')}`;
 };
 
@@ -93,9 +94,9 @@ export const showRow = (
             const u = colors.stripColor(x);
             const w = columnWidths[columnIndex];
             const n = w + x.length - u.length;
-            s += `${cfg.vertical} ${x.padEnd(n)} `;
+            s += `${colors.gray(cfg.vertical)} ${x.padEnd(n)} `;
         }
-        s += `${cfg.vertical}\n`;
+        s += `${colors.gray(cfg.vertical)}\n`;
     }
     return s;
 };

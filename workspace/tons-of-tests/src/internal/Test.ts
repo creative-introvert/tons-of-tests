@@ -115,7 +115,7 @@ export const all = <I, O, T, E, R>(
             const stride = Math.max(Math.floor(total * 0.05), 10);
             const isMilestone = i === 1 || i === total || i % stride === 0;
             return isMilestone
-                ? Effect.logInfo(`progress ${i}/${total}`)
+                ? Effect.logDebug(`progress ${i}/${total}`)
                 : Effect.void;
         }),
     );

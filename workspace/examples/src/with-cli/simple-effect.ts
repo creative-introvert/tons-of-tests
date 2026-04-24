@@ -16,31 +16,26 @@ const myFunction = (input: number) =>
         return input * factor;
     });
 
-CLI.effect({
-    testSuite: {
-        name: 'with-cli-simple-effect',
-        testCases: [
-            {input: 0, expected: 0},
-            {input: 1, expected: 2},
-            {input: 2, expected: 3},
-            {input: 3, expected: 4},
-            {input: 4, expected: 5},
-        ],
-        classify: Classify.makeClassify({
-            isEqual: (a, b) => Math.abs(b - a) <= 0.4,
-        }),
-        program: myFunction,
+CLI.effect(
+    {
+        testSuite: {
+            name: 'with-cli-simple-effect',
+            testCases: [
+                {input: 0, expected: 0},
+                {input: 1, expected: 2},
+                {input: 2, expected: 3},
+                {input: 3, expected: 4},
+                {input: 4, expected: 5},
+            ],
+            classify: Classify.makeClassify({
+                isEqual: (a, b) => Math.abs(b - a) <= 0.4,
+            }),
+            program: myFunction,
+        },
+        dbPath: 'with-cli-simple.db',
+        concurrency: 1,
     },
-    dbPath: 'with-cli-simple.db',
-    concurrency: 1,
-}).pipe(
-    Effect.provide(ScaleLive),
-    // `DiffNonEmpty` stays in the error channel when using `CLI.effect`;
-    // translate it here if you want the `run`-style exit-code behavior.
-    Effect.catchTag('DiffNonEmpty', () =>
-        Effect.sync(() => {
-            process.exitCode = 1;
-        }),
-    ),
-    NodeRuntime.runMain,
-);
+    // Args can be provided in memory to drive the CLI.
+    // If not provided, falls back to `process.argv`.
+    ['binary', 'filepath', 'summarize'],
+).pipe(Effect.provide(ScaleLive), NodeRuntime.runMain);

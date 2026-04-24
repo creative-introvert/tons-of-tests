@@ -1,7 +1,7 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {Command} from '@effect/cli';
 import {NodeContext, NodeRuntime} from '@effect/platform-node';
-import {Effect, Layer, Option} from 'effect';
+import {Effect, Layer, Logger, LogLevel, Option} from 'effect';
 
 import {AppConfig, type AppConfigShape} from './Config.js';
 import {commit} from './commit.js';
@@ -60,6 +60,7 @@ export const run = <I = unknown, O = unknown, T = unknown, E = never>(
                 process.exitCode = 1;
             }),
         ),
+        Logger.withMinimumLogLevel(LogLevel.Info),
         NodeRuntime.runMain,
     );
 
