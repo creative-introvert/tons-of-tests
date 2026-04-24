@@ -6,8 +6,7 @@
     "sideEffects": [],
     "devDependencies": {
         "@types/node": "^24.6.1",
-        "@types/papaparse": "^5.5.2",
-        "typescript": "^6.0.3"
+        "@types/papaparse": "^5.5.2"
     },
     "dependencies": {
         "@creative-introvert/tons-of-tests": "workspace:*",

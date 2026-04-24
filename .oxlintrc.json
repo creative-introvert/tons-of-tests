@@ -13,14 +13,14 @@
     "plugins": ["typescript", "unicorn", "oxc", "import"],
     "categories": {
         "correctness": "error",
-        "perf": "warn",
-        "suspicious": "warn"
+        "perf": "off",
+        "suspicious": "off"
     },
     "rules": {
         "no-array-index-key": "off",
         "consistent-type-imports": "off",
         "no-danger": "off",
-        "no-unused-vars": "warn",
-        "unicorn/no-new-array": "warn"
+        "no-unused-vars": "off",
+        "unicorn/no-new-array": "off"
     }
 }

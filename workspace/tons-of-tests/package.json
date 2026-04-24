@@ -23,7 +23,7 @@
     },
     "scripts": {
         "build": "pnpm build-cjs && pnpm build-annotate && tsx src/pack.ts",
-        "build-esm": "tsc --build tsconfig.build.json",
+        "build-esm": "tsgo --build tsconfig.build.json",
         "build-cjs": "babel build/esm --out-dir build/cjs",
         "build-annotate": "babel build --plugins annotate-pure-calls --out-dir build",
         "test:watch": "vitest --passWithNoTests",

@@ -22,3 +22,22 @@ lint *args:
 [group('Check')]
 format *args:
     pnpm exec oxfmt {{args}}
+
+[doc('Type-check and emit with tsgo (pass --watch for watch mode)')]
+[group('Build')]
+build *args:
+    pnpm exec tsgo --build {{args}}
+
+[doc('Type-check the project reference graph')]
+[group('Check')]
+typecheck *args:
+    pnpm exec tsgo --build {{args}}
+
+[doc('Run workspace unit tests')]
+[group('Check')]
+test *args:
+    pnpm -r run test
+
+[doc('Run all checks')]
+[group('Check')]
+check: lint typecheck test
