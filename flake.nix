@@ -23,14 +23,13 @@
       with pkgs;
       {
         devShells.default = mkShell {
-          BIOME_BINARY = "${biome}/bin/biome";
           buildInputs = [
             nodejs_24
             pnpm
-            # see https://github.com/biomejs/biome-vscode/issues/295
             # nixos can't deal with statically linked binaries, so
-            # we need to use the biome nix package
-            biome
+            # we need to use nix packages rather than the npm prebuilts
+            oxlint
+            oxfmt
           ];
         };
       }

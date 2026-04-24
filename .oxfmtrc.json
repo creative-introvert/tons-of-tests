@@ -1,0 +1,33 @@
+{
+    "$schema": "./node_modules/oxfmt/configuration_schema.json",
+    "singleQuote": true,
+    "trailingComma": "all",
+    "semi": true,
+    "arrowParens": "avoid",
+    "bracketSpacing": false,
+    "printWidth": 80,
+    "tabWidth": 4,
+    "sortPackageJson": false,
+    "overrides": [
+        {
+            "files": ["*.json", "*.jsonc"],
+            "options": {
+                "bracketSpacing": true
+            }
+        }
+    ],
+    "ignorePatterns": [
+        "**/jsondiffpatch/**",
+        "**/*.js",
+        "**/*.md",
+        "**/*.yml",
+        "**/*.yaml",
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.direnv/**",
+        "**/.pnpm-store/**",
+        "**/.cache/**",
+        "**/.rollup.cache/**"
+    ]
+}
