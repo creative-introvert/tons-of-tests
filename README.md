@@ -71,6 +71,24 @@ CLI.run({
 
 > Omit `classify` to get default strict equality; then every non-exact result is labelled FP.
 
+`testCases` can also be an Effect `Stream`, which is useful for large or generated suites that are consumed lazily by the runner:
+
+```ts
+import {Stream} from 'effect';
+
+CLI.run({
+    testSuite: {
+        name: 'with-cli-stream',
+        testCases: Stream.fromIterable([
+            {input: 0, expected: 0},
+            {input: 1, expected: 2},
+        ]),
+        program: (input: number) => Effect.promise(() => myFunction(input)),
+    },
+    dbPath: 'with-cli-stream.db',
+});
+```
+
 #### Summarize
 
 ```

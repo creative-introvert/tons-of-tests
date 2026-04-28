@@ -4,7 +4,7 @@ import {Effect, Option, Stream} from 'effect';
 import {Stats} from '../Classify.js';
 import type {TestResult} from '../Test.js';
 import type {TestRun} from '../Test.repository.js';
-import {diff, makeSha256, runCollectRecord} from './Test.js';
+import {all, diff, makeSha256, runCollectRecord} from './Test.js';
 
 const run: TestRun = {id: 1, name: 'suite', hash: null} as TestRun;
 
@@ -45,6 +45,45 @@ const mkTN = (args: {
 
 const collect = (results: readonly AnyResult[]) =>
     Stream.fromIterable(results).pipe(runCollectRecord(run), Effect.runPromise);
+
+t.describe('all', () => {
+    const cases = [
+        {input: 1, expected: 2},
+        {input: 2, expected: 4},
+        {input: 3, expected: 6},
+    ] as const;
+
+    t.test.each([
+        {
+            description: 'array test cases keep source ordering',
+            testCases: cases,
+            expected: [
+                {input: 1, ordering: 0},
+                {input: 2, ordering: 1},
+                {input: 3, ordering: 2},
+            ],
+        },
+        {
+            description: 'stream test cases keep source ordering',
+            testCases: Stream.fromIterable(cases),
+            expected: [
+                {input: 1, ordering: 0},
+                {input: 2, ordering: 1},
+                {input: 3, ordering: 2},
+            ],
+        },
+    ])('$description', async ({testCases, expected}) => {
+        const results = await all({
+            name: 'all-source-shapes',
+            testCases,
+            program: (input: number) => Effect.succeed(input * 2),
+        }).pipe(Stream.runCollect, Effect.runPromise);
+
+        t.expect(
+            Array.from(results, ({input, ordering}) => ({input, ordering})),
+        ).toStrictEqual(expected);
+    });
+});
 
 t.describe('runCollectRecord', () => {
     t.test('empty stream -> empty stats with none-options', async () => {

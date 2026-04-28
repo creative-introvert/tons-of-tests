@@ -1,5 +1,5 @@
 import * as t from '@effect/vitest';
-import {Cause, Context, Effect, Exit, Option, Ref} from 'effect';
+import {Cause, Context, Effect, Exit, Option, Ref, Stream} from 'effect';
 
 import {DiffNonEmpty} from './diff.js';
 import {effect as cliEffect} from './index.js';
@@ -16,21 +16,32 @@ t.describe('CLI.effect', () => {
     t.test.each([
         {
             description:
-                'runs the selected subcommand with caller-provided dependencies',
+                'runs the selected subcommand with array test cases and caller-provided dependencies',
             args: ['node', 'test', 'summarize'] as const,
+            testCases: [
+                {input: 1, expected: 3},
+                {input: 2, expected: 4},
+            ],
             expectedHits: 2,
         },
-    ])('$description', async ({args, expectedHits}) => {
+        {
+            description:
+                'runs the selected subcommand with stream test cases and caller-provided dependencies',
+            args: ['node', 'test', 'summarize'] as const,
+            testCases: Stream.fromIterable([
+                {input: 1, expected: 3},
+                {input: 2, expected: 4},
+            ]),
+            expectedHits: 2,
+        },
+    ])('$description', async ({args, testCases, expectedHits}) => {
         await Effect.gen(function* () {
             const hits = yield* Ref.make(0);
             const config = {
                 dbPath: ':memory:',
                 testSuite: {
                     name: 'cli-effect-deps',
-                    testCases: [
-                        {input: 1, expected: 3},
-                        {input: 2, expected: 4},
-                    ],
+                    testCases,
                     program: (input: number) =>
                         Effect.gen(function* () {
                             const multiplier = yield* Multiplier;

@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests
 
+## 1.2.0
+
+### Minor Changes
+
+- Feat: testCases can be a Stream
+
 ## 1.1.1
 
 ### Patch Changes

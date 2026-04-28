@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
 
-import {Array as A, Effect, Option, pipe, Schema, Sink, Stream} from 'effect';
+import {Effect, Option, pipe, Schema, Sink, Stream} from 'effect';
 
 import type {Classify} from '../Classify.js';
 import {Stats} from '../Classify.js';
@@ -100,25 +100,44 @@ export const all = <I, O, T, E, R>(
         classify = makeClassify({isEqual: defaultIsEqual}),
     }: TestSuite<I, O, T, E, R>,
     {concurrency}: {concurrency?: number | undefined} = {concurrency: 1},
-): Stream.Stream<TestResult<I, O, T>, E, R> =>
-    pipe(
-        // Keeping the index as the inherent ordering.
-        A.map(testCases, ({..._}, ordering) => ({..._, ordering})),
-        Stream.fromIterable,
+): Stream.Stream<TestResult<I, O, T>, E, R> => {
+    const total = Array.isArray(testCases) ? testCases.length : undefined;
+    const testCases$: Stream.Stream<TestCase<I, T>, E, R> = Array.isArray(
+        testCases,
+    )
+        ? (Stream.fromIterable(
+              testCases as ReadonlyArray<TestCase<I, T>>,
+          ) as Stream.Stream<TestCase<I, T>, E, R>)
+        : (testCases as Stream.Stream<TestCase<I, T>, E, R>);
+
+    return pipe(
+        testCases$,
+        Stream.zipWithIndex,
+        Stream.map(([testCase, ordering]) => ({...testCase, ordering})),
         Stream.mapEffect(testCase => test({testCase, program, classify}), {
             concurrency,
             unordered: false,
         }),
         Stream.tap(testResult => {
             const i = testResult.ordering + 1;
-            const total = testCases.length;
-            const stride = Math.max(Math.floor(total * 0.05), 10);
-            const isMilestone = i === 1 || i === total || i % stride === 0;
-            return isMilestone
-                ? Effect.logDebug(`progress ${i}/${total}`)
-                : Effect.void;
+            const stride =
+                total === undefined
+                    ? 10
+                    : Math.max(Math.floor(total * 0.05), 10);
+            const isMilestone =
+                i === 1 ||
+                i % stride === 0 ||
+                (total !== undefined && i === total);
+            if (!isMilestone) return Effect.void;
+
+            return Effect.logDebug(
+                total === undefined
+                    ? `progress ${i}`
+                    : `progress ${i}/${total}`,
+            );
         }),
     );
+};
 
 type FoldAcc<I, O, T> = {
     testResultsByTestCaseHash: Record<string, TestResult<I, O, T>>;
