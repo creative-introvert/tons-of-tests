@@ -1,4 +1,4 @@
-import * as SqlClient from '@effect/sql/SqlClient';
+import * as SqlClient from 'effect/sql/SqlClient';
 import * as t from '@effect/vitest';
 import {Cause, Effect, Exit, Option, Stream} from 'effect';
 
@@ -139,8 +139,14 @@ t.describe('Test.repository.sqlite', () => {
                         const scopedAgainIds = new Set(
                             scopedAgain.map(r => r.id),
                         );
-                        t.expect([...scopedAgainIds].sort()).toEqual(
-                            [...scopedIds].sort(),
+                        t.expect(
+                            [...scopedAgainIds].sort((a, b) =>
+                                String(a).localeCompare(String(b)),
+                            ),
+                        ).toEqual(
+                            [...scopedIds].sort((a, b) =>
+                                String(a).localeCompare(String(b)),
+                            ),
                         );
                         t.expect(
                             allResults.filter(r => scopedIds.has(r.id)),
@@ -353,8 +359,18 @@ t.describe('Test.repository.sqlite', () => {
                         const after = (yield* repository.getAllTestRuns).filter(
                             r => r.name === name,
                         );
-                        t.expect(after.map(r => r.hash).sort()).toEqual(
-                            before.map(r => r.hash).sort(),
+                        t.expect(
+                            after
+                                .map(r => r.hash)
+                                .sort((a, b) =>
+                                    String(a).localeCompare(String(b)),
+                                ),
+                        ).toEqual(
+                            before
+                                .map(r => r.hash)
+                                .sort((a, b) =>
+                                    String(a).localeCompare(String(b)),
+                                ),
                         );
                     }),
             );
@@ -393,7 +409,7 @@ t.describe('Test.repository.sqlite', () => {
                         );
                         t.expect(Exit.isFailure(exit)).toBe(true);
                         const err = Exit.isFailure(exit)
-                            ? Cause.failureOption(exit.cause).pipe(
+                            ? Cause.findErrorOption(exit.cause).pipe(
                                   Option.getOrThrow,
                               )
                             : null;
@@ -438,7 +454,7 @@ t.describe('Test.repository.sqlite', () => {
                         );
                         t.expect(Exit.isFailure(exit)).toBe(true);
                         const err = Exit.isFailure(exit)
-                            ? Cause.failureOption(exit.cause).pipe(
+                            ? Cause.findErrorOption(exit.cause).pipe(
                                   Option.getOrThrow,
                               )
                             : null;

@@ -4,7 +4,7 @@ import {Effect} from 'effect';
 
 const myFunction = (input: number) => Promise.resolve(input * 1.7);
 
-void CLI.run({
+CLI.run({
     testSuite: {
         name: 'with-cli-simple',
         testCases: [

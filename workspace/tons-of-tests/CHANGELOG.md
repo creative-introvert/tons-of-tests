@@ -1,5 +1,15 @@
 # @creative-introvert/tons-of-tests
 
+## 2.0.0
+
+### Major Changes
+
+- b758693: Migrate to Effect 4 and require Node.js 24 or newer. Use the built-in SQLite
+  driver while keeping existing database files and test hashes compatible.
+  Cached-value schemas now use `Schema.Codec`; repository decode errors carry
+  `Schema.SchemaError`. `TestRunNotCreated` uses `testSuiteName` for the suite
+  name. CLI configuration is passed directly without an `AppConfig` service.
+
 ## 1.2.0
 
 ### Minor Changes

@@ -11,7 +11,7 @@ export const values = {
     FN: 'FN',
 } as const;
 
-export const LabelSchema = Schema.Literal('TP', 'TN', 'FP', 'FN');
+export const LabelSchema = Schema.Literals(['TP', 'TN', 'FP', 'FN']);
 
 export const defaultIsEqual = <A, B>(a: A, b: B): boolean =>
     // FIXME: Expensive, but don't know how else to cheaply remove
@@ -96,5 +96,5 @@ export const median = (xs: number[]): Option.Option<number> => {
             ? (sorted[index - 1] + sorted[index]) / 2
             : sorted[index];
 
-    return Option.fromNullable(r);
+    return Option.fromNullishOr(r);
 };

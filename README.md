@@ -24,6 +24,10 @@ A specialized test runner for predictive functions, focusing on scenarios where 
 
 ## Getting Started
 
+Use Node.js 24 or newer and Effect 4. The Effect packages in this repository
+use the same exact version. The SQLite driver uses Node's built-in SQLite.
+Existing database files and stored test hashes keep the same format.
+
 ### Installation
 
 Install the required packages with your preferred package manager:
@@ -272,7 +276,7 @@ process.argv`, runs the CLI under `NodeRuntime.runMain`, and returns `void`:
 ```ts
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
 
-void CLI.run(
+CLI.run(
     {
         testSuite,
         dbPath: 'with-cli-simple.db',
@@ -328,6 +332,45 @@ Effect.catchTag('DiffNonEmpty', () => /* handle */);
 At the process entry point (`CLI.run`), `DiffNonEmpty` is translated to
 `process.exitCode = 1` — the user-facing "exit with code 1 on diff"
 behavior is unchanged.
+
+## Development
+
+The repository uses pnpm 12, TypeScript 7, Vitest 5, and the Effect compiler
+and linter tools. Install the pnpm version pinned in `package.json`.
+`pnpm install` also patches TypeScript and Oxlint through the `prepare` hook.
+
+Run project commands from the repository root through direnv:
+
+```sh
+direnv exec . pnpm install --frozen-lockfile
+direnv exec . just
+direnv exec . just check
+direnv exec . just check-fix
+direnv exec . just typecheck
+direnv exec . just test
+direnv exec . just build
+direnv exec . just verify
+```
+
+`check` runs lint and format checks. `check-fix` applies fixes. `verify` also
+checks types, runs tests, and builds both publishable packages. `test` accepts
+Vitest arguments, such as `just test workspace/tons-of-tests-cli`.
+Use `test-watch` or `typecheck-watch` while editing.
+
+The root `tsconfig.json` builds the workspace projects. Each workspace keeps
+tests and build scripts out of its production output. `tsconfig.tools.json`
+checks tests and tooling, while `tsconfig.typecheck.json` checks all source
+without writing JavaScript. The build writes ESM, CommonJS, and declarations
+to each published package's `dist` directory.
+
+Package scripts are kept for the existing GitHub Actions jobs, which do not
+install Just. Just calls those same scripts where both need the same command.
+Use `changeset`, `changeset-version`, and `changeset-publish` for releases.
+
+Oxlint permits the Effect platform, SQL, CLI, and test APIs marked unstable;
+their versions are pinned. `Stats` and `TestRun` keep their existing structural
+types so callers can still pass matching objects. Other Effect lint checks
+remain enabled. VS Code uses the patched workspace TypeScript compiler.
 
 ## Why No Runtime?
 

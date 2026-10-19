@@ -1,14 +1,10 @@
-import {Effect, Option, type Schema, type Stream} from 'effect';
+import {Effect, Option, type Stream} from 'effect';
 
 import type {Classify, Label, Stats} from './Classify.js';
 import * as internal from './internal/Test.js';
-import type {TestRun} from './Test.repository.js';
+import type {TestRun, TestResultSchemas} from './Test.repository.js';
 
-export type TestSuiteSchemas<I, O, T> = {
-    input: Schema.Schema<I>;
-    result: Schema.Schema<O>;
-    expected: Schema.Schema<T>;
-};
+export type TestSuiteSchemas<I, O, T> = TestResultSchemas<I, O, T>;
 
 export type TestCases<I, T, E = never, R = never> =
     | ReadonlyArray<TestCase<I, T>>

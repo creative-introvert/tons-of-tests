@@ -1,25 +1,26 @@
-import * as path from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {NodeServices, NodeRuntime} from '@effect/platform-node';
+import {Effect, FileSystem, Path, Schema} from 'effect';
 
-import {FileSystem} from '@effect/platform';
-import {NodeContext, NodeRuntime} from '@effect/platform-node';
-import {Effect} from 'effect';
-
-const getVersion = Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const dirname = path.dirname(fileURLToPath(import.meta.url));
-    const packagePath = path.join(dirname, '../package.json');
-    const packageJson = yield* fs.readFileString(packagePath);
-    return JSON.parse(packageJson).version as string;
-});
+const PackageVersion = Schema.fromJsonString(
+    Schema.Struct({version: Schema.NonEmptyString}),
+);
 
 const replaceVersion = Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const dirname = path.dirname(fileURLToPath(import.meta.url));
-    const version = yield* getVersion;
+    const path = yield* Path.Path;
+    const dirname = path.dirname(
+        yield* path.fromFileUrl(new URL(import.meta.url)),
+    );
+    const packageJson = yield* fs.readFileString(
+        path.join(dirname, '../package.json'),
+    );
+    const {version} = yield* Schema.decodeEffect(PackageVersion)(packageJson);
 
     const filePath = path.join(dirname, './version.ts');
-    yield* fs.writeFileString(filePath, `export const VERSION = '${version}';`);
+    yield* fs.writeFileString(
+        filePath,
+        `export const VERSION = '${version}';\n`,
+    );
 });
 
-replaceVersion.pipe(Effect.provide(NodeContext.layer), NodeRuntime.runMain);
+replaceVersion.pipe(Effect.provide(NodeServices.layer), NodeRuntime.runMain);

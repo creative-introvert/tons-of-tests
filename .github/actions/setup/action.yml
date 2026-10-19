@@ -5,12 +5,11 @@ runs:
   steps:
     - uses: actions/setup-node@v6
       with:
-        node-version: '24.x'
+        node-version: '24.22.0'
 
     - uses: pnpm/action-setup@v5
       name: setup pnpm
       with:
-        version: 10.12.1
         run_install: false
 
     - name: create pnpm cache directory
@@ -28,5 +27,5 @@ runs:
           ${{ runner.os }}-pnpm-store-
 
     - name: install dependencies
-      run: pnpm install
+      run: pnpm install --frozen-lockfile
       shell: bash

@@ -1,7 +1,5 @@
 import {createHash} from 'node:crypto';
-import {performance} from 'node:perf_hooks';
-
-import {Effect, Option, pipe, Schema, Sink, Stream} from 'effect';
+import {Clock, Effect, Option, pipe, Schema, Sink, Stream} from 'effect';
 
 import type {Classify} from '../Classify.js';
 import {Stats} from '../Classify.js';
@@ -25,6 +23,7 @@ import {
 } from './Classify.js';
 
 export const makeSha256 = <I>(input: I): string => {
+    // This public synchronous helper keeps result IDs stable across releases.
     return createHash('sha256').update(JSON.stringify(input)).digest('hex');
 };
 
@@ -46,7 +45,7 @@ const TestResult = {
     },
 };
 
-export const TestResultSchema: Schema.Schema<TestResult> = Schema.Struct({
+export const TestResultSchema: Schema.Codec<TestResult> = Schema.Struct({
     id: Schema.String,
     hashTestCase: Schema.String,
     ordering: Schema.Int,
@@ -55,19 +54,10 @@ export const TestResultSchema: Schema.Schema<TestResult> = Schema.Struct({
     expected: Schema.Unknown,
     label: LabelSchema,
     tags: Schema.Array(Schema.String),
-    timeMillis: Schema.Number,
+    timeMillis: Schema.Finite,
 });
 
-const TestRunResults = {
-    emptyFromTestRun: <I, O, T>(args: TestRun): TestRunResults<I, O, T> => ({
-        ...args,
-        testResultsByTestCaseHash: {},
-        testCaseHashes: [],
-        stats: Stats.empty(),
-    }),
-};
-
-export const test = <I, O, T, E, R>({
+export const test = Effect.fnUntraced(function* <I, O, T, E, R>({
     testCase: {input, expected, tags, ordering},
     program,
     classify,
@@ -75,23 +65,20 @@ export const test = <I, O, T, E, R>({
     testCase: TestCase<I, T> & {ordering: number};
     program: Program<I, O, E, R>;
     classify: Classify<O, T>;
-}): Effect.Effect<TestResult<I, O, T>, E, R> => {
-    const t0 = performance.now();
-    return program(input).pipe(
-        Effect.map(result => {
-            const t1 = performance.now();
-            return TestResult.make({
-                ordering,
-                input,
-                result,
-                expected,
-                tags: tags ?? [],
-                label: classify(result, expected),
-                timeMillis: t1 - t0,
-            });
-        }),
-    );
-};
+}) {
+    const t0 = yield* Clock.currentTimeNanos;
+    const result = yield* program(input);
+    const t1 = yield* Clock.currentTimeNanos;
+    return TestResult.make({
+        ordering,
+        input,
+        result,
+        expected,
+        tags: tags ?? [],
+        label: classify(result, expected),
+        timeMillis: Number(t1 - t0) / 1_000_000,
+    });
+});
 
 export const all = <I, O, T, E, R>(
     {
@@ -101,14 +88,10 @@ export const all = <I, O, T, E, R>(
     }: TestSuite<I, O, T, E, R>,
     {concurrency}: {concurrency?: number | undefined} = {concurrency: 1},
 ): Stream.Stream<TestResult<I, O, T>, E, R> => {
-    const total = Array.isArray(testCases) ? testCases.length : undefined;
-    const testCases$: Stream.Stream<TestCase<I, T>, E, R> = Array.isArray(
-        testCases,
-    )
-        ? (Stream.fromIterable(
-              testCases as ReadonlyArray<TestCase<I, T>>,
-          ) as Stream.Stream<TestCase<I, T>, E, R>)
-        : (testCases as Stream.Stream<TestCase<I, T>, E, R>);
+    const total = Stream.isStream(testCases) ? undefined : testCases.length;
+    const testCases$ = Stream.isStream(testCases)
+        ? testCases
+        : Stream.fromIterable(testCases);
 
     return pipe(
         testCases$,
@@ -172,11 +155,9 @@ export const runCollectRecord =
     ): Effect.Effect<TestRunResults<I, O, T>, E, R> =>
         testResults$.pipe(
             Stream.run(
-                // Sink.foldLeft threads the accumulator by reference within a
-                // single fiber, so mutating in place is safe and avoids
-                // rebuilding the object per element.
-                Sink.foldLeft(
-                    emptyAcc<I, O, T>(),
+                // Each run owns its accumulator, so updates can happen in place.
+                Sink.reduce(
+                    emptyAcc<I, O, T>,
                     (acc, r: TestResult<I, O, T>) => {
                         acc.testResultsByTestCaseHash[r.hashTestCase] = r;
                         acc.testCaseHashes.push(r.hashTestCase);
@@ -218,7 +199,9 @@ export const runCollectRecord =
                 });
 
                 return {
-                    ...testRun,
+                    id: testRun.id,
+                    name: testRun.name,
+                    hash: testRun.hash,
                     testResultsByTestCaseHash: acc.testResultsByTestCaseHash,
                     testCaseHashes: acc.testCaseHashes,
                     stats,

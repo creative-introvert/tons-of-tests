@@ -2,17 +2,16 @@ root = true
 
 [*]
 charset = utf-8
-end_of_line = lf
-insert_final_newline = true
-
-[*.{yml,nix}]
-indent_style = space
-indent_size = 2
-
-[*.{js,jsx,json,jsonc,ts,tsx,cjs,mjs}]
 indent_style = space
 indent_size = 4
+end_of_line = lf
+insert_final_newline = true
+max_line_length = 120
+trim_trailing_whitespace = true
 
-[Makefile]
-indent_style = tab
-indent_size = 8
+[*.{yml,yaml,json,jsonc,nix}]
+indent_size = 2
+
+[*.md]
+max_line_length = 80
+trim_trailing_whitespace = false

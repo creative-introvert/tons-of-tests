@@ -1,12 +1,12 @@
-import * as t from 'vitest';
+import * as t from '@effect/vitest';
 import {Effect, Option, Stream} from 'effect';
 
 import {Stats} from '../Classify.js';
 import type {TestResult} from '../Test.js';
-import type {TestRun} from '../Test.repository.js';
+import {TestRun} from '../Test.repository.js';
 import {all, diff, makeSha256, runCollectRecord} from './Test.js';
 
-const run: TestRun = {id: 1, name: 'suite', hash: null} as TestRun;
+const run = new TestRun({id: 1, name: 'suite', hash: null});
 
 type AnyResult = TestResult<number, number | null, number | null>;
 
@@ -86,6 +86,36 @@ t.describe('all', () => {
 });
 
 t.describe('runCollectRecord', () => {
+    t.it.effect.each([
+        {description: 'empty stream', input: [], expected: 0},
+        {
+            description: 'non-empty stream',
+            input: [
+                mkResult({
+                    input: 1,
+                    expected: 1,
+                    result: 1,
+                    label: 'TP',
+                    timeMillis: 2,
+                }),
+            ],
+            expected: 1,
+        },
+    ])('keeps repeated runs separate: $description', ({input, expected}) =>
+        Effect.gen(function* () {
+            const collect = Stream.fromIterable(input).pipe(
+                runCollectRecord(run),
+            );
+            const first = yield* collect;
+            const second = yield* collect;
+
+            t.expect(first.stats.total).toBe(expected);
+            t.expect(second.stats.total).toBe(expected);
+            t.expect(second.testCaseHashes).toEqual(first.testCaseHashes);
+            t.expect(second.testCaseHashes).not.toBe(first.testCaseHashes);
+        }),
+    );
+
     t.test('empty stream -> empty stats with none-options', async () => {
         const out = await collect([]);
         t.expect(out.stats.total).toBe(0);
@@ -179,10 +209,12 @@ t.describe('runCollectRecord', () => {
 
 t.describe('Test.diff', () => {
     const mkStats = (overrides: Partial<Stats>) =>
-        new Stats({...Stats.empty(), ...overrides});
+        Object.assign(Stats.empty(), overrides);
 
     const mkRunResults = (stats: Stats) => ({
-        ...run,
+        id: run.id,
+        name: run.name,
+        hash: run.hash,
         stats,
         testCaseHashes: [],
         testResultsByTestCaseHash: {},

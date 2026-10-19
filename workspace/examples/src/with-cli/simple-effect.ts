@@ -6,7 +6,9 @@ import {Context, Effect, Layer} from 'effect';
 // A tiny service the program depends on. The CLI never knows about it —
 // the caller is responsible for providing it before handing the Effect to
 // a runtime.
-class Scale extends Context.Tag('Scale')<Scale, {readonly factor: number}>() {}
+class Scale extends Context.Service<Scale, {readonly factor: number}>()(
+    'Scale',
+) {}
 
 const ScaleLive = Layer.succeed(Scale, {factor: 1.7});
 

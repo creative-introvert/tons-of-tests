@@ -10,7 +10,7 @@ const predictObesity = ({eatBetweenMeals}: {eatBetweenMeals: number}) =>
     // Dumb approximation by loosely mapping between the domain.
     Effect.succeed(mapCAECToObesity(eatBetweenMeals) + 2);
 
-void CLI.run(
+CLI.run(
     {
         testSuite: {
             name: 'with-cli-complex',

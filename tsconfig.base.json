@@ -1,46 +1,43 @@
 {
-    "compilerOptions": {
-        "strict": true,
-        "exactOptionalPropertyTypes": true,
-        "moduleDetection": "force",
-        "composite": true,
-        "resolveJsonModule": true,
-        "declaration": true,
-        "skipLibCheck": true,
-        "emitDecoratorMetadata": true,
-        "experimentalDecorators": true,
-        "moduleResolution": "NodeNext",
-        "lib": ["ES2022", "DOM", "DOM.Iterable"],
-        "types": [],
-        "isolatedModules": true,
-        "sourceMap": true,
-        "declarationMap": true,
-        "noImplicitReturns": false,
-        "noUnusedLocals": false,
-        "noUnusedParameters": false,
-        "noFallthroughCasesInSwitch": true,
-        "preserveSymlinks": false,
-        "noEmitOnError": false,
-        "noErrorTruncation": false,
-        "allowJs": false,
-        "checkJs": false,
-        "forceConsistentCasingInFileNames": true,
-        "noImplicitAny": true,
-        "noImplicitThis": true,
-        "noUncheckedIndexedAccess": false,
-        "strictNullChecks": true,
-        "target": "ES2022",
-        "module": "NodeNext",
-        "incremental": true,
-        "removeComments": false,
-        "paths": {
-            "@creative-introvert/tons-of-tests": [
-                "./workspace/tons-of-tests/src/index.js"
-            ],
-            "@creative-introvert/tons-of-tests-cli": [
-                "./workspace/tons-of-tests-cli/src/index.js"
-            ]
-        }
-    },
-    "include": []
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "allowJs": false,
+    "declaration": true,
+    "declarationMap": true,
+    "esModuleInterop": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "incremental": true,
+    "isolatedModules": true,
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleDetection": "force",
+    "moduleResolution": "NodeNext",
+    "noEmitOnError": false,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "resolveJsonModule": true,
+    "rewriteRelativeImportExtensions": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "strict": true,
+    "strictNullChecks": true,
+    "target": "ES2024",
+    "types": ["node"],
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnostics": false
+      }
+    ],
+    "paths": {
+      "@creative-introvert/tons-of-tests": [
+        "./workspace/tons-of-tests/src/index.ts"
+      ],
+      "@creative-introvert/tons-of-tests-cli": [
+        "./workspace/tons-of-tests-cli/src/index.ts"
+      ]
+    }
+  }
 }

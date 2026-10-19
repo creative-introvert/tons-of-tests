@@ -79,7 +79,7 @@ class ConsoleFormatter extends BaseFormatter<ConsoleFormatterContext> {
     ) {
         context.pushColor(colors.error);
 
-        context.out(`[ERROR]${err}`);
+        context.out(`[ERROR]${String(err)}`);
         context.popColor();
     }
 

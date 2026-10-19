@@ -3,7 +3,7 @@ import {Option, Schema} from 'effect';
 import * as internal from './internal/Classify.js';
 
 export const LabelSchema = internal.LabelSchema;
-export type Label = Schema.Schema.Type<typeof LabelSchema>;
+export type Label = typeof LabelSchema.Type;
 
 export const values = internal.values;
 export const defaultIsEqual = internal.defaultIsEqual;
@@ -13,17 +13,17 @@ export const makeClassify = internal.makeClassify;
 export type Classify<O, T> = (output: O, expected: T) => Label;
 
 export class Stats extends Schema.Class<Stats>('Stats')({
-    TP: Schema.Number,
-    TN: Schema.Number,
-    FP: Schema.Number,
-    FN: Schema.Number,
-    total: Schema.Number,
-    precision: Schema.Number,
-    recall: Schema.Number,
-    timeMin: Schema.OptionFromSelf(Schema.Number),
-    timeMax: Schema.OptionFromSelf(Schema.Number),
-    timeMedian: Schema.OptionFromSelf(Schema.Number),
-    timeMean: Schema.OptionFromSelf(Schema.Number),
+    TP: Schema.Finite,
+    TN: Schema.Finite,
+    FP: Schema.Finite,
+    FN: Schema.Finite,
+    total: Schema.Finite,
+    precision: Schema.Finite,
+    recall: Schema.Finite,
+    timeMin: Schema.Option(Schema.Finite),
+    timeMax: Schema.Option(Schema.Finite),
+    timeMedian: Schema.Option(Schema.Finite),
+    timeMean: Schema.Option(Schema.Finite),
 }) {
     static empty(): Stats {
         return new Stats({

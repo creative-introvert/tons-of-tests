@@ -1,26 +1,42 @@
 {
-    "$schema": "./node_modules/oxlint/configuration_schema.json",
-    "ignorePatterns": [
-        "**/jsondiffpatch/**",
-        "**/node_modules/**",
-        "**/dist/**",
-        "**/build/**",
-        "**/.direnv/**",
-        "**/.pnpm-store/**",
-        "**/.cache/**",
-        "**/.rollup.cache/**"
-    ],
-    "plugins": ["typescript", "unicorn", "oxc", "import"],
-    "categories": {
-        "correctness": "error",
-        "perf": "off",
-        "suspicious": "off"
-    },
-    "rules": {
-        "no-array-index-key": "off",
-        "consistent-type-imports": "off",
-        "no-danger": "off",
-        "no-unused-vars": "off",
-        "unicorn/no-new-array": "off"
+  "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
+  "ignorePatterns": [
+    "**/jsondiffpatch/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.direnv/**",
+    "**/.pnpm-store/**",
+    "**/.cache/**",
+    "**/.rollup.cache/**"
+  ],
+  "plugins": ["typescript", "unicorn", "oxc", "import"],
+  "categories": {
+    "correctness": "error",
+    "perf": "off",
+    "suspicious": "off"
+  },
+  "rules": {
+    "no-array-index-key": "off",
+    "consistent-type-imports": "off",
+    "no-danger": "off",
+    "no-unused-vars": "off",
+    "unicorn/no-new-array": "off",
+    "effecttsgo/async-function": "off",
+    "effecttsgo/node-builtin-import": "off",
+    "effecttsgo/prefer-schema-over-json": "off",
+    "effecttsgo/unstable-api-usage": "off"
+  },
+  "extends": ["./node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
+  "overrides": [
+    {
+      "files": [
+        "workspace/tons-of-tests/src/Classify.ts",
+        "workspace/tons-of-tests/src/Test.repository.types.ts"
+      ],
+      "rules": {
+        "effecttsgo/schema-class-missing-brand": "off"
+      }
     }
+  ]
 }

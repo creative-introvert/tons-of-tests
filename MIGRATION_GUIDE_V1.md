@@ -1,5 +1,25 @@
 # Migration Guide — v1.0
 
+## Effect 4 update
+
+The next major release uses Effect 4 and requires Node.js 24 or newer.
+Update your `effect` dependency and any `@effect/*` packages together.
+The examples below use the current API names.
+
+- `@effect/platform`, `@effect/sql`, and `@effect/cli` are now part of `effect`.
+- Services use `Context.Service`. Platform services use `NodeServices.layer`.
+- Cached-value schemas use `Schema.Codec<T>`. Their encoded and decoded types
+  must match the values saved by the test runner.
+- `RepositoryDecodeError.cause` is now `Schema.SchemaError`.
+- `TestRunNotCreated.testSuiteName` replaces its old `name` payload field.
+  `name` now identifies the error type.
+- Statistics and timings require finite numbers.
+- Explicit CLI arguments still include the Node and script names, for example
+  `['node', 'suite.ts', 'summarize']`.
+
+The SQLite driver now uses `node:sqlite`. It no longer needs `better-sqlite3`
+or its native build tools. The database layout and result hashes are unchanged.
+
 ## Database compatibility
 
 Existing SQLite DBs are readable. Schema/row layout for `testRuns`, `testResults`, and `testRunResults` is unchanged. On first connect, v1 adds new indices via `CREATE ... IF NOT EXISTS`.
@@ -29,7 +49,7 @@ WHERE hash IS NULL
 
 ### Renamed / moved
 
-- `TestRepository.TestRepository` is now an `Effect.Tag` class (was `Context.GenericTag`). Access via `yield* PT.TestRepository.TestRepository` still works; manual `.of(...)` construction does not.
+- `TestRepository.TestRepository` is a `Context.Service` class (was `Context.GenericTag`). Access it with `yield* PT.TestRepository.TestRepository`.
 - `TestRun` is now a `Schema.Class` (was a plain type). Construct with `new TestRun({id, name, hash})`.
 - `Classify.Stats` is now a `Schema.Class`. Construct with `new Stats({...})` or `Stats.empty()`. The standalone `StatsSchema` export is removed (use `Stats` itself).
 
@@ -47,7 +67,7 @@ New optional field:
 ```ts
 testSuite: {
   // ...
-  schemas?: { input: Schema<I>; result: Schema<O>; expected: Schema<T> };
+  schemas?: { input: Schema.Codec<I>; result: Schema.Codec<O>; expected: Schema.Codec<T> };
 }
 ```
 
@@ -74,23 +94,11 @@ CLI.run(config); // fire-and-exit
 const hash = await CLI.getLastTestRunHash(config); // separate call
 ```
 
-### `Config` → `AppConfig`
+### CLI configuration
 
-- `Config` (the `Context.GenericTag`) → `AppConfig` (`Context.Tag` class).
-- `makeConfigLayer(config)` → `AppConfig.layer(config)`.
-- The config *shape* type is `AppConfigShape<I, O, T>` (re-exported as `Config` for convenience).
-
-```ts
-// before
-import {Config, makeConfigLayer} from '@creative-introvert/tons-of-tests-cli';
-const layer = makeConfigLayer(config);
-const cfg = yield* Config;
-
-// after
-import {AppConfig} from '@creative-introvert/tons-of-tests-cli';
-const layer = AppConfig.layer(config);
-const cfg = yield* AppConfig;
-```
+Pass configuration directly to `CLI.run`, `CLI.effect`, or the command helper.
+The `Config` export is a TypeScript type. The unused `AppConfig` service has
+been removed; a separate configuration layer is no longer needed.
 
 ### `diff --exit-on-diff`
 
@@ -106,7 +114,8 @@ pipe(_diff(...), Effect.catchTag('DiffNonEmpty', () => /* handle */));
 
 ### New: `CLI.buildLayer(config)`
 
-Builds the merged `NodeContext + AppConfig + TestRepository` layer for a config. Use to share one layer across multiple in-process operations.
+Builds the merged `NodeServices + TestRepository` layer for a config. Use it to
+share one layer across multiple in-process operations.
 
 ### New CLI flags
 

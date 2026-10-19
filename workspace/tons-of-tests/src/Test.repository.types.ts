@@ -28,9 +28,9 @@ export type TestRunResults = {
 };
 
 export type TestResultSchemas<I = unknown, O = unknown, T = unknown> = {
-    input: Schema.Schema<I>;
-    result: Schema.Schema<O>;
-    expected: Schema.Schema<T>;
+    input: Schema.Codec<I>;
+    result: Schema.Codec<O>;
+    expected: Schema.Codec<T>;
 };
 
 export type TestRepositoryShape = {

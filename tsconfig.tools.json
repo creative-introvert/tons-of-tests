@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "outDir": ".cache/typescript",
+    "tsBuildInfoFile": ".cache/typescript/tools.tsbuildinfo"
+  },
+  "include": [
+    "*.ts",
+    "workspace/*/*.config.ts",
+    "workspace/*/src/**/*.spec.ts",
+    "workspace/*/src/pack.ts",
+    "workspace/*/src/replace-version.ts"
+  ],
+  "references": [
+    {
+      "path": "./workspace/tons-of-tests"
+    },
+    {
+      "path": "./workspace/tons-of-tests-cli"
+    }
+  ]
+}

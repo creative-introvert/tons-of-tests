@@ -2,17 +2,17 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {pipe, Schema} from 'effect';
+import {pipe, Schema, SchemaTransformation} from 'effect';
 import CSV from 'papaparse';
 
 import {BiDirectionalRecord} from '../lib/BiDirectionalRecord.js';
 
 // source: https://www.kaggle.com/datasets/fatemehmehrparvar/obesity-levels/data
 // license: Attribution 4.0 International (CC BY 4.0)
-const CAEC = Schema.Literal('no', 'Sometimes', 'Frequently', 'Always');
-type CAEC = Schema.Schema.Type<typeof CAEC>;
+const CAEC = Schema.Literals(['no', 'Sometimes', 'Frequently', 'Always']);
+type CAEC = typeof CAEC.Type;
 
-const NObeyesdad = Schema.Literal(
+const NObeyesdad = Schema.Literals([
     'Insufficient_Weight',
     'Normal_Weight',
     'Overweight_Level_I',
@@ -20,8 +20,8 @@ const NObeyesdad = Schema.Literal(
     'Obesity_Type_I',
     'Obesity_Type_II',
     'Obesity_Type_III',
-);
-export type NObeyesdad = Schema.Schema.Type<typeof NObeyesdad>;
+]);
+export type NObeyesdad = typeof NObeyesdad.Type;
 
 const RawObesityDataSchema = Schema.Struct({
     CAEC,
@@ -41,19 +41,20 @@ const TestDataSchema = Schema.Struct({
     obesityLevel,
 });
 
-const TestDataFromRawSchema = Schema.transform(
-    RawObesityDataSchema,
-    TestDataSchema,
-    {
-        encode: ({eatBetweenMeals, obesityLevel}) => ({
-            CAEC: caecEatBetweenMeals.to[eatBetweenMeals],
-            NObeyesdad: NObeyesdadObesityLevel.to[obesityLevel],
+const TestDataFromRawSchema = RawObesityDataSchema.pipe(
+    Schema.decodeTo(
+        TestDataSchema,
+        SchemaTransformation.transform({
+            encode: ({eatBetweenMeals, obesityLevel}) => ({
+                CAEC: caecEatBetweenMeals.to[eatBetweenMeals],
+                NObeyesdad: NObeyesdadObesityLevel.to[obesityLevel],
+            }),
+            decode: ({CAEC, NObeyesdad}) => ({
+                eatBetweenMeals: caecEatBetweenMeals.from[CAEC],
+                obesityLevel: NObeyesdadObesityLevel.from[NObeyesdad],
+            }),
         }),
-        decode: ({CAEC, NObeyesdad}) => ({
-            eatBetweenMeals: caecEatBetweenMeals.from[CAEC],
-            obesityLevel: NObeyesdadObesityLevel.from[NObeyesdad],
-        }),
-    },
+    ),
 );
 
 const parse = Schema.decodeUnknownSync(Schema.Array(TestDataFromRawSchema));

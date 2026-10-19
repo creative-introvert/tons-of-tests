@@ -1,49 +1,60 @@
 import * as PT from '@creative-introvert/tons-of-tests';
-import {Command, Options} from '@effect/cli';
-import {Chunk, Console, Effect, Option, Schema, Stream} from 'effect';
+import {Command, Flag} from 'effect/cli';
+import {
+    Console,
+    Effect,
+    Option,
+    Schema,
+    SchemaTransformation,
+    Stream,
+} from 'effect';
 
 import {type AppConfigShape} from './Config.js';
 import {cached, getPreviousTestRunResults} from './common.js';
 
-const LabelSchema = Schema.transform(
-    Schema.String,
-    Schema.Array(Schema.String.pipe(Schema.compose(PT.Classify.LabelSchema))),
-    {
-        decode: s => s.split(','),
-        encode: xs => xs.join(','),
-    },
+const LabelSchema = Schema.String.pipe(
+    Schema.decodeTo(
+        Schema.Array(Schema.String),
+        SchemaTransformation.transform({
+            decode: (s): readonly string[] => s.split(','),
+            encode: xs => xs.join(','),
+        }),
+    ),
+    Schema.decodeTo(Schema.Array(PT.Classify.LabelSchema)),
 );
 
-const labels = Options.text('labels').pipe(
-    Options.withSchema(LabelSchema),
-    Options.optional,
-    Options.withDescription('Filter labels (OR).'),
+const labels = Flag.String('labels').pipe(
+    Flag.withSchema(LabelSchema),
+    Flag.optional,
+    Flag.withDescription('Filter labels (OR).'),
 );
 
-const TagsSchema = Schema.transform(
-    Schema.String,
-    Schema.Array(Schema.String),
-    {
-        decode: s => (s.length === 0 ? [] : s.split(',')),
-        encode: xs => xs.join(','),
-    },
+const TagsSchema = Schema.String.pipe(
+    Schema.decodeTo(
+        Schema.Array(Schema.String),
+        SchemaTransformation.transform({
+            decode: (s): readonly string[] =>
+                s.length === 0 ? [] : s.split(','),
+            encode: xs => xs.join(','),
+        }),
+    ),
 );
 
-const orTags = Options.text('tags').pipe(
-    Options.withSchema(TagsSchema),
-    Options.optional,
-    Options.withDescription('Filter tags (OR).'),
+const orTags = Flag.String('tags').pipe(
+    Flag.withSchema(TagsSchema),
+    Flag.optional,
+    Flag.withDescription('Filter tags (OR).'),
 );
 
-const andTags = Options.text('all-tags').pipe(
-    Options.withSchema(TagsSchema),
-    Options.optional,
-    Options.withDescription('Filter tags (AND).'),
+const andTags = Flag.String('all-tags').pipe(
+    Flag.withSchema(TagsSchema),
+    Flag.optional,
+    Flag.withDescription('Filter tags (AND).'),
 );
 
 // TEST: summarize --labels doesn't affect the db (i.e. same test results are stored)
 // TEST: summarize --run -> commit -> summarize --run is idempotent
-export const _sumarize = <
+export const _sumarize = Effect.fn('summarize')(function* <
     I = unknown,
     O = unknown,
     T = unknown,
@@ -61,105 +72,97 @@ export const _sumarize = <
     andTags: Option.Option<readonly string[]>;
     cached: boolean;
     config: AppConfigShape<I, O, T, E, R>;
-}) =>
-    Effect.gen(function* () {
-        const tests = yield* PT.TestRepository.TestRepository;
-        yield* Effect.logDebug('repository');
+}) {
+    const tests = yield* PT.TestRepository.TestRepository;
+    yield* Effect.logDebug('repository');
 
-        const hasLabel = (label: PT.Classify.Label) =>
-            Option.isNone(maybeLabels) || maybeLabels.value.includes(label);
+    const hasLabel = (label: PT.Classify.Label) =>
+        Option.isNone(maybeLabels) || maybeLabels.value.includes(label);
 
-        const hasOrTags = (tags: readonly string[]) =>
-            Option.isNone(maybeOrTags) ||
-            tags.some(tag => maybeOrTags.value.includes(tag));
+    const hasOrTags = (tags: readonly string[]) =>
+        Option.isNone(maybeOrTags) ||
+        tags.some(tag => maybeOrTags.value.includes(tag));
 
-        const hasAndTags = (tags: readonly string[]) =>
-            Option.isNone(maybeAndTags) ||
-            maybeAndTags.value.every(tag => tags.includes(tag));
+    const hasAndTags = (tags: readonly string[]) =>
+        Option.isNone(maybeAndTags) ||
+        maybeAndTags.value.every(tag => tags.includes(tag));
 
-        const filter = (
-            args: PT.Test.TestRunResults<I, O, T>,
-        ): PT.Test.TestRunResults<I, O, T> => {
-            const {testCaseHashes, testResultsByTestCaseHash, ...rest} = args;
-            const _testCaseHashes: string[] = [];
-            const _testResultsByTestCaseHash: PT.Test.TestRunResults<
-                I,
-                O,
-                T
-            >['testResultsByTestCaseHash'] = {};
+    const filter = (
+        args: PT.Test.TestRunResults<I, O, T>,
+    ): PT.Test.TestRunResults<I, O, T> => {
+        const {testCaseHashes, testResultsByTestCaseHash, ...rest} = args;
+        const _testCaseHashes: string[] = [];
+        const _testResultsByTestCaseHash: PT.Test.TestRunResults<
+            I,
+            O,
+            T
+        >['testResultsByTestCaseHash'] = {};
 
-            for (const hash of testCaseHashes) {
-                const next = testResultsByTestCaseHash[hash];
-                if (
-                    hasLabel(next.label) &&
-                    hasOrTags(next.tags) &&
-                    hasAndTags(next.tags)
-                ) {
-                    _testCaseHashes.push(hash);
-                    _testResultsByTestCaseHash[hash] = next;
-                }
+        for (const hash of testCaseHashes) {
+            const next = testResultsByTestCaseHash[hash];
+            if (
+                hasLabel(next.label) &&
+                hasOrTags(next.tags) &&
+                hasAndTags(next.tags)
+            ) {
+                _testCaseHashes.push(hash);
+                _testResultsByTestCaseHash[hash] = next;
             }
+        }
 
-            return {
-                testCaseHashes: _testCaseHashes,
-                testResultsByTestCaseHash: _testResultsByTestCaseHash,
-                ...rest,
-            };
+        return {
+            testCaseHashes: _testCaseHashes,
+            testResultsByTestCaseHash: _testResultsByTestCaseHash,
+            ...rest,
         };
+    };
 
-        const currentTestRun = yield* tests.getOrCreateCurrentTestRun(
-            testSuite.name,
-        );
-        yield* Effect.logDebug('currentTestRun');
+    const currentTestRun = yield* tests.getOrCreateCurrentTestRun(
+        testSuite.name,
+    );
+    yield* Effect.logDebug('currentTestRun');
 
-        const hasResults = yield* tests.hasResults(currentTestRun);
-        yield* Effect.logDebug('hasResults');
+    const hasResults = yield* tests.hasResults(currentTestRun);
+    yield* Effect.logDebug('hasResults');
 
-        const getFromRun = () =>
-            tests.clearUncommitedTestResults({name: testSuite.name}).pipe(
-                Effect.flatMap(() =>
-                    PT.Test.all(testSuite, {
-                        concurrency: concurrency || 1,
-                    }).pipe(
-                        Stream.grouped(50),
-                        Stream.tap(group =>
-                            tests.insertTestResults(
-                                Chunk.toReadonlyArray(group),
-                                currentTestRun,
-                            ),
-                        ),
-                        Stream.flattenChunks,
-                        PT.Test.runCollectRecord(currentTestRun),
-                        Effect.tap(Effect.logDebug('from run')),
-                        Effect.map(filter),
+    const getFromRun = () =>
+        tests.clearUncommitedTestResults({name: testSuite.name}).pipe(
+            Effect.flatMap(() =>
+                PT.Test.all(testSuite, {
+                    concurrency: concurrency || 1,
+                }).pipe(
+                    Stream.grouped(50),
+                    Stream.tap(group =>
+                        tests.insertTestResults(group, currentTestRun),
                     ),
+                    Stream.flattenIterable,
+                    PT.Test.runCollectRecord(currentTestRun),
+                    Effect.tap(Effect.logDebug('from run')),
+                    Effect.map(filter),
                 ),
+            ),
+        );
+
+    const getFromCache = () =>
+        tests
+            .getTestResultsStream<I, O, T>(currentTestRun, testSuite.schemas)
+            .pipe(
+                PT.Test.runCollectRecord(currentTestRun),
+                Effect.tap(Effect.logDebug('from cache')),
+                Effect.map(filter),
             );
 
-        const getFromCache = () =>
-            tests
-                .getTestResultsStream<I, O, T>(
-                    currentTestRun,
-                    testSuite.schemas,
-                )
-                .pipe(
-                    PT.Test.runCollectRecord(currentTestRun),
-                    Effect.tap(Effect.logDebug('from cache')),
-                    Effect.map(filter),
-                );
+    const testRun: PT.Test.TestRunResults<I, O, T> = yield* cached && hasResults
+        ? getFromCache()
+        : getFromRun();
 
-        const testRun: PT.Test.TestRunResults<I, O, T> = yield* cached &&
-        hasResults
-            ? getFromCache()
-            : getFromRun();
+    yield* Effect.logDebug('testRun');
 
-        yield* Effect.logDebug('testRun');
+    const previousTestRun = yield* getPreviousTestRunResults(testSuite);
 
-        const previousTestRun = yield* getPreviousTestRunResults(testSuite);
-
-        yield* Effect.logDebug('previousTestRun');
-        return {testRun, previousTestRun};
-    }).pipe(Effect.withLogSpan('summarize'));
+    yield* Effect.logDebug('previousTestRun');
+    return {testRun, previousTestRun};
+});
 
 export const summarize = <
     I = unknown,

@@ -1,10 +1,16 @@
-import {Schema} from 'effect';
+import {Schema, SchemaTransformation} from 'effect';
 
-/** Variation of built-in `Schema.split`, omitting empty values. */
+/** An empty tag list is stored as an empty string. */
 export const split = (
     separator: string,
-): Schema.Schema<readonly string[], string> =>
-    Schema.transform(Schema.String, Schema.Array(Schema.String), {
-        decode: s => (s.length === 0 ? [] : s.split(separator)),
-        encode: xs => xs.join(separator),
-    });
+): Schema.Codec<readonly string[], string> =>
+    Schema.String.pipe(
+        Schema.decodeTo(
+            Schema.Array(Schema.String),
+            SchemaTransformation.transform({
+                decode: (s): readonly string[] =>
+                    s.length === 0 ? [] : s.split(separator),
+                encode: xs => xs.join(separator),
+            }),
+        ),
+    );

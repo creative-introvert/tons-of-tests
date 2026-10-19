@@ -20,10 +20,10 @@ const makeTestLayer = () =>
 
 let testLayerCache: ReturnType<typeof makeTestLayer> | undefined;
 
-export class TestRepository extends Context.Tag('TestRepository')<
+export class TestRepository extends Context.Service<
     TestRepository,
     TestRepositoryShape
->() {
+>()('TestRepository') {
     // Lazy getters: makeTestRepository lives in an internal module that has
     // its own import edge back here, so we evaluate these at access time
     // rather than at class definition time to avoid the circular init order.

@@ -1,10 +1,8 @@
 import * as PT from '@creative-introvert/tons-of-tests';
-import {Options} from '@effect/cli';
+import {Flag} from 'effect/cli';
 import {Effect, Option} from 'effect';
 
-export const cached = Options.boolean('cached').pipe(
-    Options.withDefault(false),
-);
+export const cached = Flag.Boolean('cached').pipe(Flag.withDefault(false));
 
 export const getPreviousTestRunResults = <
     I = unknown,
