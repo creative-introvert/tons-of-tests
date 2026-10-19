@@ -1,121 +1,34 @@
 import * as PT from '@creative-introvert/tons-of-tests';
-import {Command, Flag} from 'effect/cli';
-import {
-    Console,
-    Effect,
-    Option,
-    Schema,
-    SchemaTransformation,
-    Stream,
-} from 'effect';
+import {Command} from 'effect/cli';
+import {Console, Effect, Stream} from 'effect';
 
 import {type AppConfigShape} from './Config.js';
-import {cached, getPreviousTestRunResults} from './common.js';
+import {
+    cached,
+    getPreviousTestRunResults,
+    matchesFilters,
+    resultFilterFlags,
+    type ResultFilters,
+} from './common.js';
 
-const LabelSchema = Schema.String.pipe(
-    Schema.decodeTo(
-        Schema.Array(Schema.String),
-        SchemaTransformation.transform({
-            decode: (s): readonly string[] => s.split(','),
-            encode: xs => xs.join(','),
-        }),
-    ),
-    Schema.decodeTo(Schema.Array(PT.Classify.LabelSchema)),
-);
-
-const labels = Flag.String('labels').pipe(
-    Flag.withSchema(LabelSchema),
-    Flag.optional,
-    Flag.withDescription('Filter labels (OR).'),
-);
-
-const TagsSchema = Schema.String.pipe(
-    Schema.decodeTo(
-        Schema.Array(Schema.String),
-        SchemaTransformation.transform({
-            decode: (s): readonly string[] =>
-                s.length === 0 ? [] : s.split(','),
-            encode: xs => xs.join(','),
-        }),
-    ),
-);
-
-const orTags = Flag.String('tags').pipe(
-    Flag.withSchema(TagsSchema),
-    Flag.optional,
-    Flag.withDescription('Filter tags (OR).'),
-);
-
-const andTags = Flag.String('all-tags').pipe(
-    Flag.withSchema(TagsSchema),
-    Flag.optional,
-    Flag.withDescription('Filter tags (AND).'),
-);
-
-// TEST: summarize --labels doesn't affect the db (i.e. same test results are stored)
-// TEST: summarize --run -> commit -> summarize --run is idempotent
 export const _sumarize = Effect.fn('summarize')(function* <
     I = unknown,
     O = unknown,
     T = unknown,
     E = never,
     R = never,
+    A = O,
+    B = T,
 >({
-    labels: maybeLabels,
-    orTags: maybeOrTags,
-    andTags: maybeAndTags,
     cached,
-    config: {testSuite, displayConfig, concurrency},
-}: {
-    labels: Option.Option<readonly PT.Classify.Label[]>;
-    orTags: Option.Option<readonly string[]>;
-    andTags: Option.Option<readonly string[]>;
+    config: {testSuite, concurrency},
+    ...filters
+}: ResultFilters & {
     cached: boolean;
-    config: AppConfigShape<I, O, T, E, R>;
+    config: AppConfigShape<I, O, T, E, R, A, B>;
 }) {
     const tests = yield* PT.TestRepository.TestRepository;
     yield* Effect.logDebug('repository');
-
-    const hasLabel = (label: PT.Classify.Label) =>
-        Option.isNone(maybeLabels) || maybeLabels.value.includes(label);
-
-    const hasOrTags = (tags: readonly string[]) =>
-        Option.isNone(maybeOrTags) ||
-        tags.some(tag => maybeOrTags.value.includes(tag));
-
-    const hasAndTags = (tags: readonly string[]) =>
-        Option.isNone(maybeAndTags) ||
-        maybeAndTags.value.every(tag => tags.includes(tag));
-
-    const filter = (
-        args: PT.Test.TestRunResults<I, O, T>,
-    ): PT.Test.TestRunResults<I, O, T> => {
-        const {testCaseHashes, testResultsByTestCaseHash, ...rest} = args;
-        const _testCaseHashes: string[] = [];
-        const _testResultsByTestCaseHash: PT.Test.TestRunResults<
-            I,
-            O,
-            T
-        >['testResultsByTestCaseHash'] = {};
-
-        for (const hash of testCaseHashes) {
-            const next = testResultsByTestCaseHash[hash];
-            if (
-                hasLabel(next.label) &&
-                hasOrTags(next.tags) &&
-                hasAndTags(next.tags)
-            ) {
-                _testCaseHashes.push(hash);
-                _testResultsByTestCaseHash[hash] = next;
-            }
-        }
-
-        return {
-            testCaseHashes: _testCaseHashes,
-            testResultsByTestCaseHash: _testResultsByTestCaseHash,
-            ...rest,
-        };
-    };
 
     const currentTestRun = yield* tests.getOrCreateCurrentTestRun(
         testSuite.name,
@@ -138,23 +51,26 @@ export const _sumarize = Effect.fn('summarize')(function* <
                     Stream.flattenIterable,
                     PT.Test.runCollectRecord(currentTestRun),
                     Effect.tap(Effect.logDebug('from run')),
-                    Effect.map(filter),
                 ),
             ),
         );
 
     const getFromCache = () =>
         tests
-            .getTestResultsStream<I, O, T>(currentTestRun, testSuite.schemas)
+            .getTestResultsStream<I, A, B>(currentTestRun, testSuite.schemas)
             .pipe(
                 PT.Test.runCollectRecord(currentTestRun),
                 Effect.tap(Effect.logDebug('from cache')),
-                Effect.map(filter),
             );
 
-    const testRun: PT.Test.TestRunResults<I, O, T> = yield* cached && hasResults
+    const fullTestRun: PT.Test.TestRunResults<I, A, B> = yield* cached &&
+    hasResults
         ? getFromCache()
         : getFromRun();
+
+    const testRun = PT.Test.filterResults(fullTestRun, result =>
+        matchesFilters(result, filters),
+    );
 
     yield* Effect.logDebug('testRun');
 
@@ -170,46 +86,42 @@ export const summarize = <
     T = unknown,
     E = never,
     R = never,
+    A = O,
+    B = T,
 >(
-    config: AppConfigShape<I, O, T, E, R>,
+    config: AppConfigShape<I, O, T, E, R, A, B>,
 ) =>
-    Command.make(
-        'summarize',
-        {labels, cached, orTags, andTags},
-        ({labels, cached, orTags, andTags}) =>
-            Effect.gen(function* () {
-                const {displayConfig} = config;
-                const {testRun, previousTestRun} = yield* _sumarize({
-                    labels,
-                    orTags,
-                    andTags,
-                    cached,
-                    config,
-                });
+    Command.make('summarize', {cached, ...resultFilterFlags}, options =>
+        Effect.gen(function* () {
+            const {displayConfig} = config;
+            const {testRun, previousTestRun} = yield* _sumarize({
+                ...options,
+                config,
+            });
 
-                if (testRun.testCaseHashes.length === 0) {
-                    yield* Console.log(
-                        [
-                            '┌─────────────────────────┐',
-                            '│ NO TEST RESULTS VISIBLE │',
-                            '└─────────────────────────┘',
-                            '',
-                            PT.Show.stats({testRun}),
-                        ].join('\n'),
-                    );
-                    return;
-                }
-
+            if (testRun.testResultKeys.length === 0) {
                 yield* Console.log(
                     [
-                        PT.Show.summarize({
-                            testRun,
-                            previousTestRun,
-                            displayConfig,
-                        }),
+                        '┌─────────────────────────┐',
+                        '│ NO TEST RESULTS VISIBLE │',
+                        '└─────────────────────────┘',
                         '',
                         PT.Show.stats({testRun}),
                     ].join('\n'),
                 );
-            }),
+                return;
+            }
+
+            yield* Console.log(
+                [
+                    PT.Show.summarize({
+                        testRun,
+                        previousTestRun,
+                        displayConfig,
+                    }),
+                    '',
+                    PT.Show.stats({testRun}),
+                ].join('\n'),
+            );
+        }),
     );

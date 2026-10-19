@@ -12,12 +12,16 @@ export const makeClassify = internal.makeClassify;
 
 export type Classify<O, T> = (output: O, expected: T) => Label;
 
+/** Counts selected results; timing statistics count each selected case once. */
 export class Stats extends Schema.Class<Stats>('Stats')({
     TP: Schema.Finite,
     TN: Schema.Finite,
     FP: Schema.Finite,
     FN: Schema.Finite,
+    /** Number of evaluation results. */
     total: Schema.Finite,
+    /** Number of distinct original test cases represented by those results. */
+    testCases: Schema.Int,
     precision: Schema.Finite,
     recall: Schema.Finite,
     timeMin: Schema.Option(Schema.Finite),
@@ -32,6 +36,7 @@ export class Stats extends Schema.Class<Stats>('Stats')({
             FP: 0,
             FN: 0,
             total: 0,
+            testCases: 0,
             precision: 0,
             recall: 0,
             timeMin: Option.none(),

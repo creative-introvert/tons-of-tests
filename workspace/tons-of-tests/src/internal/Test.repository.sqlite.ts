@@ -16,7 +16,6 @@ import {
     type TestRepositoryShape,
     type TestResultRead,
     type TestResultSchemas,
-    type TestRunResults,
 } from '../Test.repository.types.js';
 
 export {TestRepository};
@@ -39,7 +38,9 @@ const TestResultWriteSchema: Schema.Codec<TestResult, TestResultRead> =
     Schema.Struct({
         id: Schema.String,
         hashTestCase: Schema.String,
+        key: Schema.String,
         ordering: Schema.Int,
+        resultOrdering: Schema.Int,
         input: Schema.fromJsonString(Schema.Unknown),
         result: Schema.fromJsonString(Schema.Unknown),
         expected: Schema.fromJsonString(Schema.Unknown),
@@ -67,15 +68,25 @@ const CountSchema = Schema.Tuple([
 const TestRunsReadSchema = Schema.Array(TestRun);
 
 const TestRunResultsSchema = Schema.Array(
-    Schema.Struct({testRun: Schema.Int, testResult: Schema.String}),
+    Schema.Struct({
+        testRun: Schema.Int,
+        testResult: Schema.String,
+        ordering: Schema.Int,
+        resultOrdering: Schema.Int,
+        timeMillis: Schema.Finite,
+    }),
 );
+
+const TableColumnsSchema = Schema.Array(Schema.Struct({name: Schema.String}));
 
 export const makeTestRepository = Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
 
     yield* sql`PRAGMA auto_vacuum = FULL;`;
 
-    yield* sql`
+    yield* sql.withTransaction(
+        Effect.gen(function* () {
+            yield* sql`
         CREATE TABLE IF NOT EXISTS ${sql(tables.testRuns)}(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -83,21 +94,23 @@ export const makeTestRepository = Effect.gen(function* () {
         );
     `;
 
-    yield* sql`CREATE INDEX IF NOT EXISTS idx_name_hash ON ${sql(tables.testRuns)}(name, hash)`;
+            yield* sql`CREATE INDEX IF NOT EXISTS idx_name_hash ON ${sql(tables.testRuns)}(name, hash)`;
 
-    // At most one "current" (hash IS NULL) row per suite name. Partial index
-    // so committed rows are unaffected.
-    yield* sql`
+            // At most one "current" (hash IS NULL) row per suite name. Partial index
+            // so committed rows are unaffected.
+            yield* sql`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_current_per_name
         ON ${sql(tables.testRuns)}(name)
         WHERE hash IS NULL;
     `;
 
-    yield* sql`
+            yield* sql`
         CREATE TABLE IF NOT EXISTS ${sql(tables.testResults)}(
             id TEXT PRIMARY KEY,
             hashTestCase TEXT NOT NULL,
+            key TEXT NOT NULL DEFAULT 'result',
             ordering INTEGER NOT NULL,
+            resultOrdering INTEGER NOT NULL DEFAULT 0,
             input TEXT,
             result TEXT,
             expected TEXT,
@@ -107,25 +120,80 @@ export const makeTestRepository = Effect.gen(function* () {
         );
     `;
 
-    yield* sql`
+            yield* sql`
         CREATE TABLE IF NOT EXISTS ${sql(tables.testRunResults)}(
             testRun INTEGER NOT NULL,
             testResult TEXT NOT NULL,
+            ordering INTEGER NOT NULL,
+            resultOrdering INTEGER NOT NULL,
+            timeMillis INTEGER NOT NULL,
             FOREIGN KEY (testRun) REFERENCES ${sql(tables.testRuns)}(id),
             FOREIGN KEY (testResult) REFERENCES ${sql(tables.testResults)}(id),
             UNIQUE (testRun, testResult)
         );
     `;
 
-    // Lookup by the junction's `testResult` column: the existing
-    // UNIQUE(testRun, testResult) index is keyed on testRun first, so orphan
-    // cleanup (`... NOT IN (SELECT testResult ...)`) and stream joins
-    // (`res.id = runres.testResult`) would otherwise full-scan the junction.
-    yield* sql`CREATE INDEX IF NOT EXISTS idx_trr_testresult ON ${sql(tables.testRunResults)}(testResult)`;
-    yield* sql`CREATE INDEX IF NOT EXISTS idx_tr_hashtestcase ON ${sql(tables.testResults)}(hashTestCase)`;
+            const resultColumns = yield* Schema.decodeUnknownEffect(
+                TableColumnsSchema,
+            )(yield* sql`PRAGMA table_info(${sql(tables.testResults)});`).pipe(
+                Effect.mapError(
+                    RepositoryDecodeError.from('migrateTestResults'),
+                ),
+            );
+            if (!resultColumns.some(column => column.name === 'key')) {
+                yield* sql`
+            ALTER TABLE ${sql(tables.testResults)}
+            ADD COLUMN key TEXT NOT NULL DEFAULT 'result';
+        `;
+            }
+            if (
+                !resultColumns.some(column => column.name === 'resultOrdering')
+            ) {
+                yield* sql`
+            ALTER TABLE ${sql(tables.testResults)}
+            ADD COLUMN resultOrdering INTEGER NOT NULL DEFAULT 0;
+        `;
+            }
 
-    // SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; testResults has 9
-    // columns and junction rows 2, so 50 rows stays well under the limit.
+            const runResultColumns = yield* Schema.decodeUnknownEffect(
+                TableColumnsSchema,
+            )(
+                yield* sql`PRAGMA table_info(${sql(tables.testRunResults)});`,
+            ).pipe(
+                Effect.mapError(
+                    RepositoryDecodeError.from('migrateTestRunResults'),
+                ),
+            );
+            for (const column of ['ordering', 'resultOrdering', 'timeMillis']) {
+                if (
+                    runResultColumns.some(existing => existing.name === column)
+                ) {
+                    continue;
+                }
+                yield* sql`
+            ALTER TABLE ${sql(tables.testRunResults)}
+            ADD COLUMN ${sql(column)} INTEGER NOT NULL DEFAULT 0;
+        `;
+                yield* sql`
+            UPDATE ${sql(tables.testRunResults)} AS runres
+            SET ${sql(column)} = (
+                SELECT ${sql(column)} FROM ${sql(tables.testResults)} res
+                WHERE res.id = runres.testResult
+            );
+        `;
+            }
+
+            // Lookup by the junction's `testResult` column: the existing
+            // UNIQUE(testRun, testResult) index is keyed on testRun first, so orphan
+            // cleanup (`... NOT IN (SELECT testResult ...)`) and stream joins
+            // (`res.id = runres.testResult`) would otherwise full-scan the junction.
+            yield* sql`CREATE INDEX IF NOT EXISTS idx_trr_testresult ON ${sql(tables.testRunResults)}(testResult)`;
+            yield* sql`CREATE INDEX IF NOT EXISTS idx_tr_hashtestcase ON ${sql(tables.testResults)}(hashTestCase)`;
+        }),
+    );
+
+    // With 11 result columns and 5 junction columns, batches of 50 rows stay below
+    // SQLite's lowest default limit of 999 bound values per statement.
     const INSERT_BATCH_SIZE = 50;
 
     const insertTestResults = (
@@ -167,6 +235,9 @@ export const makeTestRepository = Effect.gen(function* () {
                     const junction = encoded.map(_ => ({
                         testRun: testRun.id,
                         testResult: _.id,
+                        ordering: _.ordering,
+                        resultOrdering: _.resultOrdering,
+                        timeMillis: _.timeMillis,
                     }));
                     for (
                         let i = 0;
@@ -177,7 +248,10 @@ export const makeTestRepository = Effect.gen(function* () {
                         yield* sql`
                         INSERT INTO ${sql(tables.testRunResults)}
                         ${sql.insert(chunk)}
-                        ON CONFLICT(testRun, testResult) DO NOTHING;
+                        ON CONFLICT(testRun, testResult) DO UPDATE SET
+                            ordering = excluded.ordering,
+                            resultOrdering = excluded.resultOrdering,
+                            timeMillis = excluded.timeMillis;
                     `.pipe(
                             Effect.mapError(
                                 RepositoryWriteError.from('insertTestResults'),
@@ -208,7 +282,9 @@ export const makeTestRepository = Effect.gen(function* () {
         return Schema.Struct({
             id: Schema.String,
             hashTestCase: Schema.String,
+            key: Schema.String,
             ordering: Schema.Int,
+            resultOrdering: Schema.Int,
             input: Schema.fromJsonString(input),
             result: Schema.fromJsonString(result),
             expected: Schema.fromJsonString(expected),
@@ -232,11 +308,15 @@ export const makeTestRepository = Effect.gen(function* () {
         return Stream.unwrap(
             Effect.gen(function* () {
                 const rows = yield* sql`
-                    SELECT res.* FROM ${sql(tables.testResults)} res
+                    SELECT res.id, res.hashTestCase, res.key,
+                        runres.ordering, runres.resultOrdering,
+                        res.input, res.result, res.expected, res.label, res.tags,
+                        runres.timeMillis
+                    FROM ${sql(tables.testResults)} res
                     JOIN ${sql(tables.testRunResults)} runres ON res.id = runres.testResult
                     JOIN ${sql(tables.testRuns)} runs ON runs.id = runres.testRun
                     WHERE runs.id = ${testRun.id}
-                    ORDER BY ordering ASC;
+                    ORDER BY runres.ordering ASC, runres.resultOrdering ASC;
                 `.pipe(
                     Effect.mapError(
                         RepositoryQueryError.fromSql('getTestResultsStream'),

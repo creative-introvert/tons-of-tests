@@ -16,8 +16,13 @@ import {makeDefault} from './DisplayConfig.js';
 
 const columns: StatsColumn[] = [
     {
+        name: 'testCases',
+        label: 'cases',
+        make: ({stats}: StatsContext) => [stats.testCases.toString()],
+    },
+    {
         name: 'total',
-        label: '∑',
+        label: 'results',
         make: ({stats}: StatsContext) => [stats.total.toString()],
     },
     {
@@ -112,6 +117,7 @@ export const showStats = <I, O, T>({
     testRun,
     displayConfig,
     selectColumns = [
+        'testCases',
         'total',
         'TP',
         'TN',

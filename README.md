@@ -26,7 +26,8 @@ A specialized test runner for predictive functions, focusing on scenarios where 
 
 Use Node.js 24 or newer and Effect 4. The Effect packages in this repository
 use the same exact version. The SQLite driver uses Node's built-in SQLite.
-Existing database files and stored test hashes keep the same format.
+Existing database files are migrated when opened. Previously stored results
+receive the key `result`; their test case hashes stay the same.
 
 ### Installation
 
@@ -49,6 +50,10 @@ import * as CLI from '@creative-introvert/tons-of-tests-cli';
 import {Effect} from 'effect';
 
 const myFunction = (input: number) => Promise.resolve(input * 1.7);
+const classify = Classify.makeClassify<number, number>({
+    // Treat an absolute error of up to 0.4 as a match.
+    isEqual: (a, b) => Math.abs(b - a) <= 0.4,
+});
 
 CLI.run({
     testSuite: {
@@ -60,12 +65,9 @@ CLI.run({
             {input: 3, expected: 4},
             {input: 4, expected: 5},
         ],
-        // `makeClassify` customises how observed vs. expected results are
-        // labelled. `isEqual` decides TP/TN vs FP/FN — here we tolerate a
-        // 0.4 absolute error, so `1.7` passes for `2`, etc.
-        classify: Classify.makeClassify({
-            isEqual: (a, b) => Math.abs(b - a) <= 0.4,
-        }),
+        evaluate: (result, expected) => [
+            {key: 'result', result, expected, label: classify(result, expected)},
+        ],
         program: (input: number) => Effect.promise(() => myFunction(input)),
     },
     dbPath: 'with-cli-simple.db',
@@ -73,7 +75,10 @@ CLI.run({
 });
 ```
 
-> Omit `classify` to get default strict equality; then every non-exact result is labelled FP.
+Omit `evaluate` to compare the whole output with the expected value using
+`Classify.defaultIsEqual`. The default evaluator returns one result with key
+`result`. `Classify.makeClassify` returns a label for one comparison; use it
+inside `evaluate` when you want to choose how values match.
 
 `testCases` can also be an Effect `Stream`, which is useful for large or generated suites that are consumed lazily by the runner:
 
@@ -93,96 +98,146 @@ CLI.run({
 });
 ```
 
+### Multiple Results From One Test Case
+
+Use `evaluate` to track parts of one program output separately. The runner calls
+`program` once per test case, then passes its output and the case's expected
+value to `evaluate`.
+
+For a BANT inference, the evaluator can return a result for each of budget,
+authority, need, and timeline:
+
+```ts
+import {Classify, type Test} from '@creative-introvert/tons-of-tests';
+import {Array} from 'effect';
+
+type Bant = {
+    readonly budget: string | null;
+    readonly authority: string | null;
+    readonly need: string | null;
+    readonly timeline: string | null;
+};
+
+const fields = ['budget', 'authority', 'need', 'timeline'] as const;
+const classify = Classify.makeClassify({isEqual: Classify.defaultIsEqual});
+
+const evaluate: Test.Evaluate<Bant, Bant, string | null, string | null> = (
+    output,
+    expected,
+) =>
+    Array.map(fields, key => ({
+        key,
+        result: output[key],
+        expected: expected[key],
+        label: classify(output[key], expected[key]),
+    }));
+```
+
+Pass `evaluate` alongside `program` in the test suite. See the runnable
+[multiple-results.ts example](./workspace/examples/src/with-cli/multiple-results.ts)
+for a complete suite using a fixed response in place of an LLM call.
+
+`evaluate` is a pure function. It must return a non-empty readonly array of
+`Test.EvaluationResult` values. Each value has a `key`, `result`, `expected`, and
+`label`. Keys must be non-empty and unique within the case. Keep keys stable
+across runs so the CLI can match each result to its previous value.
+
+The CLI shows one row per result in the existing table. Rows from the same case
+stay next to each other and share the same `hash`. The `key` column identifies
+each result. The hash comes from the original input and expected value; each
+result is matched across runs by that hash and its key.
+
+For the BANT example, these columns show the shared case hash (other columns
+are omitted here):
+
+```text
+┌──────────┬───────────┬───────┐
+│ hash     │ key       │ label │
+├──────────┼───────────┼───────┤
+│ 688c8d1f │ budget    │ FP    │
+├──────────┼───────────┼───────┤
+│ 688c8d1f │ authority │ TP    │
+├──────────┼───────────┼───────┤
+│ 688c8d1f │ need      │ TP    │
+├──────────┼───────────┼───────┤
+│ 688c8d1f │ timeline  │ FN    │
+└──────────┴───────────┴───────┘
+```
+
+The statistics count cases and results separately. Labels, precision, and recall
+count visible results. Timing statistics count each visible case once, even when
+it has several result rows.
+
+If you supply `testSuite.schemas`, `input` describes the original input.
+`result` and `expected` describe the values returned by `evaluate`. For this
+BANT example, both use `Schema.NullOr(Schema.String)` because each result is one
+field, even though the program returns a full BANT object.
+
+#### Updating Suites That Use `classify`
+
+Replace the suite's `classify` property with an `evaluate` callback. Keep the
+classifier and wrap its label in a result, as shown in the basic example:
+
+```ts
+evaluate: (result, expected) => [
+    {key: 'result', result, expected, label: classify(result, expected)},
+],
+```
+
+Suites that use the default comparison and omit `classify` need no changes.
+Cached results keep their saved values and labels. Run the suite again after
+changing `evaluate` to produce new results.
+
+The same `schemas` decode current and previous runs. If you change the stored
+result or expected-value shape and your schemas cannot read older values, use
+a new suite name for the new shape.
+
+### CLI Commands
+
 #### Summarize
 
-```
+```sh
 pnpx tsx my-test-suite.ts summarize
-
-┌───────────────────────────────────────────────────────────────────────────┐
-│ SUMMARY                                                                   │
-├─────┬──────────┬────────┬──────┬───────┬──────────┬────────┬──────────────┤
-│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ 1/5 │ bd04cb2c │ 0.69ms │      │ 0     │ 0        │ TP     │              │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ 2/5 │ 562e2cca │ 0.36ms │      │ 1     │ 2        │ TP     │ 2 => 1.7     │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ 3/5 │ a5afd52f │ 3.30ms │      │ 2     │ 3        │ TP     │ 3 => 3.4     │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ 4/5 │ 5f7f8725 │ 1.19ms │      │ 3     │ 4        │ FP     │ 4 => 5.1     │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ 5/5 │ 6cc26923 │ 1.22ms │      │ 4     │ 5        │ FP     │ 5 => 6.8     │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │
-└─────┴──────────┴────────┴──────┴───────┴──────────┴────────┴──────────────┘
-
-
-┌────────────────────────────────────────────────────────────────────┐
-│ STATS                                                              │
-├───┬────┬────┬────┬────┬───────────┬────────┬──────────┬────────────┤
-│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
-├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
-│ 5 │ 3  │ 0  │ 2  │ 0  │ 0.60      │ 1.00   │ 1.35ms   │ 1.19ms     │
-├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
-│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
-└───┴────┴────┴────┴────┴───────────┴────────┴──────────┴────────────┘
 ```
 
-#### Summarize With Labels Filter
+#### Filter Results
 
+Both `summarize` and `diff` accept these filters:
+
+| Flag | Includes a result when… |
+| --- | --- |
+| `--keys budget,need` | Its key is `budget` or `need`. |
+| `--labels FP,FN` | Its current label is `FP` or `FN`. |
+| `--tags enterprise,german` | Its case has either tag. |
+| `--all-tags enterprise,german` | Its case has both tags. |
+
+Different flags combine with AND. For example, show budget errors from
+enterprise cases:
+
+```sh
+pnpx tsx bant-suite.ts summarize --keys budget --labels FP,FN --tags enterprise
 ```
+
+For the basic example, show matching results:
+
+```sh
 pnpx tsx my-test-suite.ts summarize --labels TP
-
-┌───────────────────────────────────────────────────────────────────────────┐
-│ SUMMARY                                                                   │
-├─────┬──────────┬────────┬──────┬───────┬──────────┬────────┬──────────────┤
-│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ 1/3 │ bd04cb2c │ 0.52ms │      │ 0     │ 0        │ TP     │              │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ 2/3 │ 562e2cca │ 0.41ms │      │ 1     │ 2        │ TP     │ 2 => 1.7     │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ 3/3 │ a5afd52f │ 0.74ms │      │ 2     │ 3        │ TP     │ 3 => 3.4     │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┤
-│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │
-└─────┴──────────┴────────┴──────┴───────┴──────────┴────────┴──────────────┘
-
-
-┌────────────────────────────────────────────────────────────────────┐
-│ STATS                                                              │
-├───┬────┬────┬────┬────┬───────────┬────────┬──────────┬────────────┤
-│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
-├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
-│ 5 │ 3  │ 0  │ 2  │ 0  │ 0.60      │ 1.00   │ 1.23ms   │ 1.28ms     │
-├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
-│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
-└───┴────┴────┴────┴────┴───────────┴────────┴──────────┴────────────┘
 ```
 
-#### Summarize With Tag Filters
-
-`--tags` includes results matching ANY of the listed tags (OR):
-
-```
-pnpx tsx my-test-suite.ts summarize --tags foo,bar
-```
-
-`--all-tags` includes results matching ALL listed tags (AND):
-
-```
-pnpx tsx my-test-suite.ts summarize --all-tags foo,bar
-```
-
-Both flags compose with `--labels`.
+Filters change the displayed rows and statistics. The CLI runs and saves all
+evaluations before applying them, so filtering does not discard saved results
+or reduce the number of program calls. No matches produces an empty view;
+`summarize` also reports zero counts.
 
 #### Summarize From Cache
 
-`--cached` reads the most recently inserted test results from the local DB
-instead of re-running the program. This is useful when you want to re-format
-or re-filter without incurring the cost of a full run:
+When results for the current run are already saved, `--cached` reads them
+without re-running the program or evaluator. If no cached results exist, it
+runs and saves the suite. After the first run, use it to inspect other keys
+without making another inference call:
 
-```
-pnpx tsx my-test-suite.ts summarize --cached
+```sh
+pnpx tsx bant-suite.ts summarize --cached --keys budget,need
 ```
 
 `diff --cached` behaves the same way for the current-run side of the diff.
@@ -196,6 +251,7 @@ pnpx tsx my-test-suite.ts commit
 #### Diff
 
 The diff command compares your current test results with previously committed results. This is useful when you've made changes to either:
+
 - Your test suite's inputs or expected values
 - The implementation of the function being tested
 
@@ -205,67 +261,40 @@ index 21cd713..ab1b6dc 100644
 --- a/my-test-suite.ts
 +++ b/my-test-suite.ts
 @@ -1,7 +1,7 @@
- import * as CLI from '@creative-introvert/tots-cli';
+ import * as CLI from '@creative-introvert/tons-of-tests-cli';
  import {Effect} from 'effect';
  
 -const myFunction = (input: number) => Promise.resolve(input * 1.7);
 +const myFunction = (input: number) => Promise.resolve(input * 2);
  
- void CLI.run({
+ CLI.run({
      testSuite: {
 ```
 
-```
+```sh
 pnpx tsx my-test-suite.ts diff
-# or, if you want it to process.exit(1) on diff
+# Exit with code 1 when the filtered view contains differences.
 pnpx tsx my-test-suite.ts diff --exit-on-diff
-
-┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ SUMMARY                                                                                             │
-├─────┬──────────┬────────┬──────┬───────┬──────────┬────────┬──────────────┬─────────┬───────────────┤
-│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │ label₋₁ │ diff result₋₁ │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┼─────────┼───────────────┤
-│ 1/4 │ 562e2cca │ 0.23ms │      │ 1     │ 2        │ TP     │              │ FP      │ 2 => 1.7      │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┼─────────┼───────────────┤
-│ 2/4 │ a5afd52f │ 3.66ms │      │ 2     │ 3        │ FP     │ 3 => 4       │ FP      │ 3 => 3.4      │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┼─────────┼───────────────┤
-│ 3/4 │ 5f7f8725 │ 1.19ms │      │ 3     │ 4        │ FP     │ 4 => 6       │ FP      │ 4 => 5.1      │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┼─────────┼───────────────┤
-│ 4/4 │ 6cc26923 │ 0.98ms │      │ 4     │ 5        │ FP     │ 5 => 8       │ FP      │ 5 => 6.8      │
-├─────┼──────────┼────────┼──────┼───────┼──────────┼────────┼──────────────┼─────────┼───────────────┤
-│ #/∑ │ hash     │ ms     │ tags │ input │ expected │ label₀ │ diff result₀ │ label₋₁ │ diff result₋₁ │
-└─────┴──────────┴────────┴──────┴───────┴──────────┴────────┴──────────────┴─────────┴───────────────┘
-
-
-┌────────────────────────────────────────────────────────────────────┐
-│ STATS                                                              │
-├───┬────┬────┬────┬────┬───────────┬────────┬──────────┬────────────┤
-│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
-├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
-│ 5 │ 2  │ 0  │ 3  │ 0  │ 0.40      │ 1.00   │ 1.30ms   │ 0.98ms     │
-├───┼────┼────┼────┼────┼───────────┼────────┼──────────┼────────────┤
-│ ∑ │ TP │ TN │ FP │ FN │ precision │ recall │ timeMean │ timeMedian │
-└───┴────┴────┴────┴────┴───────────┴────────┴──────────┴────────────┘
-
-
-┌────────────────────────────────────────┐
-│ DIFF                                   │
-├────┬────┬────┬────┬───────────┬────────┤
-│ TP │ TN │ FP │ FN │ precision │ recall │
-├────┼────┼────┼────┼───────────┼────────┤
-│ 1  │ 0  │ -1 │ 0  │ 0.20      │ 0.00   │
-├────┼────┼────┼────┼───────────┼────────┤
-│ TP │ TN │ FP │ FN │ precision │ recall │
-└────┴────┴────┴────┴───────────┴────────┘
 ```
 
-Checkout `workspace/examples/src/with-cli` for more examples.
+For a suite with several results per case, select the keys to compare:
 
+```sh
+pnpx tsx bant-suite.ts diff --keys budget --labels FP,FN
 ```
-pnpx tsx <file-path>
-# e.g.
-pnpx tsx ./workspace/examples/src/with-cli/simple-run.ts
-pnpx tsx ./workspace/examples/src/with-cli/simple-effect.ts
+
+`diff` matches results by case hash and key before applying filters. It includes
+new results and changes to a result's value, expected value, or label. A current
+`FP` result keeps its previous value and label even when that previous label
+does not match `--labels`.
+
+See [workspace/examples/src/with-cli](./workspace/examples/src/with-cli) for
+more examples. From the repository root, run:
+
+```sh
+direnv exec . pnpm exec tsx workspace/examples/src/with-cli/simple-run.ts summarize
+direnv exec . pnpm exec tsx workspace/examples/src/with-cli/simple-effect.ts
+direnv exec . pnpm exec tsx workspace/examples/src/with-cli/multiple-results.ts summarize --keys budget,need
 ```
 
 ### Using the CLI programmatically
@@ -318,16 +347,10 @@ const hash = await CLI.getLastTestRunHash({
 // hash: string | null
 ```
 
-If you compose the CLI's `diff` programmatically (via `_diff` or a custom
-harness), `diff --exit-on-diff` fails with a typed `DiffNonEmpty` error
-when the current run has visible diffs:
-
-```ts
-import {DiffNonEmpty} from '@creative-introvert/tons-of-tests-cli';
-
-// ... compose _diff into your own Effect pipeline, then:
-Effect.catchTag('DiffNonEmpty', () => /* handle */);
-```
+When you use `CLI.effect`, `diff --exit-on-diff` fails with a typed
+`DiffNonEmpty` error when the current run has visible diffs. Handle it with
+`Effect.catchTag('DiffNonEmpty', handler)`; `error.count` gives the number of
+visible changed results.
 
 At the process entry point (`CLI.run`), `DiffNonEmpty` is translated to
 `process.exitCode = 1` — the user-facing "exit with code 1 on diff"

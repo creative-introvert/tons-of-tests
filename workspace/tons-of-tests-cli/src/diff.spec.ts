@@ -178,8 +178,214 @@ t.describe('CLI: _diff', () => {
                     });
                     t.expect(testRun.testCaseHashes[0]).toBe(expectedHash);
                     const survivor =
-                        testRun.testResultsByTestCaseHash[expectedHash];
+                        testRun.testResultsByKey[
+                            PT.Test.resultKey({
+                                hashTestCase: expectedHash,
+                                key: 'result',
+                            })
+                        ];
                     t.expect(survivor?.result).toBe(3);
+                }),
+        );
+
+        it.effect(
+            'shows a changed evaluation target even when the result and label stay the same',
+            () =>
+                Effect.gen(function* () {
+                    const baseConfig = {
+                        dbPath: ':memory:',
+                        testSuite: {
+                            name: 'diff-evaluation-target',
+                            testCases: [{input: 1, expected: 5}],
+                            program: add,
+                            evaluate: (result: number, expected: number) =>
+                                [
+                                    {
+                                        key: 'budget',
+                                        result,
+                                        expected,
+                                        label: 'FP',
+                                    },
+                                ] as const,
+                        },
+                    };
+                    yield* _sumarize({config: baseConfig, cached: false});
+                    yield* _commit({config: baseConfig});
+
+                    const config = {
+                        ...baseConfig,
+                        testSuite: {
+                            ...baseConfig.testSuite,
+                            evaluate: (result: number, expected: number) =>
+                                [
+                                    {
+                                        key: 'budget',
+                                        result,
+                                        expected: expected * 2,
+                                        label: 'FP',
+                                    },
+                                ] as const,
+                        },
+                    };
+                    const {testRun, previousTestRun} = yield* _diff({
+                        config,
+                        cached: false,
+                    });
+                    const previous = Option.getOrThrow(previousTestRun);
+                    const key = testRun.testResultKeys[0];
+                    t.expect(testRun.testResultKeys).toHaveLength(1);
+                    t.expect(testRun.testResultsByKey[key]).toMatchObject({
+                        key: 'budget',
+                        result: 2,
+                        expected: 10,
+                        label: 'FP',
+                    });
+                    t.expect(previous.testResultsByKey[key]).toMatchObject({
+                        key: 'budget',
+                        result: 2,
+                        expected: 5,
+                        label: 'FP',
+                    });
+                }),
+        );
+
+        it.effect(
+            'matches the same outcome before filtering labels and keeps the full cache',
+            () =>
+                Effect.gen(function* () {
+                    const expected = {budget: 100, need: 2};
+                    const classify = PT.Classify.makeClassify({
+                        isEqual: PT.Classify.defaultIsEqual,
+                    });
+                    const baseConfig = {
+                        dbPath: ':memory:',
+                        testSuite: {
+                            name: 'diff-grouped-outcomes',
+                            testCases: [
+                                {
+                                    input: 'call-1',
+                                    expected,
+                                    tags: ['enterprise', 'de'],
+                                },
+                            ],
+                            program: (_: string) => Effect.succeed(expected),
+                            evaluate: (
+                                result: typeof expected,
+                                target: typeof expected,
+                            ) =>
+                                [
+                                    {
+                                        key: 'budget',
+                                        result: result.budget,
+                                        expected: target.budget,
+                                        label: classify(
+                                            result.budget,
+                                            target.budget,
+                                        ),
+                                    },
+                                    {
+                                        key: 'need',
+                                        result: result.need,
+                                        expected: target.need,
+                                        label: classify(
+                                            result.need,
+                                            target.need,
+                                        ),
+                                    },
+                                ] as const,
+                        },
+                    };
+                    const changedConfig = {
+                        ...baseConfig,
+                        testSuite: {
+                            ...baseConfig.testSuite,
+                            program: (_: string) =>
+                                Effect.succeed({budget: 80, need: 2}),
+                        },
+                    };
+
+                    yield* _sumarize({config: baseConfig, cached: false});
+                    yield* _commit({config: baseConfig});
+
+                    const view = yield* _diff({
+                        config: changedConfig,
+                        cached: false,
+                        keys: Option.some(['budget']),
+                        labels: Option.some(['FP']),
+                        orTags: Option.some(['enterprise']),
+                        andTags: Option.some(['enterprise', 'de']),
+                    });
+                    const previous = Option.getOrThrow(view.previousTestRun);
+                    const cached = yield* _sumarize({
+                        config: changedConfig,
+                        cached: true,
+                    });
+
+                    t.expect({
+                        current: view.testRun.testResultKeys.map(
+                            key => view.testRun.testResultsByKey[key].key,
+                        ),
+                        prior: previous.testResultKeys.map(key => {
+                            const row = previous.testResultsByKey[key];
+                            return {
+                                key: row.key,
+                                label: row.label,
+                                result: row.result,
+                            };
+                        }),
+                        diff: PT.Test.diff(view),
+                        cached: cached.testRun.testResultKeys.map(
+                            key => cached.testRun.testResultsByKey[key].key,
+                        ),
+                    }).toEqual({
+                        current: ['budget'],
+                        prior: [{key: 'budget', label: 'TP', result: 100}],
+                        diff: {
+                            TP: -1,
+                            TN: 0,
+                            FP: 1,
+                            FN: 0,
+                            precision: -1,
+                            recall: -1,
+                        },
+                        cached: ['budget', 'need'],
+                    });
+
+                    const cachedDiff = yield* _diff({
+                        config: changedConfig,
+                        cached: true,
+                        keys: Option.some(['budget']),
+                        labels: Option.some(['FP']),
+                    });
+                    t.expect(cachedDiff).toEqual(view);
+
+                    const budgetOnly = {
+                        ...changedConfig,
+                        testSuite: {
+                            ...changedConfig.testSuite,
+                            evaluate: (
+                                result: typeof expected,
+                                target: typeof expected,
+                            ) =>
+                                [
+                                    changedConfig.testSuite.evaluate(
+                                        result,
+                                        target,
+                                    )[0],
+                                ] as const,
+                        },
+                    };
+                    yield* _diff({config: budgetOnly, cached: false});
+                    const replacedCache = yield* _sumarize({
+                        config: budgetOnly,
+                        cached: true,
+                    });
+                    t.expect(
+                        replacedCache.testRun.testResultKeys.map(
+                            key =>
+                                replacedCache.testRun.testResultsByKey[key].key,
+                        ),
+                    ).toEqual(['budget']);
                 }),
         );
     });

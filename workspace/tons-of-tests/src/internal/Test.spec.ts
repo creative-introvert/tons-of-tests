@@ -1,10 +1,17 @@
 import * as t from '@effect/vitest';
-import {Effect, Option, Stream} from 'effect';
+import {Array as A, Effect, Exit, Option, Result, Stream} from 'effect';
 
-import {Stats} from '../Classify.js';
-import type {TestResult} from '../Test.js';
+import {Stats, defaultIsEqual, makeClassify} from '../Classify.js';
+import type {Evaluate, EvaluationResult, TestResult} from '../Test.js';
 import {TestRun} from '../Test.repository.js';
-import {all, diff, makeSha256, runCollectRecord} from './Test.js';
+import {
+    all,
+    diff,
+    filterResults,
+    makeSha256,
+    resultKey,
+    runCollectRecord,
+} from './Test.js';
 
 const run = new TestRun({id: 1, name: 'suite', hash: null});
 
@@ -17,10 +24,14 @@ const mkResult = <R = number, E = number>(args: {
     label: TestResult['label'];
     timeMillis: number;
     ordering?: number;
+    key?: string;
+    resultOrdering?: number;
 }): TestResult<number, R, E> => ({
     id: makeSha256(args),
     hashTestCase: makeSha256({input: args.input, expected: args.expected}),
+    key: args.key ?? 'result',
     ordering: args.ordering ?? 0,
+    resultOrdering: args.resultOrdering ?? 0,
     input: args.input,
     result: args.result,
     expected: args.expected,
@@ -79,10 +90,227 @@ t.describe('all', () => {
             program: (input: number) => Effect.succeed(input * 2),
         }).pipe(Stream.runCollect, Effect.runPromise);
 
+        t.expectTypeOf(results[0].result).toEqualTypeOf<number>();
         t.expect(
             Array.from(results, ({input, ordering}) => ({input, ordering})),
         ).toStrictEqual(expected);
     });
+
+    t.it.effect(
+        'infers evaluation values separately from the program output',
+        () =>
+            Effect.gen(function* () {
+                const results = yield* all({
+                    name: 'inferred-evaluation',
+                    testCases: [{input: 1, expected: {amount: 2}}],
+                    program: (input: number) =>
+                        Effect.succeed({amount: String(input)}),
+                    evaluate: (output, expected) => [
+                        {
+                            key: 'amount',
+                            result: output.amount,
+                            expected: expected.amount,
+                            label: 'FP',
+                        },
+                    ],
+                }).pipe(Stream.runCollect);
+
+                t.expectTypeOf(results).toEqualTypeOf<
+                    Array<TestResult<number, string, number>>
+                >();
+                t.expect(results[0]).toMatchObject({
+                    key: 'amount',
+                    result: '1',
+                    expected: 2,
+                    label: 'FP',
+                });
+            }),
+    );
+
+    t.it.effect(
+        'runs one inference per case and keeps separately keyed results',
+        () =>
+            Effect.gen(function* () {
+                const fields = [
+                    'budget',
+                    'authority',
+                    'need',
+                    'timeline',
+                ] as const;
+                type Bant = Record<(typeof fields)[number], number>;
+                const expected: Bant = {
+                    budget: 1,
+                    authority: 1,
+                    need: 1,
+                    timeline: 1,
+                };
+                const classify = makeClassify({isEqual: defaultIsEqual});
+                const evaluate: Evaluate<Bant, Bant, number, number> = (
+                    output,
+                    expected,
+                ) =>
+                    A.map(fields, key => ({
+                        key,
+                        result: output[key],
+                        expected: expected[key],
+                        label: classify(output[key], expected[key]),
+                    }));
+                let calls = 0;
+                const results = yield* all(
+                    {
+                        name: 'bant',
+                        testCases: [
+                            {input: 'call-1', expected},
+                            {input: 'call-2', expected},
+                        ],
+                        program: () =>
+                            Effect.sync(() => {
+                                calls++;
+                                return expected;
+                            }),
+                        evaluate,
+                    },
+                    {concurrency: 2},
+                ).pipe(Stream.runCollect);
+
+                t.expect(calls).toBe(2);
+                t.expect(
+                    results.map(
+                        ({
+                            key,
+                            ordering,
+                            resultOrdering,
+                            hashTestCase,
+                            label,
+                            result,
+                            expected: value,
+                        }) => ({
+                            key,
+                            ordering,
+                            resultOrdering,
+                            hashTestCase,
+                            label,
+                            result,
+                            expected: value,
+                        }),
+                    ),
+                ).toEqual(
+                    ['call-1', 'call-2'].flatMap((input, ordering) =>
+                        fields.map((key, resultOrdering) => ({
+                            key,
+                            ordering,
+                            resultOrdering,
+                            hashTestCase: makeSha256({input, expected}),
+                            label: 'TP',
+                            result: 1,
+                            expected: 1,
+                        })),
+                    ),
+                );
+                t.expect(new Set(results.map(r => r.id)).size).toBe(8);
+                const collected = yield* Stream.fromIterable(results).pipe(
+                    runCollectRecord(run),
+                );
+                t.expect(Object.keys(collected.testResultsByKey)).toHaveLength(
+                    8,
+                );
+                t.expect(collected.stats).toMatchObject({
+                    total: 8,
+                    testCases: 2,
+                    TP: 8,
+                });
+            }),
+    );
+
+    t.it.effect(
+        'reordering evaluation results preserves their identities',
+        () =>
+            Effect.gen(function* () {
+                const evaluate: Evaluate<number, number> = (
+                    result,
+                    expected,
+                ) => [
+                    {key: 'first', result, expected, label: 'TP'},
+                    {key: 'second', result, expected, label: 'TP'},
+                ];
+                const suite = {
+                    name: 'order',
+                    testCases: [{input: 1, expected: 1}],
+                    program: Effect.succeed,
+                    evaluate,
+                };
+                const first = yield* all(suite).pipe(Stream.runCollect);
+                const second = yield* all({
+                    ...suite,
+                    evaluate: (result: number, expected: number) =>
+                        A.reverse(evaluate(result, expected)),
+                }).pipe(Stream.runCollect);
+                t.expect(second.map(({key, id}) => ({key, id}))).toEqual(
+                    first.map(({key, id}) => ({key, id})).reverse(),
+                );
+                t.expect(second.map(r => r.resultOrdering)).toEqual([0, 1]);
+            }),
+    );
+
+    t.it.effect.each([
+        {name: 'empty results', results: []},
+        {
+            name: 'empty key',
+            results: [{key: '', result: 1, expected: 1, label: 'TP' as const}],
+        },
+        {
+            name: 'duplicate keys',
+            results: [
+                {key: 'budget', result: 1, expected: 1, label: 'TP' as const},
+                {key: 'budget', result: 2, expected: 1, label: 'FP' as const},
+            ],
+        },
+    ])('rejects $name before emitting a partial case', ({results}) =>
+        Effect.gen(function* () {
+            const emitted: TestResult[] = [];
+            const suite = {
+                name: 'invalid-evaluation',
+                testCases: [{input: 1, expected: 1}],
+                program: Effect.succeed,
+                evaluate: (): readonly EvaluationResult<number, number>[] =>
+                    results,
+            };
+            // Exercise JavaScript callers that cannot enforce the non-empty return type.
+            // @ts-expect-error evaluate must return a non-empty array.
+            const output = all(suite);
+            const exit = yield* output.pipe(
+                Stream.tap(result =>
+                    Effect.sync(() => {
+                        emitted.push(result);
+                    }),
+                ),
+                Stream.runDrain,
+                Effect.exit,
+            );
+            t.expect(Exit.isFailure(exit)).toBe(true);
+            t.expect(emitted).toEqual([]);
+        }),
+    );
+
+    t.it.effect('preserves inference failures without evaluating', () =>
+        Effect.gen(function* () {
+            const failure = {_tag: 'InferenceError'} as const;
+            let evaluations = 0;
+            const result = yield* all({
+                name: 'failed-inference',
+                testCases: [{input: 1, expected: 1}],
+                program: () => Effect.fail(failure),
+                evaluate: (output: number, expected: number) => {
+                    evaluations++;
+                    return [
+                        {key: 'result', result: output, expected, label: 'TP'},
+                    ];
+                },
+            }).pipe(Stream.runCollect, Effect.result);
+            t.expect(result).toEqual(Result.fail(failure));
+            t.expect(evaluations).toBe(0);
+        }),
+    );
 });
 
 t.describe('runCollectRecord', () => {
@@ -126,7 +354,9 @@ t.describe('runCollectRecord', () => {
         t.expect(out.stats.timeMean).toStrictEqual(Option.none());
         t.expect(out.stats.timeMedian).toStrictEqual(Option.none());
         t.expect(out.testCaseHashes).toStrictEqual([]);
-        t.expect(out.testResultsByTestCaseHash).toStrictEqual({});
+        t.expect(out.testResultsByKey).toStrictEqual({});
+        t.expect(out.testResultKeys).toStrictEqual([]);
+        t.expect(out.stats.testCases).toBe(0);
     });
 
     t.test(
@@ -172,11 +402,8 @@ t.describe('runCollectRecord', () => {
         },
     );
 
-    // Dedup invariant — {input, expected} collapses into one entry, but
-    // `testCaseHashes` keeps the full ordering list. Easy to break if
-    // someone "simplifies" the map later.
     t.test(
-        'duplicate hashTestCase keeps one entry, hashes-array preserves length',
+        'repeated result identities keep the last value and preserve row count',
         async () => {
             const a = mkResult({
                 input: 1,
@@ -195,14 +422,63 @@ t.describe('runCollectRecord', () => {
                 ordering: 1,
             });
             const out = await collect([a, b]);
-            t.expect(Object.keys(out.testResultsByTestCaseHash)).toHaveLength(
-                1,
+            t.expect(Object.keys(out.testResultsByKey)).toHaveLength(1);
+            t.expect(out.testCaseHashes).toHaveLength(1);
+            t.expect(out.testResultKeys).toHaveLength(2);
+            t.expect(out.testResultsByKey[resultKey(a)].label).toBe('FP');
+        },
+    );
+
+    t.test(
+        'counts inference time once per case and recomputes filtered statistics',
+        async () => {
+            const first = ['budget', 'authority', 'need', 'timeline'].map(
+                (key, resultOrdering) =>
+                    mkResult({
+                        input: 1,
+                        expected: 1,
+                        result: 1,
+                        label: 'TP',
+                        timeMillis: 100,
+                        key,
+                        resultOrdering,
+                    }),
             );
-            t.expect(out.testCaseHashes).toHaveLength(2);
-            // last-write-wins
-            t.expect(out.testResultsByTestCaseHash[a.hashTestCase].label).toBe(
-                'FP',
+            const second = mkResult({
+                input: 2,
+                expected: 2,
+                result: 3,
+                label: 'FP',
+                timeMillis: 900,
+                key: 'budget',
+                ordering: 1,
+            });
+            const allResults = await collect([...first, second]);
+            const budget = filterResults(
+                allResults,
+                result => result.key === 'budget',
             );
+            const failures = filterResults(
+                budget,
+                result => result.label === 'FP',
+            );
+            const empty = filterResults(allResults, () => false);
+
+            t.expect(
+                [allResults, budget, failures, empty].map(({stats}) => ({
+                    total: stats.total,
+                    cases: stats.testCases,
+                    TP: stats.TP,
+                    FP: stats.FP,
+                    mean: Option.getOrNull(stats.timeMean),
+                    median: Option.getOrNull(stats.timeMedian),
+                })),
+            ).toEqual([
+                {total: 5, cases: 2, TP: 4, FP: 1, mean: 500, median: 500},
+                {total: 2, cases: 2, TP: 1, FP: 1, mean: 500, median: 500},
+                {total: 1, cases: 1, TP: 0, FP: 1, mean: 900, median: 900},
+                {total: 0, cases: 0, TP: 0, FP: 0, mean: null, median: null},
+            ]);
         },
     );
 });
@@ -217,7 +493,8 @@ t.describe('Test.diff', () => {
         hash: run.hash,
         stats,
         testCaseHashes: [],
-        testResultsByTestCaseHash: {},
+        testResultKeys: [],
+        testResultsByKey: {},
     });
 
     t.test.each([

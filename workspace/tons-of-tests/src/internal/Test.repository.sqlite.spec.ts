@@ -1,6 +1,7 @@
 import * as SqlClient from 'effect/sql/SqlClient';
+import * as Sqlite from '@effect/sql-sqlite-node';
 import * as t from '@effect/vitest';
-import {Cause, Effect, Exit, Option, Stream} from 'effect';
+import {Cause, Effect, Exit, Option, Schema, Stream} from 'effect';
 
 import {
     RepositoryDecodeError,
@@ -115,7 +116,7 @@ t.describe('Test.repository.sqlite', () => {
                                 j => j.testRun === testRun.id,
                             );
 
-                        // Re-inserting the same results is a no-op (ON CONFLICT DO NOTHING).
+                        // Re-inserting results keeps one row per result and run.
                         yield* T.all({testCases, program: add, name}).pipe(
                             Stream.tap(_ =>
                                 repository.insertTestResult(_, testRun),
@@ -151,6 +152,141 @@ t.describe('Test.repository.sqlite', () => {
                         t.expect(
                             allResults.filter(r => scopedIds.has(r.id)),
                         ).toHaveLength(testCases.length);
+                    }),
+            );
+
+            it.effect(
+                'stores siblings with equal values and decodes projected values with their schemas',
+                () =>
+                    Effect.gen(function* () {
+                        const repository = yield* TR.TestRepository;
+                        const run = yield* repository.getOrCreateCurrentTestRun(
+                            'suite-projected-siblings',
+                        );
+                        const budget: Test.TestResult<
+                            {transcript: string},
+                            {value: number},
+                            number
+                        > = {
+                            id: 'projected-budget',
+                            hashTestCase: 'projected-case',
+                            key: 'budget',
+                            ordering: 0,
+                            resultOrdering: 0,
+                            input: {transcript: 'A call about BANT.'},
+                            result: {value: 50_000},
+                            expected: 50_000,
+                            label: 'TP',
+                            tags: ['bant'],
+                            timeMillis: 12.5,
+                        };
+                        const need = {
+                            ...budget,
+                            id: 'projected-need',
+                            key: 'need',
+                            resultOrdering: 1,
+                        };
+                        yield* repository.insertTestResults(
+                            [need, budget],
+                            run,
+                        );
+
+                        const actual = yield* repository
+                            .getTestResultsStream(run, {
+                                input: Schema.Struct({
+                                    transcript: Schema.String,
+                                }),
+                                result: Schema.Struct({value: Schema.Finite}),
+                                expected: Schema.Finite,
+                            })
+                            .pipe(Stream.runCollect);
+
+                        t.expect(actual).toEqual([budget, need]);
+                    }),
+            );
+
+            it.effect(
+                'keeps case order, sibling order and inference timing for each run when result IDs are reused',
+                () =>
+                    Effect.gen(function* () {
+                        const repository = yield* TR.TestRepository;
+                        const name = 'suite-run-metadata';
+                        const firstRun =
+                            yield* repository.getOrCreateCurrentTestRun(name);
+                        const budget: Test.TestResult<string, string, string> =
+                            {
+                                id: 'run-metadata-budget',
+                                hashTestCase: 'run-metadata-first-case',
+                                key: 'budget',
+                                ordering: 0,
+                                resultOrdering: 0,
+                                input: 'First call',
+                                result: 'yes',
+                                expected: 'yes',
+                                label: 'TP',
+                                tags: [],
+                                timeMillis: 10,
+                            };
+                        const need = {
+                            ...budget,
+                            id: 'run-metadata-need',
+                            key: 'need',
+                            resultOrdering: 1,
+                        };
+                        const other = {
+                            ...budget,
+                            id: 'run-metadata-other',
+                            hashTestCase: 'run-metadata-second-case',
+                            ordering: 1,
+                            input: 'Second call',
+                            timeMillis: 20,
+                        };
+                        yield* repository.insertTestResults(
+                            [other, need, budget],
+                            firstRun,
+                        );
+                        yield* repository.commitCurrentTestRun({
+                            name,
+                            hash: 'run-metadata-first',
+                        });
+
+                        const secondRun =
+                            yield* repository.getOrCreateCurrentTestRun(name);
+                        const secondBudget = {
+                            ...budget,
+                            ordering: 1,
+                            resultOrdering: 1,
+                            timeMillis: 40,
+                        };
+                        const secondNeed = {
+                            ...need,
+                            ordering: 1,
+                            resultOrdering: 0,
+                            timeMillis: 40,
+                        };
+                        const secondOther = {
+                            ...other,
+                            ordering: 0,
+                            timeMillis: 30,
+                        };
+                        yield* repository.insertTestResults(
+                            [secondBudget, secondNeed, secondOther],
+                            secondRun,
+                        );
+
+                        const firstResults = yield* repository
+                            .getTestResultsStream(firstRun)
+                            .pipe(Stream.runCollect);
+                        const secondResults = yield* repository
+                            .getTestResultsStream(secondRun)
+                            .pipe(Stream.runCollect);
+
+                        t.expect(firstResults).toEqual([budget, need, other]);
+                        t.expect(secondResults).toEqual([
+                            secondOther,
+                            secondNeed,
+                            secondBudget,
+                        ]);
                     }),
             );
 
@@ -377,6 +513,106 @@ t.describe('Test.repository.sqlite', () => {
         },
     );
 
+    t.layer(Sqlite.SqliteClient.layer({filename: ':memory:'}), {
+        excludeTestServices: true,
+    })('with a legacy database', it => {
+        it.effect(
+            'migrates saved results and run metadata without overwriting later writes when reopened',
+            () =>
+                Effect.gen(function* () {
+                    const sql = yield* SqlClient.SqlClient;
+                    yield* sql`
+                            CREATE TABLE ${sql(TR.tables.testRuns)}(
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                name TEXT NOT NULL,
+                                hash TEXT
+                            );
+                        `;
+                    yield* sql`
+                            CREATE TABLE ${sql(TR.tables.testResults)}(
+                                id TEXT PRIMARY KEY,
+                                hashTestCase TEXT NOT NULL,
+                                ordering INTEGER NOT NULL,
+                                input TEXT,
+                                result TEXT,
+                                expected TEXT,
+                                label TEXT NOT NULL,
+                                tags TEXT NOT NULL,
+                                timeMillis INTEGER NOT NULL
+                            );
+                        `;
+                    yield* sql`
+                            CREATE TABLE ${sql(TR.tables.testRunResults)}(
+                                testRun INTEGER NOT NULL,
+                                testResult TEXT NOT NULL,
+                                FOREIGN KEY (testRun) REFERENCES ${sql(TR.tables.testRuns)}(id),
+                                FOREIGN KEY (testResult) REFERENCES ${sql(TR.tables.testResults)}(id),
+                                UNIQUE (testRun, testResult)
+                            );
+                        `;
+                    const run = new TestRun({
+                        id: 1,
+                        name: 'legacy',
+                        hash: null,
+                    });
+                    yield* sql`INSERT INTO ${sql(TR.tables.testRuns)} ${sql.insert({id: run.id, name: run.name, hash: run.hash})};`;
+                    yield* sql`
+                            INSERT INTO ${sql(TR.tables.testResults)}
+                            ${sql.insert({
+                                id: 'legacy-result',
+                                hashTestCase: 'legacy-case',
+                                ordering: 7,
+                                input: '1',
+                                result: '2',
+                                expected: '2',
+                                label: 'TP',
+                                tags: 'legacy',
+                                timeMillis: 42.5,
+                            })};
+                        `;
+                    yield* sql`
+                            INSERT INTO ${sql(TR.tables.testRunResults)}
+                            ${sql.insert({testRun: run.id, testResult: 'legacy-result'})};
+                        `;
+
+                    const repository = yield* TR.makeTestRepository;
+                    const legacy: Test.TestResult<number, number, number> = {
+                        id: 'legacy-result',
+                        hashTestCase: 'legacy-case',
+                        key: 'result',
+                        ordering: 7,
+                        resultOrdering: 0,
+                        input: 1,
+                        result: 2,
+                        expected: 2,
+                        label: 'TP',
+                        tags: ['legacy'],
+                        timeMillis: 42.5,
+                    };
+                    const migrated = yield* repository
+                        .getTestResultsStream(run)
+                        .pipe(Stream.runCollect);
+                    t.expect(migrated).toEqual([legacy]);
+                    t.expect(yield* repository.getAllTestResults).toEqual([
+                        legacy,
+                    ]);
+
+                    const updated = {
+                        ...legacy,
+                        ordering: 2,
+                        resultOrdering: 3,
+                        timeMillis: 99,
+                    };
+                    yield* repository.insertTestResult(updated, run);
+                    const reopened = yield* TR.makeTestRepository;
+                    const actual = yield* reopened
+                        .getTestResultsStream(run)
+                        .pipe(Stream.runCollect);
+                    t.expect(actual).toEqual([updated]);
+                }),
+        );
+    });
+
     // Bogus-row test needs a separate db so the bad label does not break
     // other tests' getAllTestResults calls.
     t.layer(TR.TestRepository.TestLayer, {excludeTestServices: true})(
@@ -440,7 +676,9 @@ t.describe('Test.repository.sqlite', () => {
                             {
                                 id: 'x',
                                 hashTestCase: 'x',
+                                key: 'result',
                                 ordering: 0,
+                                resultOrdering: 0,
                                 input: 1,
                                 result: 1,
                                 expected: 1,

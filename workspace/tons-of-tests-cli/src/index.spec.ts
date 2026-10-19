@@ -1,4 +1,5 @@
 import * as t from '@effect/vitest';
+import * as PT from '@creative-introvert/tons-of-tests';
 import {Context, Effect, Ref, Stream} from 'effect';
 
 import {DiffNonEmpty} from './diff.js';
@@ -56,6 +57,94 @@ t.describe('CLI.effect', () => {
             );
 
             t.expect(yield* Ref.get(hits)).toBe(expectedHits);
+        }),
+    );
+
+    t.it.effect.each([
+        {
+            description: 'accepts any listed result key',
+            input: ['--keys', 'budget,need'],
+            expectedCount: 4,
+        },
+        {
+            description: 'combines key, label, and case tag filters',
+            input: [
+                '--keys',
+                'budget,need',
+                '--labels',
+                'FP',
+                '--tags',
+                'enterprise,missing',
+                '--all-tags',
+                'enterprise,de',
+            ],
+            expectedCount: 1,
+        },
+        {
+            description: 'requires every tag in --all-tags',
+            input: ['--tags', 'enterprise,smb', '--all-tags', 'enterprise,de'],
+            expectedCount: 2,
+        },
+        {
+            description: 'accepts any listed label',
+            input: ['--keys', 'budget', '--labels', 'FP,TP'],
+            expectedCount: 2,
+        },
+        {
+            description: 'succeeds when no result key matches',
+            input: ['--keys', 'missing'],
+            expectedCount: 0,
+        },
+    ])('diff $description', ({input, expectedCount}) =>
+        Effect.gen(function* () {
+            const expected = {budget: 100, need: 2};
+            const classify = PT.Classify.makeClassify({
+                isEqual: PT.Classify.defaultIsEqual,
+            });
+            const config = {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'cli-result-filters',
+                    testCases: [
+                        {input: 'call-1', expected, tags: ['enterprise', 'de']},
+                        {input: 'call-2', expected, tags: ['smb', 'de']},
+                    ],
+                    program: (_: string) =>
+                        Effect.succeed({budget: 80, need: 2}),
+                    evaluate: (
+                        result: typeof expected,
+                        target: typeof expected,
+                    ) =>
+                        [
+                            {
+                                key: 'budget',
+                                result: result.budget,
+                                expected: target.budget,
+                                label: classify(result.budget, target.budget),
+                            },
+                            {
+                                key: 'need',
+                                result: result.need,
+                                expected: target.need,
+                                label: classify(result.need, target.need),
+                            },
+                        ] as const,
+                },
+            };
+
+            const count = yield* cliEffect(config, [
+                'node',
+                'test',
+                'diff',
+                '--exit-on-diff',
+                ...input,
+            ]).pipe(
+                Effect.catchTag('DiffNonEmpty', error =>
+                    Effect.succeed(error.count),
+                ),
+                Effect.map(count => count ?? 0),
+            );
+            t.expect(count).toBe(expectedCount);
         }),
     );
 

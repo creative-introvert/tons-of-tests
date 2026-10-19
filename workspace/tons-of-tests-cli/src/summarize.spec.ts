@@ -1,7 +1,8 @@
 import {NodeServices} from '@effect/platform-node';
 import * as PT from '@creative-introvert/tons-of-tests';
 import * as t from '@effect/vitest';
-import {Effect, Layer, Option} from 'effect';
+import colors from 'ansi-colors';
+import {Effect, Layer, Option, Ref, Schema} from 'effect';
 
 import type {AppConfigShape} from './Config.js';
 import {_commit} from './commit.js';
@@ -109,6 +110,182 @@ t.describe('CLI: _sumarize / _commit', () => {
                         .sort(),
                 );
             }),
+        );
+
+        it.effect(
+            'filters grouped outcomes while keeping all outcomes in the cache',
+            () =>
+                Effect.gen(function* () {
+                    const hits = yield* Ref.make(0);
+                    const expected = {budget: 100, need: 2};
+                    const classify = PT.Classify.makeClassify({
+                        isEqual: PT.Classify.defaultIsEqual,
+                    });
+                    const config = {
+                        dbPath: ':memory:',
+                        testSuite: {
+                            name: 'sum-grouped-outcomes',
+                            testCases: [
+                                {
+                                    input: 'call-1',
+                                    expected,
+                                    tags: ['enterprise', 'de'],
+                                },
+                                {
+                                    input: 'call-2',
+                                    expected,
+                                    tags: ['smb', 'de'],
+                                },
+                            ],
+                            program: (_: string) =>
+                                Ref.update(hits, n => n + 1).pipe(
+                                    Effect.as({budget: 80, need: 2}),
+                                ),
+                            evaluate: (
+                                result: typeof expected,
+                                target: typeof expected,
+                            ) =>
+                                [
+                                    {
+                                        key: 'budget',
+                                        result: result.budget,
+                                        expected: target.budget,
+                                        label: classify(
+                                            result.budget,
+                                            target.budget,
+                                        ),
+                                    },
+                                    {
+                                        key: 'need',
+                                        result: result.need,
+                                        expected: target.need,
+                                        label: classify(
+                                            result.need,
+                                            target.need,
+                                        ),
+                                    },
+                                ] as const,
+                            schemas: {
+                                input: Schema.String,
+                                result: Schema.Finite,
+                                expected: Schema.Finite,
+                            },
+                        },
+                    };
+
+                    const filtered = yield* _sumarize({
+                        config,
+                        cached: false,
+                        keys: Option.some(['budget']),
+                        labels: Option.some(['FP']),
+                        orTags: Option.some(['enterprise', 'missing']),
+                        andTags: Option.some(['enterprise', 'de']),
+                    });
+                    const cached = yield* _sumarize({config, cached: true});
+                    const empty = yield* _sumarize({
+                        config,
+                        cached: true,
+                        keys: Option.some(['missing']),
+                    });
+                    const rows = cached.testRun.testResultKeys.map(
+                        key => cached.testRun.testResultsByKey[key],
+                    );
+
+                    t.expect({
+                        hits: yield* Ref.get(hits),
+                        filteredRows: filtered.testRun.testResultKeys.map(
+                            key => {
+                                const row =
+                                    filtered.testRun.testResultsByKey[key];
+                                return {
+                                    input: row.input,
+                                    key: row.key,
+                                    result: row.result,
+                                    expected: row.expected,
+                                };
+                            },
+                        ),
+                        filteredStats: {
+                            total: filtered.testRun.stats.total,
+                            cases: filtered.testRun.stats.testCases,
+                            TP: filtered.testRun.stats.TP,
+                            FP: filtered.testRun.stats.FP,
+                        },
+                        cachedRows: rows.map(row => [
+                            row.input,
+                            row.key,
+                            row.label,
+                        ]),
+                        cachedStats: {
+                            total: cached.testRun.stats.total,
+                            cases: cached.testRun.stats.testCases,
+                        },
+                        emptyStats: {
+                            total: empty.testRun.stats.total,
+                            cases: empty.testRun.stats.testCases,
+                            timeMean: empty.testRun.stats.timeMean,
+                        },
+                    }).toEqual({
+                        hits: 2,
+                        filteredRows: [
+                            {
+                                input: 'call-1',
+                                key: 'budget',
+                                result: 80,
+                                expected: 100,
+                            },
+                        ],
+                        filteredStats: {total: 1, cases: 1, TP: 0, FP: 1},
+                        cachedRows: [
+                            ['call-1', 'budget', 'FP'],
+                            ['call-1', 'need', 'TP'],
+                            ['call-2', 'budget', 'FP'],
+                            ['call-2', 'need', 'TP'],
+                        ],
+                        cachedStats: {total: 4, cases: 2},
+                        emptyStats: {
+                            total: 0,
+                            cases: 0,
+                            timeMean: Option.none(),
+                        },
+                    });
+                    t.expect(rows.map(row => row.hashTestCase)).toEqual([
+                        cached.testRun.testCaseHashes[0],
+                        cached.testRun.testCaseHashes[0],
+                        cached.testRun.testCaseHashes[1],
+                        cached.testRun.testCaseHashes[1],
+                    ]);
+                    const tableRows = colors
+                        .unstyle(
+                            PT.Show.summarize({
+                                testRun: cached.testRun,
+                                selectColumns: ['hash', 'key'],
+                            }),
+                        )
+                        .split('\n')
+                        .map(line =>
+                            line
+                                .split('│')
+                                .slice(1, -1)
+                                .map(cell => cell.trim()),
+                        )
+                        .filter(
+                            cells =>
+                                cells[1] === 'budget' || cells[1] === 'need',
+                        );
+                    t.expect(tableRows).toEqual([
+                        [
+                            cached.testRun.testCaseHashes[0].slice(0, 8),
+                            'budget',
+                        ],
+                        [cached.testRun.testCaseHashes[0].slice(0, 8), 'need'],
+                        [
+                            cached.testRun.testCaseHashes[1].slice(0, 8),
+                            'budget',
+                        ],
+                        [cached.testRun.testCaseHashes[1].slice(0, 8), 'need'],
+                    ]);
+                }),
         );
 
         it.effect(

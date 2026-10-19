@@ -10,7 +10,9 @@ export const _commit = Effect.fnUntraced(function* <
     T = unknown,
     E = never,
     R = never,
->({config: {testSuite}}: {config: AppConfigShape<I, O, T, E, R>}) {
+    A = O,
+    B = T,
+>({config: {testSuite}}: {config: AppConfigShape<I, O, T, E, R, A, B>}) {
     const repository = yield* PT.TestRepository.TestRepository;
     const crypto = yield* Crypto.Crypto;
     yield* repository.commitCurrentTestRun({
@@ -26,6 +28,8 @@ export const commit = <
     T = unknown,
     E = never,
     R = never,
+    A = O,
+    B = T,
 >(
-    config: AppConfigShape<I, O, T, E, R>,
+    config: AppConfigShape<I, O, T, E, R, A, B>,
 ) => Command.make('commit', {}, () => _commit({config}));

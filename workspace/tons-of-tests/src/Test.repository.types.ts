@@ -7,7 +7,9 @@ import type {TestResult} from './Test.js';
 export type TestResultRead = {
     id: string;
     hashTestCase: string;
+    key: string;
     ordering: number;
+    resultOrdering: number;
     label: Label;
     input: string;
     result: string;
@@ -25,8 +27,12 @@ export class TestRun extends Schema.Class<TestRun>('TestRun')({
 export type TestRunResults = {
     testRun: number;
     testResult: string;
+    ordering: number;
+    resultOrdering: number;
+    timeMillis: number;
 };
 
+/** Decode stored input and evaluated values, including values from prior runs. */
 export type TestResultSchemas<I = unknown, O = unknown, T = unknown> = {
     input: Schema.Codec<I>;
     result: Schema.Codec<O>;

@@ -3,6 +3,9 @@ import * as CLI from '@creative-introvert/tons-of-tests-cli';
 import {Effect} from 'effect';
 
 const myFunction = (input: number) => Promise.resolve(input * 1.7);
+const classify = Classify.makeClassify<number, number>({
+    isEqual: (a, b) => Math.abs(b - a) <= 0.4,
+});
 
 CLI.run({
     testSuite: {
@@ -14,9 +17,14 @@ CLI.run({
             {input: 3, expected: 4},
             {input: 4, expected: 5},
         ],
-        classify: Classify.makeClassify({
-            isEqual: (a, b) => Math.abs(b - a) <= 0.4,
-        }),
+        evaluate: (result, expected) => [
+            {
+                key: 'result',
+                result,
+                expected,
+                label: classify(result, expected),
+            },
+        ],
         program: (input: number) => Effect.promise(() => myFunction(input)),
     },
     dbPath: 'with-cli-simple.db',

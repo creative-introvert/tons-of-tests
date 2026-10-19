@@ -11,6 +11,9 @@ class Scale extends Context.Service<Scale, {readonly factor: number}>()(
 ) {}
 
 const ScaleLive = Layer.succeed(Scale, {factor: 1.7});
+const classify = Classify.makeClassify<number, number>({
+    isEqual: (a, b) => Math.abs(b - a) <= 0.4,
+});
 
 const myFunction = (input: number) =>
     Effect.gen(function* () {
@@ -29,9 +32,14 @@ CLI.effect(
                 {input: 3, expected: 4},
                 {input: 4, expected: 5},
             ],
-            classify: Classify.makeClassify({
-                isEqual: (a, b) => Math.abs(b - a) <= 0.4,
-            }),
+            evaluate: (result, expected) => [
+                {
+                    key: 'result',
+                    result,
+                    expected,
+                    label: classify(result, expected),
+                },
+            ],
             program: myFunction,
         },
         dbPath: 'with-cli-simple.db',

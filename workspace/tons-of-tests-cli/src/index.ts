@@ -9,7 +9,9 @@ import {DiffNonEmpty, diff} from './diff.js';
 import {summarize} from './summarize.js';
 import {VERSION} from './version.js';
 
-const makeCli = <I, O, T, E, R>(config: AppConfigShape<I, O, T, E, R>) =>
+const makeCli = <I, O, T, E, R, A, B>(
+    config: AppConfigShape<I, O, T, E, R, A, B>,
+) =>
     Command.make('tons-of-tests').pipe(
         Command.withSubcommands([
             summarize(config),
@@ -21,8 +23,8 @@ const makeCli = <I, O, T, E, R>(config: AppConfigShape<I, O, T, E, R>) =>
 // Each call builds an independent layer (and therefore an independent
 // SqliteClient). Exported so callers running multiple operations in-process
 // can share a single layer across them.
-export const buildLayer = <I, O, T, E, R>(
-    config: AppConfigShape<I, O, T, E, R>,
+export const buildLayer = <I, O, T, E, R, A, B>(
+    config: AppConfigShape<I, O, T, E, R, A, B>,
 ) =>
     Layer.mergeAll(
         NodeServices.layer,
@@ -35,8 +37,10 @@ export const effect = <
     T = unknown,
     E = never,
     R = never,
+    A = O,
+    B = T,
 >(
-    config: AppConfigShape<I, O, T, E, R>,
+    config: AppConfigShape<I, O, T, E, R, A, B>,
     args?: ReadonlyArray<string>,
 ) =>
     Effect.suspend(() => {
@@ -48,8 +52,15 @@ export const effect = <
               );
     }).pipe(Effect.provide(buildLayer(config)));
 
-export const run = <I = unknown, O = unknown, T = unknown, E = never>(
-    config: AppConfigShape<I, O, T, E, never>,
+export const run = <
+    I = unknown,
+    O = unknown,
+    T = unknown,
+    E = never,
+    A = O,
+    B = T,
+>(
+    config: AppConfigShape<I, O, T, E, never, A, B>,
     args?: ReadonlyArray<string>,
 ): void =>
     effect(config, args).pipe(
@@ -71,8 +82,10 @@ export const getLastTestRunHash = <
     T = unknown,
     E = never,
     R = never,
+    A = O,
+    B = T,
 >(
-    config: AppConfigShape<I, O, T, E, R>,
+    config: AppConfigShape<I, O, T, E, R, A, B>,
 ): Promise<string | null> =>
     Effect.gen(function* () {
         const repo = yield* PT.TestRepository.TestRepository;

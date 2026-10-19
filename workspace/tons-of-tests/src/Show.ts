@@ -31,6 +31,7 @@ export type StatsContext = {
 
 export type StatsColumnNames =
     | 'total'
+    | 'testCases'
     | 'TP'
     | 'TN'
     | 'FP'
@@ -50,7 +51,7 @@ export type StatsColumn = {
 
 export type SummarizeContext = {
     i: number;
-    hashes: string[];
+    resultKeys: string[];
     testResult: TestResult;
     previousTestResult: Option.Option<TestResult>;
 };
@@ -58,6 +59,7 @@ export type SummarizeContext = {
 export type SummarizeColumnNames =
     | 'index'
     | 'hash'
+    | 'key'
     | 'timeMillis'
     | 'input'
     | 'tags'

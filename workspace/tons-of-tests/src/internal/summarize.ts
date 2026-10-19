@@ -8,7 +8,6 @@ import type {
     SummarizeContext,
 } from '../Show.js';
 import type {TestRunResults} from '../Test.js';
-import {defaultIsEqual} from './Classify.js';
 import {showBorder, showHeader, showRow, showTitle} from './common.js';
 import {makeDefault} from './DisplayConfig.js';
 import {formatDiff} from './format-diff.js';
@@ -25,14 +24,14 @@ const columns: SummarizeColumn[] = [
     {
         name: 'index',
         label: '#/∑',
-        make: ({i, hashes}: SummarizeContext) => [
-            colors.dim(`${i + 1}/${hashes.length}`),
+        make: ({i, resultKeys}: SummarizeContext) => [
+            colors.dim(`${i + 1}/${resultKeys.length}`),
         ],
     },
     {
         name: 'hash',
         label: 'hash',
-        make: ({i, hashes, previousTestResult}: SummarizeContext) => {
+        make: ({testResult, previousTestResult}: SummarizeContext) => {
             // TODO: Highlight more:
             // 1. red when test "changed bad"
             // 2. green when test "changed good"
@@ -40,9 +39,14 @@ const columns: SummarizeColumn[] = [
             const color = Option.isNone(previousTestResult)
                 ? colors.green
                 : colors.white;
-            const hash = hashes[i].slice(0, 8);
+            const hash = testResult.hashTestCase.slice(0, 8);
             return [color(hash)];
         },
+    },
+    {
+        name: 'key',
+        label: 'key',
+        make: ({testResult}: SummarizeContext) => [testResult.key],
     },
     {
         name: 'timeMillis',
@@ -54,7 +58,7 @@ const columns: SummarizeColumn[] = [
     {
         name: 'tags',
         label: 'tags',
-        make: ({testResult}: SummarizeContext) => testResult.tags as string[],
+        make: ({testResult}: SummarizeContext) => [...testResult.tags],
     },
     {
         name: 'input',
@@ -147,6 +151,7 @@ export const showSummary = ({
     selectColumns = [
         'index',
         'hash',
+        'key',
         'timeMillis',
         'tags',
         'input',
@@ -164,7 +169,7 @@ export const showSummary = ({
 }) => {
     const cfg = {...makeDefault(), ...displayConfig};
 
-    const hashes = testRun.testCaseHashes;
+    const resultKeys = testRun.testResultKeys;
 
     const _columns = columns
         .filter(c => selectColumns.includes(c.name))
@@ -175,16 +180,16 @@ export const showSummary = ({
 
     const rows = [];
 
-    for (let i = 0; i < hashes.length; i++) {
-        const hash = hashes[i];
-        const testResult = testRun.testResultsByTestCaseHash[hash];
+    for (let i = 0; i < resultKeys.length; i++) {
+        const key = resultKeys[i];
+        const testResult = testRun.testResultsByKey[key];
         const previousTestResult = previousTestRun.pipe(
-            Option.flatMap(_ => Record.get(_.testResultsByTestCaseHash, hash)),
+            Option.flatMap(_ => Record.get(_.testResultsByKey, key)),
         );
 
         const row: [string, string[]][] = _columns.map(({label, make}) => [
             label,
-            make({i, hashes: hashes, testResult, previousTestResult}),
+            make({i, resultKeys, testResult, previousTestResult}),
         ]);
 
         columnWidths = columnWidths.map((w, i) =>
