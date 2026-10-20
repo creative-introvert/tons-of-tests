@@ -22,11 +22,10 @@ jobs:
       - uses: ./.github/actions/setup
       - name: create and publish versions
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         with:
-          version: pnpm run changesets-version
-          commit: "chore: publish"
-          title: "chore: publish"
-          publish: pnpm run changesets-publish
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          version-script: pnpm run changesets-version
+          commit-message: "chore: publish"
+          pr-title: "chore: publish"
+          publish-script: pnpm run changesets-publish
+          github-token: ${{ secrets.GITHUB_TOKEN }}
