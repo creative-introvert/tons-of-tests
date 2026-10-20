@@ -1,5 +1,16 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 3.0.0-rc.1
+
+### Major Changes
+
+- Feat: Separate run cache from snapshots.
+
+### Patch Changes
+
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@3.0.0-rc.1
+
 ## 3.0.0-rc.0
 
 ### Major Changes
