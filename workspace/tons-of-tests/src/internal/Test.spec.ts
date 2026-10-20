@@ -55,7 +55,7 @@ const mkTN = (args: {
     mkResult<null, null>({...args, expected: null, result: null, label: 'TN'});
 
 const collect = (results: readonly AnyResult[]) =>
-    Stream.fromIterable(results).pipe(runCollectRecord(run), Effect.runPromise);
+    Stream.fromIterable(results).pipe(runCollectRecord(run));
 
 t.describe('all', () => {
     const cases = [
@@ -64,7 +64,62 @@ t.describe('all', () => {
         {input: 3, expected: 6},
     ] as const;
 
-    t.test.each([
+    t.it.effect.each(['array', 'stream'] as const)(
+        'skips repeated %s cases before inference and resets the filter for each execution',
+        source =>
+            Effect.gen(function* () {
+                const cases = [
+                    {input: 1, expected: 2, tags: ['first']},
+                    {input: 1, expected: 2, tags: ['duplicate']},
+                    {input: 1, expected: 3, tags: ['different expectation']},
+                    {input: 2, expected: 4, tags: ['second']},
+                    {input: 2, expected: 4, tags: ['duplicate']},
+                ];
+                let calls = 0;
+                const results = all(
+                    {
+                        name: 'duplicates',
+                        testCases:
+                            source === 'array'
+                                ? cases
+                                : Stream.fromIterable(cases),
+                        program: (input: number) =>
+                            Effect.sync(() => {
+                                calls++;
+                                return input * 2;
+                            }),
+                    },
+                    {concurrency: 2},
+                );
+                const first = yield* results.pipe(Stream.runCollect);
+                const second = yield* results.pipe(Stream.runCollect);
+                t.expect({
+                    calls,
+                    runs: [first, second].map(rows =>
+                        rows.map(({input, expected, ordering, tags}) => ({
+                            input,
+                            expected,
+                            ordering,
+                            tags,
+                        })),
+                    ),
+                }).toEqual({
+                    calls: 6,
+                    runs: Array.from({length: 2}, () => [
+                        {input: 1, expected: 2, ordering: 0, tags: ['first']},
+                        {
+                            input: 1,
+                            expected: 3,
+                            ordering: 2,
+                            tags: ['different expectation'],
+                        },
+                        {input: 2, expected: 4, ordering: 3, tags: ['second']},
+                    ]),
+                });
+            }),
+    );
+
+    t.it.effect.each([
         {
             description: 'array test cases keep source ordering',
             testCases: cases,
@@ -83,18 +138,20 @@ t.describe('all', () => {
                 {input: 3, ordering: 2},
             ],
         },
-    ])('$description', async ({testCases, expected}) => {
-        const results = await all({
-            name: 'all-source-shapes',
-            testCases,
-            program: (input: number) => Effect.succeed(input * 2),
-        }).pipe(Stream.runCollect, Effect.runPromise);
+    ])('$description', ({testCases, expected}) =>
+        Effect.gen(function* () {
+            const results = yield* all({
+                name: 'all-source-shapes',
+                testCases,
+                program: (input: number) => Effect.succeed(input * 2),
+            }).pipe(Stream.runCollect);
 
-        t.expectTypeOf(results[0].result).toEqualTypeOf<number>();
-        t.expect(
-            Array.from(results, ({input, ordering}) => ({input, ordering})),
-        ).toStrictEqual(expected);
-    });
+            t.expectTypeOf(results[0].result).toEqualTypeOf<number>();
+            t.expect(
+                Array.from(results, ({input, ordering}) => ({input, ordering})),
+            ).toStrictEqual(expected);
+        }),
+    );
 
     t.it.effect(
         'infers evaluation values separately from the program output',
@@ -344,142 +401,152 @@ t.describe('runCollectRecord', () => {
         }),
     );
 
-    t.test('empty stream -> empty stats with none-options', async () => {
-        const out = await collect([]);
-        t.expect(out.stats.total).toBe(0);
-        t.expect(out.stats.precision).toBe(0);
-        t.expect(out.stats.recall).toBe(0);
-        t.expect(out.stats.timeMin).toStrictEqual(Option.none());
-        t.expect(out.stats.timeMax).toStrictEqual(Option.none());
-        t.expect(out.stats.timeMean).toStrictEqual(Option.none());
-        t.expect(out.stats.timeMedian).toStrictEqual(Option.none());
-        t.expect(out.testCaseHashes).toStrictEqual([]);
-        t.expect(out.testResultsByKey).toStrictEqual({});
-        t.expect(out.testResultKeys).toStrictEqual([]);
-        t.expect(out.stats.testCases).toBe(0);
-    });
+    t.it.effect('empty stream -> empty stats with none-options', () =>
+        Effect.gen(function* () {
+            const out = yield* collect([]);
+            t.expect(out).toEqual({
+                id: run.id,
+                name: run.name,
+                hash: run.hash,
+                stats: Stats.empty(),
+                testCaseHashes: [],
+                testResultsByKey: {},
+                testResultKeys: [],
+            });
+        }),
+    );
 
-    t.test(
+    t.it.effect(
         'mixed labels -> correct counts, precision, recall, time stats',
-        async () => {
-            const results: AnyResult[] = [
-                mkResult({
-                    input: 1,
-                    expected: 1,
-                    result: 1,
-                    label: 'TP',
-                    timeMillis: 10,
-                }),
-                mkResult({
-                    input: 2,
-                    expected: 2,
-                    result: 2,
-                    label: 'TP',
-                    timeMillis: 20,
-                }),
-                mkResult({
-                    input: 3,
-                    expected: 3,
-                    result: 4,
-                    label: 'FP',
-                    timeMillis: 30,
-                }),
-                mkFN({input: 4, expected: 4, timeMillis: 40}),
-                mkTN({input: 5, timeMillis: 50}),
-            ];
-            const out = await collect(results);
-            t.expect(out.stats.TP).toBe(2);
-            t.expect(out.stats.FP).toBe(1);
-            t.expect(out.stats.FN).toBe(1);
-            t.expect(out.stats.TN).toBe(1);
-            t.expect(out.stats.total).toBe(5);
-            t.expect(out.stats.precision).toBeCloseTo(2 / 3);
-            t.expect(out.stats.recall).toBeCloseTo(2 / 3);
-            t.expect(Option.getOrThrow(out.stats.timeMin)).toBe(10);
-            t.expect(Option.getOrThrow(out.stats.timeMax)).toBe(50);
-            t.expect(Option.getOrThrow(out.stats.timeMean)).toBeCloseTo(30);
-            t.expect(Option.getOrThrow(out.stats.timeMedian)).toBe(30);
-        },
-    );
-
-    t.test(
-        'repeated result identities keep the last value and preserve row count',
-        async () => {
-            const a = mkResult({
-                input: 1,
-                expected: 1,
-                result: 1,
-                label: 'TP',
-                timeMillis: 1,
-                ordering: 0,
-            });
-            const b = mkResult({
-                input: 1,
-                expected: 1,
-                result: 2,
-                label: 'FP',
-                timeMillis: 2,
-                ordering: 1,
-            });
-            const out = await collect([a, b]);
-            t.expect(Object.keys(out.testResultsByKey)).toHaveLength(1);
-            t.expect(out.testCaseHashes).toHaveLength(1);
-            t.expect(out.testResultKeys).toHaveLength(2);
-            t.expect(out.testResultsByKey[resultKey(a)].label).toBe('FP');
-        },
-    );
-
-    t.test(
-        'counts inference time once per case and recomputes filtered statistics',
-        async () => {
-            const first = ['budget', 'authority', 'need', 'timeline'].map(
-                (key, resultOrdering) =>
+        () =>
+            Effect.gen(function* () {
+                const results: AnyResult[] = [
                     mkResult({
                         input: 1,
                         expected: 1,
                         result: 1,
                         label: 'TP',
-                        timeMillis: 100,
-                        key,
-                        resultOrdering,
+                        timeMillis: 10,
                     }),
-            );
-            const second = mkResult({
-                input: 2,
-                expected: 2,
-                result: 3,
-                label: 'FP',
-                timeMillis: 900,
-                key: 'budget',
-                ordering: 1,
-            });
-            const allResults = await collect([...first, second]);
-            const budget = filterResults(
-                allResults,
-                result => result.key === 'budget',
-            );
-            const failures = filterResults(
-                budget,
-                result => result.label === 'FP',
-            );
-            const empty = filterResults(allResults, () => false);
+                    mkResult({
+                        input: 2,
+                        expected: 2,
+                        result: 2,
+                        label: 'TP',
+                        timeMillis: 20,
+                    }),
+                    mkResult({
+                        input: 3,
+                        expected: 3,
+                        result: 4,
+                        label: 'FP',
+                        timeMillis: 30,
+                    }),
+                    mkFN({input: 4, expected: 4, timeMillis: 40}),
+                    mkTN({input: 5, timeMillis: 50}),
+                ];
+                const out = yield* collect(results);
+                t.expect(out.stats.TP).toBe(2);
+                t.expect(out.stats.FP).toBe(1);
+                t.expect(out.stats.FN).toBe(1);
+                t.expect(out.stats.TN).toBe(1);
+                t.expect(out.stats.total).toBe(5);
+                t.expect(out.stats.precision).toBeCloseTo(2 / 3);
+                t.expect(out.stats.recall).toBeCloseTo(2 / 3);
+                t.expect(Option.getOrThrow(out.stats.timeMin)).toBe(10);
+                t.expect(Option.getOrThrow(out.stats.timeMax)).toBe(50);
+                t.expect(Option.getOrThrow(out.stats.timeMean)).toBeCloseTo(30);
+                t.expect(Option.getOrThrow(out.stats.timeMedian)).toBe(30);
+            }),
+    );
 
-            t.expect(
-                [allResults, budget, failures, empty].map(({stats}) => ({
-                    total: stats.total,
-                    cases: stats.testCases,
-                    TP: stats.TP,
-                    FP: stats.FP,
-                    mean: Option.getOrNull(stats.timeMean),
-                    median: Option.getOrNull(stats.timeMedian),
-                })),
-            ).toEqual([
-                {total: 5, cases: 2, TP: 4, FP: 1, mean: 500, median: 500},
-                {total: 2, cases: 2, TP: 1, FP: 1, mean: 500, median: 500},
-                {total: 1, cases: 1, TP: 0, FP: 1, mean: 900, median: 900},
-                {total: 0, cases: 0, TP: 0, FP: 0, mean: null, median: null},
-            ]);
-        },
+    t.it.effect(
+        'repeated result identities keep the last value and preserve row count',
+        () =>
+            Effect.gen(function* () {
+                const a = mkResult({
+                    input: 1,
+                    expected: 1,
+                    result: 1,
+                    label: 'TP',
+                    timeMillis: 1,
+                    ordering: 0,
+                });
+                const b = mkResult({
+                    input: 1,
+                    expected: 1,
+                    result: 2,
+                    label: 'FP',
+                    timeMillis: 2,
+                    ordering: 1,
+                });
+                const out = yield* collect([a, b]);
+                t.expect(Object.keys(out.testResultsByKey)).toHaveLength(1);
+                t.expect(out.testCaseHashes).toHaveLength(1);
+                t.expect(out.testResultKeys).toHaveLength(2);
+                t.expect(out.testResultsByKey[resultKey(a)].label).toBe('FP');
+            }),
+    );
+
+    t.it.effect(
+        'counts inference time once per case and recomputes filtered statistics',
+        () =>
+            Effect.gen(function* () {
+                const first = ['budget', 'authority', 'need', 'timeline'].map(
+                    (key, resultOrdering) =>
+                        mkResult({
+                            input: 1,
+                            expected: 1,
+                            result: 1,
+                            label: 'TP',
+                            timeMillis: 100,
+                            key,
+                            resultOrdering,
+                        }),
+                );
+                const second = mkResult({
+                    input: 2,
+                    expected: 2,
+                    result: 3,
+                    label: 'FP',
+                    timeMillis: 900,
+                    key: 'budget',
+                    ordering: 1,
+                });
+                const allResults = yield* collect([...first, second]);
+                const budget = filterResults(
+                    allResults,
+                    result => result.key === 'budget',
+                );
+                const failures = filterResults(
+                    budget,
+                    result => result.label === 'FP',
+                );
+                const empty = filterResults(allResults, () => false);
+
+                t.expect(
+                    [allResults, budget, failures, empty].map(({stats}) => ({
+                        total: stats.total,
+                        cases: stats.testCases,
+                        TP: stats.TP,
+                        FP: stats.FP,
+                        mean: Option.getOrNull(stats.timeMean),
+                        median: Option.getOrNull(stats.timeMedian),
+                    })),
+                ).toEqual([
+                    {total: 5, cases: 2, TP: 4, FP: 1, mean: 500, median: 500},
+                    {total: 2, cases: 2, TP: 1, FP: 1, mean: 500, median: 500},
+                    {total: 1, cases: 1, TP: 0, FP: 1, mean: 900, median: 900},
+                    {
+                        total: 0,
+                        cases: 0,
+                        TP: 0,
+                        FP: 0,
+                        mean: null,
+                        median: null,
+                    },
+                ]);
+            }),
     );
 });
 

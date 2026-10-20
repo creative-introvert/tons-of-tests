@@ -1,5 +1,13 @@
 import colors from 'ansi-colors';
-import {Array as A, Option, Record} from 'effect';
+import {
+    Array as A,
+    Effect,
+    FileSystem,
+    Option,
+    Record,
+    Schema,
+    Stream,
+} from 'effect';
 
 import type {DisplayConfig} from '../DisplayConfig.js';
 import type {
@@ -20,18 +28,23 @@ import {diff} from './lib/jsondiffpatch/index.js';
 // "pass (new)" [blue]
 // Requires passing in `isEqual`, i.e. can't just use the `defaultIsEqual`.
 // Also solves "diff" having the same issue.
-const columns: SummarizeColumn[] = [
+type ColumnContext = Omit<SummarizeContext, 'resultKeys'> & {
+    resultCount: number;
+};
+const columns: Array<
+    Omit<SummarizeColumn, 'make'> & {make: (context: ColumnContext) => string[]}
+> = [
     {
         name: 'index',
         label: '#/∑',
-        make: ({i, resultKeys}: SummarizeContext) => [
-            colors.dim(`${i + 1}/${resultKeys.length}`),
+        make: ({i, resultCount}: ColumnContext) => [
+            colors.dim(`${i + 1}/${resultCount}`),
         ],
     },
     {
         name: 'hash',
         label: 'hash',
-        make: ({testResult, previousTestResult}: SummarizeContext) => {
+        make: ({testResult, previousTestResult}: ColumnContext) => {
             // TODO: Highlight more:
             // 1. red when test "changed bad"
             // 2. green when test "changed good"
@@ -46,36 +59,36 @@ const columns: SummarizeColumn[] = [
     {
         name: 'key',
         label: 'key',
-        make: ({testResult}: SummarizeContext) => [testResult.key],
+        make: ({testResult}: ColumnContext) => [testResult.key],
     },
     {
         name: 'timeMillis',
         label: 'ms',
-        make: ({testResult}: SummarizeContext) => [
+        make: ({testResult}: ColumnContext) => [
             `${testResult.timeMillis.toFixed(2)}${colors.dim('ms')}`,
         ],
     },
     {
         name: 'tags',
         label: 'tags',
-        make: ({testResult}: SummarizeContext) => [...testResult.tags],
+        make: ({testResult}: ColumnContext) => [...testResult.tags],
     },
     {
         name: 'input',
         label: 'input',
-        make: ({testResult}: SummarizeContext) =>
+        make: ({testResult}: ColumnContext) =>
             JSON.stringify(testResult.input, null, 2).split('\n'),
     },
     {
         name: 'expected',
         label: 'expected',
-        make: ({testResult}: SummarizeContext) =>
+        make: ({testResult}: ColumnContext) =>
             JSON.stringify(testResult.expected, null, 2).split('\n'),
     },
     {
         name: 'label',
         label: 'label',
-        make: ({testResult, previousTestResult}: SummarizeContext) => {
+        make: ({testResult, previousTestResult}: ColumnContext) => {
             const hasPrevious = Option.isSome(previousTestResult);
             const label = testResult.label;
             const color =
@@ -93,13 +106,13 @@ const columns: SummarizeColumn[] = [
     {
         name: 'result',
         label: 'result',
-        make: ({testResult}: SummarizeContext) =>
+        make: ({testResult}: ColumnContext) =>
             JSON.stringify(testResult.result, null, 2).split('\n'),
     },
     {
         name: 'result_diff',
         label: 'diff result',
-        make: ({testResult}: SummarizeContext) =>
+        make: ({testResult}: ColumnContext) =>
             formatDiff(diff(testResult.expected, testResult.result))?.split(
                 '\n',
             ) || [],
@@ -107,7 +120,7 @@ const columns: SummarizeColumn[] = [
     {
         name: 'prev_label',
         label: 'label₋₁',
-        make: ({previousTestResult}: SummarizeContext) => {
+        make: ({previousTestResult}: ColumnContext) => {
             const label = Option.match(previousTestResult, {
                 onNone: () => '',
                 onSome: _ =>
@@ -122,7 +135,7 @@ const columns: SummarizeColumn[] = [
     {
         name: 'prev_result',
         label: 'result₋₁',
-        make: ({previousTestResult}: SummarizeContext) =>
+        make: ({previousTestResult}: ColumnContext) =>
             previousTestResult.pipe(
                 Option.map(_ => JSON.stringify(_.result, null, 2)?.split('\n')),
                 Option.getOrElse<string[]>(() => []),
@@ -131,7 +144,7 @@ const columns: SummarizeColumn[] = [
     {
         name: 'prev_result_diff',
         label: 'diff result₋₁',
-        make: ({testResult, previousTestResult}: SummarizeContext) =>
+        make: ({testResult, previousTestResult}: ColumnContext) =>
             previousTestResult.pipe(
                 Option.map(
                     _ =>
@@ -144,23 +157,51 @@ const columns: SummarizeColumn[] = [
     },
 ];
 
+const defaultColumns: A.NonEmptyArray<SummarizeColumnNames> = [
+    'index',
+    'hash',
+    'key',
+    'timeMillis',
+    'tags',
+    'input',
+    'expected',
+    'label',
+    'result_diff',
+    'prev_label',
+    'prev_result_diff',
+];
+
+const makeRow = (selected: typeof columns, context: ColumnContext) => {
+    const row: [string, string[]][] = selected.map(({label, make}) => [
+        label,
+        make(context),
+    ]);
+    const height = row.reduce(
+        (height, [, values]) => Math.max(height, values.length),
+        1,
+    );
+    for (const [, values] of row) {
+        if (values.length < height)
+            values.push(...A.makeBy(height - values.length, () => ''));
+    }
+    return row;
+};
+
+const measureRow = (
+    widths: number[],
+    row: ReadonlyArray<readonly [string, ReadonlyArray<string>]>,
+) =>
+    widths.map((width, index) => {
+        for (const value of row[index][1])
+            width = Math.max(width, colors.unstyle(value).length);
+        return width;
+    });
+
 export const showSummary = ({
     testRun,
     displayConfig,
     previousTestRun = Option.none(),
-    selectColumns = [
-        'index',
-        'hash',
-        'key',
-        'timeMillis',
-        'tags',
-        'input',
-        'expected',
-        'label',
-        'result_diff',
-        'prev_label',
-        'prev_result_diff',
-    ],
+    selectColumns = defaultColumns,
 }: {
     testRun: TestRunResults;
     previousTestRun?: Option.Option<TestRunResults>;
@@ -187,26 +228,13 @@ export const showSummary = ({
             Option.flatMap(_ => Record.get(_.testResultsByKey, key)),
         );
 
-        const row: [string, string[]][] = _columns.map(({label, make}) => [
-            label,
-            make({i, resultKeys, testResult, previousTestResult}),
-        ]);
-
-        columnWidths = columnWidths.map((w, i) =>
-            Math.max(w, ...row[i][1].map(s => colors.unstyle(s).length)),
-        );
-
-        const maxHeight = row.reduce(
-            (n, [_key, values]) => Math.max(n, values.length),
-            1,
-        );
-
-        row.forEach(([_key, values], _i) => {
-            if (values.length < maxHeight) {
-                values.push(...A.makeBy(maxHeight - values.length, () => ''));
-            }
+        const row = makeRow(_columns, {
+            i,
+            resultCount: resultKeys.length,
+            testResult,
+            previousTestResult,
         });
-
+        columnWidths = measureRow(columnWidths, row);
         rows.push(row);
     }
 
@@ -231,3 +259,102 @@ export const showSummary = ({
 
     return s;
 };
+
+const decodeRow = Schema.decodeUnknownEffect(
+    Schema.fromJsonString(
+        Schema.Array(
+            Schema.Tuple([Schema.String, Schema.Array(Schema.String)]),
+        ),
+    ),
+);
+
+/**
+ * Format rows once into a temporary file, then read them back with final column widths.
+ * Use inside Effect.scoped; the returned chunks remain readable until that scope closes.
+ * Each chunk ends in a newline. The existing showSummary string API is unchanged.
+ */
+export const prepareSummary = Effect.fnUntraced(function* <E, R>(
+    results: Stream.Stream<
+        Pick<SummarizeContext, 'testResult' | 'previousTestResult'>,
+        E,
+        R
+    >,
+    {
+        displayConfig,
+        hasPrevious = false,
+        selectColumns = defaultColumns,
+    }: {
+        displayConfig?: Partial<DisplayConfig> | undefined;
+        hasPrevious?: boolean;
+        selectColumns?: A.NonEmptyArray<SummarizeColumnNames>;
+    } = {},
+) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* fs.makeTempFileScoped({
+        prefix: 'tons-of-tests-summary-',
+        suffix: '.jsonl',
+    });
+    const cfg = {...makeDefault(), ...displayConfig};
+    const selected = columns
+        .filter(column => selectColumns.includes(column.name))
+        .filter(column => !column.name.startsWith('prev_') || hasPrevious);
+    let widths = selected.map(column => column.label.length);
+    let count = 0;
+    yield* results.pipe(
+        Stream.map(context => {
+            const row = makeRow(selected, {
+                ...context,
+                i: count++,
+                resultCount: 0,
+            });
+            widths = measureRow(widths, row);
+            return `${JSON.stringify(row)}\n`;
+        }),
+        Stream.encodeText,
+        Stream.run(fs.sink(path)),
+    );
+    const indexColumn = selected.findIndex(column => column.name === 'index');
+    if (indexColumn >= 0)
+        widths[indexColumn] = Math.max(
+            widths[indexColumn],
+            `${count}/${count}`.length,
+        );
+    const header = showHeader(cfg, widths, selected);
+    const start =
+        showTitle(cfg, widths, colors.bold('SUMMARY')) +
+        header +
+        showBorder(cfg, widths, 'middle');
+    const end = header + showBorder(cfg, widths, 'bottom');
+    const rows = fs.stream(path).pipe(
+        Stream.decodeText(),
+        Stream.splitLines,
+        Stream.filter(line => line.length > 0),
+        Stream.mapEffect(line => decodeRow(line)),
+        Stream.zipWithIndex,
+        Stream.map(([row, index]) => {
+            const numbered = row.map(
+                ([label, values], column) =>
+                    [
+                        label,
+                        column === indexColumn
+                            ? [
+                                  colors.dim(`${index + 1}/${count}`),
+                                  ...values.slice(1),
+                              ]
+                            : values,
+                    ] as const,
+            );
+            return (
+                showRow(cfg, numbered, widths, row[0][1].length) +
+                showBorder(cfg, widths, 'middle')
+            );
+        }),
+    );
+    return {
+        count,
+        chunks: Stream.make(start).pipe(
+            Stream.concat(rows),
+            Stream.concat(Stream.make(end)),
+        ),
+    };
+});

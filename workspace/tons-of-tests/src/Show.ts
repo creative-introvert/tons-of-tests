@@ -5,7 +5,10 @@ import type {Diff, TestResult} from './Test.js';
 
 export {showDiff as diff} from './internal/diff.js';
 export {showStats as stats} from './internal/stats.js';
-export {showSummary as summarize} from './internal/summarize.js';
+export {
+    showSummary as summarize,
+    prepareSummary,
+} from './internal/summarize.js';
 
 export type DiffContext = {
     diff: Diff;

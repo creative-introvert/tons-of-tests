@@ -1,11 +1,11 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {Flag} from 'effect/cli';
-import {Effect, Option, Schema, SchemaTransformation} from 'effect';
+import {Option, Schema, SchemaTransformation} from 'effect';
 
 export const cached = Flag.Boolean('cached').pipe(
     Flag.withDefault(false),
     Flag.withDescription(
-        'Reuse saved current results if present; otherwise run the suite.',
+        'Reuse a completed current run; otherwise run the suite.',
     ),
 );
 
@@ -84,28 +84,3 @@ export const matchesFilters = (
         result.tags.some(tag => orTags.value.includes(tag))) &&
     (Option.isNone(andTags) ||
         andTags.value.every(tag => result.tags.includes(tag)));
-
-export const getPreviousTestRunResults = <
-    I = unknown,
-    O = unknown,
-    T = unknown,
-    E = never,
-    R = never,
-    A = O,
-    B = T,
->(
-    testSuite: PT.Test.TestSuite<I, O, T, E, R, A, B>,
-): Effect.Effect<
-    Option.Option<PT.Test.TestRunResults<I, A, B>>,
-    PT.Error.RepositoryError,
-    PT.TestRepository.TestRepository
-> =>
-    Effect.gen(function* () {
-        const repo = yield* PT.TestRepository.TestRepository;
-        const maybeRun = yield* repo.getPreviousTestRun(testSuite.name);
-        if (Option.isNone(maybeRun)) return Option.none();
-        const run = yield* repo
-            .getTestResultsStream<I, A, B>(maybeRun.value, testSuite.schemas)
-            .pipe(PT.Test.runCollectRecord(maybeRun.value));
-        return Option.some(run);
-    });

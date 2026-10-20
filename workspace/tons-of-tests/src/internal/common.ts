@@ -82,7 +82,7 @@ export const showTitle = (
 
 export const showRow = (
     cfg: DisplayConfig,
-    row: [string, string[]][],
+    row: ReadonlyArray<readonly [string, ReadonlyArray<string>]>,
     columnWidths: number[],
     height: number,
 ) => {

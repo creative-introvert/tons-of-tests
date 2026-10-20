@@ -3,15 +3,17 @@ import * as Sqlite from '@effect/sql-sqlite-node';
 import * as t from '@effect/vitest';
 import {Cause, Effect, Exit, Option, Schema, Stream} from 'effect';
 
-import {
-    RepositoryDecodeError,
-    RepositoryWriteError,
-} from '../RepositoryError.js';
+import {SqlError} from 'effect/sql/SqlError';
 import type * as Test from '../Test.js';
 import {TestRepository} from '../Test.repository.js';
-import {TestRun} from '../Test.repository.types.js';
+import {TestRun} from '../TestRun.js';
 import * as T from './Test.js';
 import * as TR from './Test.repository.sqlite.js';
+import {
+    getAllTestRuns,
+    getAllTestResults,
+    getAllTestRunResults,
+} from './test-repository-fixtures.js';
 
 type TestCase = Test.TestCase<number, number>;
 const add = (input: number) => Effect.succeed(input + 1);
@@ -21,11 +23,7 @@ const add = (input: number) => Effect.succeed(input + 1);
 // shared in-memory db contents from other tests in the same describe block.
 
 t.describe('Test.repository.sqlite', () => {
-    t.it('TestLayer is cached across accesses', () => {
-        t.expect(TestRepository.TestLayer).toBe(TestRepository.TestLayer);
-    });
-
-    t.layer(TR.TestRepository.TestLayer, {excludeTestServices: true})(
+    t.layer(TestRepository.TestLayer, {excludeTestServices: true})(
         'with shared in-memory db',
         it => {
             it.effect(
@@ -33,12 +31,20 @@ t.describe('Test.repository.sqlite', () => {
                 () =>
                     Effect.gen(function* () {
                         const name = 'suite-get-or-create';
-                        const repository = yield* TR.TestRepository;
+                        const repository = yield* TestRepository;
+                        const missing = yield* repository.commitCurrentTestRun({
+                            name,
+                            hash: 'missing',
+                        });
 
                         const a =
                             yield* repository.getOrCreateCurrentTestRun(name);
                         t.expect(a.name).toBe(name);
                         t.expect(a.hash).toBeNull();
+                        const empty = yield* repository.commitCurrentTestRun({
+                            name,
+                            hash: 'empty',
+                        });
 
                         // commitCurrentTestRun bails early if the current run has no
                         // results, so insert one first.
@@ -50,7 +56,7 @@ t.describe('Test.repository.sqlite', () => {
                             Stream.tap(_ => repository.insertTestResult(_, a)),
                             Stream.runDrain,
                         );
-                        yield* repository.commitCurrentTestRun({
+                        const saved = yield* repository.commitCurrentTestRun({
                             name,
                             hash: `${name}-1`,
                         });
@@ -62,11 +68,16 @@ t.describe('Test.repository.sqlite', () => {
                         // A fresh current-run row was created; the original was committed.
                         t.expect(b.id).not.toBe(a.id);
 
-                        const runs = (yield* repository.getAllTestRuns).filter(
+                        const runs = (yield* getAllTestRuns).filter(
                             r => r.name === name,
                         );
                         const committed = runs.find(r => r.id === a.id);
                         t.expect(committed?.hash).toBe(`${name}-1`);
+                        t.expect([missing, empty, saved]).toEqual([
+                            'NothingToCommit',
+                            'NothingToCommit',
+                            'Committed',
+                        ]);
                     }),
             );
 
@@ -80,7 +91,7 @@ t.describe('Test.repository.sqlite', () => {
                             {input: 112, expected: 113, tags: []},
                             {input: 113, expected: 114},
                         ];
-                        const repository = yield* TR.TestRepository;
+                        const repository = yield* TestRepository;
                         const testRun =
                             yield* repository.getOrCreateCurrentTestRun(name);
 
@@ -92,9 +103,8 @@ t.describe('Test.repository.sqlite', () => {
                         );
 
                         const scopeToRun = Effect.gen(function* () {
-                            const junction =
-                                yield* repository.getAllTestRunResults;
-                            const all = yield* repository.getAllTestResults;
+                            const junction = yield* getAllTestRunResults;
+                            const all = yield* getAllTestResults;
                             const idsForRun = new Set(
                                 junction
                                     .filter(j => j.testRun === testRun.id)
@@ -105,14 +115,13 @@ t.describe('Test.repository.sqlite', () => {
 
                         const scoped = yield* scopeToRun;
                         t.expect(scoped).toHaveLength(testCases.length);
-                        // tags survive the split(',') codec both ways
                         const first = scoped.find(r => r.ordering === 0);
                         t.expect(first?.tags).toEqual(['a', 'b']);
                         const second = scoped.find(r => r.ordering === 1);
                         t.expect(second?.tags).toEqual([]);
 
                         const junctionBefore =
-                            (yield* repository.getAllTestRunResults).filter(
+                            (yield* getAllTestRunResults).filter(
                                 j => j.testRun === testRun.id,
                             );
 
@@ -125,7 +134,7 @@ t.describe('Test.repository.sqlite', () => {
                         );
 
                         const junctionAfter =
-                            (yield* repository.getAllTestRunResults).filter(
+                            (yield* getAllTestRunResults).filter(
                                 j => j.testRun === testRun.id,
                             );
                         t.expect(junctionAfter).toHaveLength(
@@ -135,7 +144,7 @@ t.describe('Test.repository.sqlite', () => {
                         const scopedAgain = yield* scopeToRun;
                         t.expect(scopedAgain).toHaveLength(testCases.length);
 
-                        const allResults = yield* repository.getAllTestResults;
+                        const allResults = yield* getAllTestResults;
                         const scopedIds = new Set(scoped.map(r => r.id));
                         const scopedAgainIds = new Set(
                             scopedAgain.map(r => r.id),
@@ -159,7 +168,7 @@ t.describe('Test.repository.sqlite', () => {
                 'stores siblings with equal values and decodes projected values with their schemas',
                 () =>
                     Effect.gen(function* () {
-                        const repository = yield* TR.TestRepository;
+                        const repository = yield* TestRepository;
                         const run = yield* repository.getOrCreateCurrentTestRun(
                             'suite-projected-siblings',
                         );
@@ -209,7 +218,7 @@ t.describe('Test.repository.sqlite', () => {
                 'keeps case order, sibling order and inference timing for each run when result IDs are reused',
                 () =>
                     Effect.gen(function* () {
-                        const repository = yield* TR.TestRepository;
+                        const repository = yield* TestRepository;
                         const name = 'suite-run-metadata';
                         const firstRun =
                             yield* repository.getOrCreateCurrentTestRun(name);
@@ -296,7 +305,7 @@ t.describe('Test.repository.sqlite', () => {
                     Effect.gen(function* () {
                         const other = 'clearStale-other';
                         const target = 'clearStale-target';
-                        const repository = yield* TR.TestRepository;
+                        const repository = yield* TestRepository;
 
                         // Use inputs unique to this test so pruned results are truly
                         // orphaned and get cleaned up.
@@ -345,7 +354,7 @@ t.describe('Test.repository.sqlite', () => {
 
                         yield* repository.clearStale({name: target, keep: 1});
 
-                        const runs = yield* repository.getAllTestRuns;
+                        const runs = yield* getAllTestRuns;
                         const targetHashes = new Set(
                             runs
                                 .filter(r => r.name === target)
@@ -366,8 +375,7 @@ t.describe('Test.repository.sqlite', () => {
                         // target suite's kept run only has 1 associated result, and
                         // the pruned inputs (751, 752) are no longer referenced by
                         // any surviving run.
-                        const allRunResults =
-                            yield* repository.getAllTestRunResults;
+                        const allRunResults = yield* getAllTestRunResults;
                         const keptTargetRun = runs.find(
                             r =>
                                 r.name === target &&
@@ -391,7 +399,7 @@ t.describe('Test.repository.sqlite', () => {
                         // pruned by the final DELETE in clearStale. Scope to results
                         // referenced by the target/other suite runs — the shared
                         // in-memory DB also holds rows from other tests.
-                        const allResults = yield* repository.getAllTestResults;
+                        const allResults = yield* getAllTestResults;
                         const myRunIds = new Set(
                             runs
                                 .filter(
@@ -431,7 +439,7 @@ t.describe('Test.repository.sqlite', () => {
                 () =>
                     Effect.gen(function* () {
                         const name = 'suite-get-or-create-idempotent';
-                        const repository = yield* TR.TestRepository;
+                        const repository = yield* TestRepository;
 
                         const a =
                             yield* repository.getOrCreateCurrentTestRun(name);
@@ -442,7 +450,7 @@ t.describe('Test.repository.sqlite', () => {
                         t.expect(b.id).toBe(a.id);
                         t.expect(b.hash).toBeNull();
 
-                        const runs = (yield* repository.getAllTestRuns).filter(
+                        const runs = (yield* getAllTestRuns).filter(
                             r => r.name === name,
                         );
                         const current = runs.filter(r => r.hash === null);
@@ -454,7 +462,7 @@ t.describe('Test.repository.sqlite', () => {
                 'clearUncommitedTestResults is a no-op when no current run exists for the suite name',
                 () =>
                     Effect.gen(function* () {
-                        const repository = yield* TR.TestRepository;
+                        const repository = yield* TestRepository;
                         const exit = yield* Effect.exit(
                             repository.clearUncommitedTestResults({
                                 name: 'suite-never-created',
@@ -469,7 +477,7 @@ t.describe('Test.repository.sqlite', () => {
                 () =>
                     Effect.gen(function* () {
                         const name = 'suite-few-runs';
-                        const repository = yield* TR.TestRepository;
+                        const repository = yield* TestRepository;
                         const testRun =
                             yield* repository.getOrCreateCurrentTestRun(name);
                         yield* T.all({
@@ -487,12 +495,11 @@ t.describe('Test.repository.sqlite', () => {
                             hash: `${name}-1`,
                         });
 
-                        const before =
-                            (yield* repository.getAllTestRuns).filter(
-                                r => r.name === name,
-                            );
+                        const before = (yield* getAllTestRuns).filter(
+                            r => r.name === name,
+                        );
                         yield* repository.clearStale({name, keep: 3});
-                        const after = (yield* repository.getAllTestRuns).filter(
+                        const after = (yield* getAllTestRuns).filter(
                             r => r.name === name,
                         );
                         t.expect(
@@ -513,135 +520,110 @@ t.describe('Test.repository.sqlite', () => {
         },
     );
 
-    t.layer(Sqlite.SqliteClient.layer({filename: ':memory:'}), {
-        excludeTestServices: true,
-    })('with a legacy database', it => {
-        it.effect(
-            'migrates saved results and run metadata without overwriting later writes when reopened',
-            () =>
-                Effect.gen(function* () {
-                    const sql = yield* SqlClient.SqlClient;
-                    yield* sql`
-                            CREATE TABLE ${sql(TR.tables.testRuns)}(
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                name TEXT NOT NULL,
-                                hash TEXT
-                            );
-                        `;
-                    yield* sql`
-                            CREATE TABLE ${sql(TR.tables.testResults)}(
-                                id TEXT PRIMARY KEY,
-                                hashTestCase TEXT NOT NULL,
-                                ordering INTEGER NOT NULL,
-                                input TEXT,
-                                result TEXT,
-                                expected TEXT,
-                                label TEXT NOT NULL,
-                                tags TEXT NOT NULL,
-                                timeMillis INTEGER NOT NULL
-                            );
-                        `;
-                    yield* sql`
-                            CREATE TABLE ${sql(TR.tables.testRunResults)}(
-                                testRun INTEGER NOT NULL,
-                                testResult TEXT NOT NULL,
-                                FOREIGN KEY (testRun) REFERENCES ${sql(TR.tables.testRuns)}(id),
-                                FOREIGN KEY (testResult) REFERENCES ${sql(TR.tables.testResults)}(id),
-                                UNIQUE (testRun, testResult)
-                            );
-                        `;
-                    const run = new TestRun({
-                        id: 1,
-                        name: 'legacy',
-                        hash: null,
-                    });
-                    yield* sql`INSERT INTO ${sql(TR.tables.testRuns)} ${sql.insert({id: run.id, name: run.name, hash: run.hash})};`;
-                    yield* sql`
-                            INSERT INTO ${sql(TR.tables.testResults)}
-                            ${sql.insert({
-                                id: 'legacy-result',
-                                hashTestCase: 'legacy-case',
-                                ordering: 7,
-                                input: '1',
-                                result: '2',
-                                expected: '2',
-                                label: 'TP',
-                                tags: 'legacy',
-                                timeMillis: 42.5,
-                            })};
-                        `;
-                    yield* sql`
-                            INSERT INTO ${sql(TR.tables.testRunResults)}
-                            ${sql.insert({testRun: run.id, testResult: 'legacy-result'})};
-                        `;
+    t.it.effect(
+        'opening an old database fails without changing its saved runs',
+        () =>
+            Effect.gen(function* () {
+                const sql = yield* SqlClient.SqlClient;
+                yield* sql`
+                CREATE TABLE ${sql(TR.tables.testRuns)}(
+                    id INTEGER PRIMARY KEY, name TEXT NOT NULL, hash TEXT
+                );
+            `;
+                yield* sql`INSERT INTO ${sql(TR.tables.testRuns)} ${sql.insert({id: 1, name: 'old', hash: 'baseline'})};`;
+                const exit = yield* TR.makeTestRepository.pipe(Effect.exit);
+                t.expect({
+                    failed: Exit.isFailure(exit),
+                    saved: yield* sql`SELECT * FROM ${sql(TR.tables.testRuns)};`,
+                }).toEqual({
+                    failed: true,
+                    saved: [{id: 1, name: 'old', hash: 'baseline'}],
+                });
+            }).pipe(
+                Effect.provide(
+                    Sqlite.SqliteClient.layer({filename: ':memory:'}),
+                ),
+            ),
+    );
 
-                    const repository = yield* TR.makeTestRepository;
-                    const legacy: Test.TestResult<number, number, number> = {
-                        id: 'legacy-result',
-                        hashTestCase: 'legacy-case',
-                        key: 'result',
-                        ordering: 7,
-                        resultOrdering: 0,
-                        input: 1,
-                        result: 2,
-                        expected: 2,
-                        label: 'TP',
-                        tags: ['legacy'],
-                        timeMillis: 42.5,
-                    };
-                    const migrated = yield* repository
+    t.it.effect(
+        'reopening a current database preserves completed results',
+        () =>
+            Effect.gen(function* () {
+                const repository = yield* TR.makeTestRepository;
+                const run =
+                    yield* repository.getOrCreateCurrentTestRun('reopen');
+                const result: Test.TestResult = {
+                    id: 'saved-result',
+                    hashTestCase: 'saved-case',
+                    key: 'result',
+                    ordering: 7,
+                    resultOrdering: 3,
+                    input: 1,
+                    result: 2,
+                    expected: 2,
+                    label: 'TP',
+                    tags: ['a,b', '', '日本語'],
+                    timeMillis: 42.5,
+                };
+                yield* repository.withTestRun(
+                    run,
+                    repository.insertTestResult(result, run),
+                );
+                const reopened = yield* TR.makeTestRepository;
+                t.expect({
+                    results: yield* reopened
                         .getTestResultsStream(run)
-                        .pipe(Stream.runCollect);
-                    t.expect(migrated).toEqual([legacy]);
-                    t.expect(yield* repository.getAllTestResults).toEqual([
-                        legacy,
-                    ]);
+                        .pipe(Stream.runCollect),
+                    complete: yield* reopened.isComplete(run),
+                }).toEqual({results: [result], complete: true});
+            }).pipe(
+                Effect.provide(
+                    Sqlite.SqliteClient.layer({filename: ':memory:'}),
+                ),
+            ),
+    );
 
-                    const updated = {
-                        ...legacy,
-                        ordering: 2,
-                        resultOrdering: 3,
-                        timeMillis: 99,
-                    };
-                    yield* repository.insertTestResult(updated, run);
-                    const reopened = yield* TR.makeTestRepository;
-                    const actual = yield* reopened
-                        .getTestResultsStream(run)
-                        .pipe(Stream.runCollect);
-                    t.expect(actual).toEqual([updated]);
-                }),
-        );
-    });
-
-    // Bogus-row test needs a separate db so the bad label does not break
-    // other tests' getAllTestResults calls.
-    t.layer(TR.TestRepository.TestLayer, {excludeTestServices: true})(
+    // Keep the malformed row out of the shared database used by the other tests.
+    t.layer(TestRepository.TestLayer, {excludeTestServices: true})(
         'with isolated in-memory db (bogus row)',
         it => {
             it.effect(
-                'getAllTestResults surfaces RepositoryDecodeError on a bogus label row',
+                'reading saved results surfaces SchemaError on a bogus label row',
                 () =>
                     Effect.gen(function* () {
                         const sql = yield* SqlClient.SqlClient;
-                        const repository = yield* TR.TestRepository;
+                        const repository = yield* TestRepository;
+                        const run =
+                            yield* repository.getOrCreateCurrentTestRun(
+                                'bogus',
+                            );
 
                         yield* sql`
                         INSERT INTO ${sql(TR.tables.testResults)}
                         ${sql.insert({
                             id: 'bogus',
                             hashTestCase: 'bogus',
+                            key: 'result',
                             ordering: 0,
+                            resultOrdering: 0,
                             input: 'null',
                             result: 'null',
                             expected: 'null',
                             label: 'NOT_A_LABEL',
-                            tags: '',
+                            tags: '[]',
                             timeMillis: 0,
                         })};
                     `;
+                        yield* sql`
+                            INSERT INTO ${sql(TR.tables.testRunResults)}
+                            ${sql.insert({testRun: run.id, testResult: 'bogus', ordering: 0, resultOrdering: 0, timeMillis: 0, tags: '[]'})};
+                        `;
 
                         const exit = yield* Effect.exit(
-                            repository.getAllTestResults,
+                            repository
+                                .getTestResultsStream(run)
+                                .pipe(Stream.runDrain),
                         );
                         t.expect(Exit.isFailure(exit)).toBe(true);
                         const err = Exit.isFailure(exit)
@@ -649,21 +631,21 @@ t.describe('Test.repository.sqlite', () => {
                                   Option.getOrThrow,
                               )
                             : null;
-                        t.expect(err).toBeInstanceOf(RepositoryDecodeError);
+                        t.expect(err).toBeInstanceOf(Schema.SchemaError);
                     }),
             );
         },
     );
 
-    t.layer(TR.TestRepository.TestLayer, {excludeTestServices: true})(
+    t.layer(TestRepository.TestLayer, {excludeTestServices: true})(
         'with isolated in-memory db (write failure)',
         it => {
             it.effect(
-                'insertTestResult surfaces RepositoryWriteError when the table is dropped',
+                'insertTestResult surfaces SqlError when the table is dropped',
                 () =>
                     Effect.gen(function* () {
                         const sql = yield* SqlClient.SqlClient;
-                        const repository = yield* TR.TestRepository;
+                        const repository = yield* TestRepository;
                         const name = 'suite-write-failure';
 
                         const testRun =
@@ -696,9 +678,164 @@ t.describe('Test.repository.sqlite', () => {
                                   Option.getOrThrow,
                               )
                             : null;
-                        t.expect(err).toBeInstanceOf(RepositoryWriteError);
+                        t.expect(err).toBeInstanceOf(SqlError);
                     }),
             );
         },
     );
 });
+
+t.it.effect.each([
+    {
+        description: 'commas, empty tags, whitespace and Unicode',
+        tags: ['a,b', '', ' de ', '日本語'],
+    },
+    {description: 'an empty tag list', tags: []},
+])('preserves $description separately for each run', ({tags}) =>
+    Effect.gen(function* () {
+        const repository = yield* TestRepository;
+        const firstRun = yield* repository.getOrCreateCurrentTestRun('tags');
+        const first: Test.TestResult<number, number, number> = {
+            id: 'same-result',
+            hashTestCase: 'same-case',
+            key: 'result',
+            ordering: 0,
+            resultOrdering: 0,
+            label: 'TP',
+            input: 1,
+            result: 1,
+            expected: 1,
+            tags,
+            timeMillis: 1,
+        };
+        yield* repository.insertTestResult(first, firstRun);
+        yield* repository.commitCurrentTestRun({
+            name: 'tags',
+            hash: 'baseline',
+        });
+        const secondRun = yield* repository.getOrCreateCurrentTestRun('tags');
+        const second = {...first, tags: ['new,tag'], timeMillis: 2};
+        yield* repository.insertTestResult(second, secondRun);
+
+        const firstSaved = yield* repository
+            .getTestResultsStream(firstRun)
+            .pipe(Stream.runCollect);
+        const secondSaved = yield* repository
+            .getTestResultsStream(secondRun)
+            .pipe(Stream.runCollect);
+        t.expect([firstSaved, secondSaved]).toEqual([[first], [second]]);
+    }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+t.it.effect('a failed commit leaves the previous run state intact', () =>
+    Effect.gen(function* () {
+        const repository = yield* TestRepository;
+        const sql = yield* SqlClient.SqlClient;
+        const run = yield* repository.getOrCreateCurrentTestRun('atomic');
+        yield* T.all({
+            name: 'atomic',
+            testCases: [{input: 1, expected: 2}],
+            program: add,
+        }).pipe(
+            Stream.tap(result => repository.insertTestResult(result, run)),
+            Stream.runDrain,
+        );
+        const before = yield* getAllTestRuns;
+        yield* sql`
+            CREATE TRIGGER reject_next_run BEFORE INSERT ON ${sql(TR.tables.testRuns)}
+            WHEN NEW.name = 'atomic'
+            BEGIN SELECT RAISE(ABORT, 'forced insert failure'); END;
+        `;
+
+        const error = yield* repository
+            .commitCurrentTestRun({
+                name: 'atomic',
+                hash: 'new-baseline',
+            })
+            .pipe(Effect.flip);
+        t.expect({
+            error: error._tag,
+            runs: yield* getAllTestRuns,
+            baseline: yield* repository.getLastTestRunHash('atomic'),
+        }).toEqual({
+            error: 'SqlError',
+            runs: before,
+            baseline: Option.none(),
+        });
+    }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+t.it.effect('a stale run cannot replace the current results', () =>
+    Effect.gen(function* () {
+        const repository = yield* TestRepository;
+        const previous = yield* repository.getOrCreateCurrentTestRun('stale');
+        const results = yield* T.all({
+            name: 'stale',
+            testCases: [{input: 1, expected: 2}],
+            program: add,
+        }).pipe(Stream.runCollect);
+        yield* repository.insertTestResults(results, previous);
+        yield* repository.commitCurrentTestRun({
+            name: 'stale',
+            hash: 'baseline',
+        });
+        const current = yield* repository.getOrCreateCurrentTestRun('stale');
+        yield* repository.insertTestResults(results, current);
+
+        const exit = yield* repository
+            .withTestRun(previous, Effect.void)
+            .pipe(Effect.exit);
+        t.expect({
+            rejected: Exit.isFailure(exit),
+            baselineComplete: yield* repository.isComplete(previous),
+            currentResults: yield* repository
+                .getTestResultsStream(current)
+                .pipe(Stream.runCollect),
+        }).toEqual({
+            rejected: true,
+            baselineComplete: true,
+            currentResults: results,
+        });
+    }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+t.it.effect(
+    'pages tied ordering values without losing results and decodes only requested pages',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const sql = yield* SqlClient.SqlClient;
+            const run = yield* repository.getOrCreateCurrentTestRun('pages');
+            const results: Test.TestResult<number, number, number>[] =
+                Array.from({length: 205}, (_, index) => ({
+                    id: String(index).padStart(3, '0'),
+                    hashTestCase: `case-${index}`,
+                    key: 'result',
+                    ordering: Math.floor(index / 110),
+                    resultOrdering: 0,
+                    label: 'TP',
+                    input: index,
+                    result: index,
+                    expected: index,
+                    tags: [],
+                    timeMillis: 1,
+                }));
+            yield* repository.insertTestResults(results.toReversed(), run);
+            t.expect(
+                yield* repository
+                    .getTestResultsStream(run)
+                    .pipe(Stream.runCollect),
+            ).toEqual(results);
+
+            yield* sql`UPDATE ${sql(TR.tables.testResults)} SET result = 'invalid json' WHERE id = '204';`;
+            t.expect(
+                yield* repository
+                    .getTestResultsStream(run)
+                    .pipe(Stream.take(1), Stream.runCollect),
+            ).toEqual(results.slice(0, 1));
+            const error = yield* repository
+                .getTestResultsStream(run)
+                .pipe(Stream.runDrain, Effect.flip);
+            t.expect(error._tag).toBe('SchemaError');
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);

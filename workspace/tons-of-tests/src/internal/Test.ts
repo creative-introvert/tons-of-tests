@@ -79,14 +79,15 @@ export const TestResultSchema: Schema.Codec<TestResult> = Schema.Struct({
 
 export const test = Effect.fnUntraced(function* <I, O, T, E, R, A, B>({
     testCase: {input, expected, tags, ordering},
+    hashTestCase,
     program,
     evaluate,
 }: {
     testCase: TestCase<I, T> & {ordering: number};
+    hashTestCase: string;
     program: Program<I, O, E, R>;
     evaluate: Evaluate<O, T, A, B>;
 }) {
-    const hashTestCase = makeSha256({input, expected});
     const t0 = yield* Clock.currentTimeNanos;
     const result = yield* program(input);
     const t1 = yield* Clock.currentTimeNanos;
@@ -136,34 +137,58 @@ export const all = <I, O, T, E, R, A = O, B = T>(
         ? testCases
         : Stream.fromIterable(testCases);
 
-    return pipe(
-        testCases$,
-        Stream.zipWithIndex,
-        Stream.map(([testCase, ordering]) => ({...testCase, ordering})),
-        Stream.mapEffect(testCase => test({testCase, program, evaluate}), {
-            concurrency,
-            unordered: false,
-        }),
-        Stream.tap(testResults => {
-            const i = testResults[0].ordering + 1;
-            const stride =
-                total === undefined
-                    ? 10
-                    : Math.max(Math.floor(total * 0.05), 10);
-            const isMilestone =
-                i === 1 ||
-                i % stride === 0 ||
-                (total !== undefined && i === total);
-            if (!isMilestone) return Effect.void;
+    return Stream.suspend(() => {
+        const seen = new Set<string>();
+        return pipe(
+            testCases$,
+            Stream.zipWithIndex,
+            Stream.map(([testCase, ordering]) => ({
+                testCase: {...testCase, ordering},
+                hashTestCase: makeSha256({
+                    input: testCase.input,
+                    expected: testCase.expected,
+                }),
+            })),
+            Stream.filterEffect(({testCase, hashTestCase}) => {
+                if (seen.has(hashTestCase)) {
+                    return Effect.logWarning('Skipping duplicate test case.', {
+                        suite: suite.name,
+                        hashTestCase,
+                        caseNumber: testCase.ordering + 1,
+                    }).pipe(Effect.as(false));
+                }
+                seen.add(hashTestCase);
+                return Effect.succeed(true);
+            }),
+            Stream.mapEffect(
+                ({testCase, hashTestCase}) =>
+                    test({testCase, hashTestCase, program, evaluate}),
+                {
+                    concurrency,
+                    unordered: false,
+                },
+            ),
+            Stream.tap(testResults => {
+                const i = testResults[0].ordering + 1;
+                const stride =
+                    total === undefined
+                        ? 10
+                        : Math.max(Math.floor(total * 0.05), 10);
+                const isMilestone =
+                    i === 1 ||
+                    i % stride === 0 ||
+                    (total !== undefined && i === total);
+                if (!isMilestone) return Effect.void;
 
-            return Effect.logDebug(
-                total === undefined
-                    ? `progress ${i}`
-                    : `progress ${i}/${total}`,
-            );
-        }),
-        Stream.flattenIterable,
-    );
+                return Effect.logDebug(
+                    total === undefined
+                        ? `progress ${i}`
+                        : `progress ${i}/${total}`,
+                );
+            }),
+            Stream.flattenIterable,
+        );
+    });
 };
 
 type FoldAcc<I, O, T> = {
@@ -204,7 +229,7 @@ const appendResult = <I, O, T>(
 };
 
 const finish = <I, O, T>(
-    testRun: TestRun,
+    testRun: Pick<TestRun, 'id' | 'name' | 'hash'>,
     acc: FoldAcc<I, O, T>,
 ): TestRunResults<I, O, T> => {
     const times = [...acc.timesByTestCaseHash.values()];
@@ -270,8 +295,8 @@ export const diff = ({
     testRun: {stats},
     previousTestRun,
 }: {
-    testRun: TestRunResults;
-    previousTestRun: Option.Option<TestRunResults>;
+    testRun: Pick<TestRunResults, 'stats'>;
+    previousTestRun: Option.Option<Pick<TestRunResults, 'stats'>>;
 }): Diff =>
     previousTestRun.pipe(
         Option.match({

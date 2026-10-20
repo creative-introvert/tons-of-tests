@@ -1,6 +1,6 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {Command} from 'effect/cli';
-import {Crypto, Effect} from 'effect';
+import {Console, Crypto, Effect} from 'effect';
 
 import {type AppConfigShape} from './Config.js';
 
@@ -15,10 +15,15 @@ export const _commit = Effect.fnUntraced(function* <
 >({config: {testSuite}}: {config: AppConfigShape<I, O, T, E, R, A, B>}) {
     const repository = yield* PT.TestRepository.TestRepository;
     const crypto = yield* Crypto.Crypto;
-    yield* repository.commitCurrentTestRun({
+    const outcome = yield* repository.commitCurrentTestRun({
         name: testSuite.name,
         hash: yield* crypto.randomUUIDv4({format: 'hex'}),
     });
+    yield* Console.log(
+        outcome === 'Committed'
+            ? 'Committed test run.'
+            : 'Current run has no test results, not committing.',
+    );
     yield* repository.clearStale({name: testSuite.name});
 });
 

@@ -20,9 +20,7 @@ const makeCli = <I, O, T, E, R, A, B>(
         ]),
     );
 
-// Each call builds an independent layer (and therefore an independent
-// SqliteClient). Exported so callers running multiple operations in-process
-// can share a single layer across them.
+/** Provide once around several effectNoDeps calls to share their database connection. */
 export const buildLayer = <I, O, T, E, R, A, B>(
     config: AppConfigShape<I, O, T, E, R, A, B>,
 ) =>
@@ -31,7 +29,8 @@ export const buildLayer = <I, O, T, E, R, A, B>(
         PT.TestRepository.TestRepository.layer(config.dbPath),
     );
 
-export const effect = <
+/** Runs with caller-provided platform services and a shared TestRepository. */
+export const effectNoDeps = <
     I = unknown,
     O = unknown,
     T = unknown,
@@ -50,7 +49,21 @@ export const effect = <
             : Command.runWith(command, {version: VERSION, renderErrors: false})(
                   args.slice(2),
               );
-    }).pipe(Effect.provide(buildLayer(config)));
+    });
+
+/** Opens a database connection for this invocation. Use effectNoDeps to share services. */
+export const effect = <
+    I = unknown,
+    O = unknown,
+    T = unknown,
+    E = never,
+    R = never,
+    A = O,
+    B = T,
+>(
+    config: AppConfigShape<I, O, T, E, R, A, B>,
+    args?: ReadonlyArray<string>,
+) => effectNoDeps(config, args).pipe(Effect.provide(buildLayer(config)));
 
 export const run = <
     I = unknown,

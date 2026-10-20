@@ -129,7 +129,7 @@ export const showStats = <I, O, T>({
         'timeMedian',
     ],
 }: {
-    testRun: Pick<TestRunResults<I, O, T>, 'stats' | 'testCaseHashes'>;
+    testRun: Pick<TestRunResults<I, O, T>, 'stats'>;
     displayConfig?: Partial<DisplayConfig>;
     selectColumns?: StatsColumnNames[];
 }): string => {

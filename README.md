@@ -26,8 +26,8 @@ A specialized test runner for predictive functions, focusing on scenarios where 
 
 Use Node.js 24 or newer and Effect 4. The Effect packages in this repository
 use the same exact version. The SQLite driver uses Node's built-in SQLite.
-Existing database files are migrated when opened. Previously stored results
-receive the key `result`; their test case hashes stay the same.
+This release requires a fresh database. Set `dbPath` to a new file and run the
+suite again. Old database formats are not upgraded automatically.
 
 ### Installation
 
@@ -79,6 +79,10 @@ Omit `evaluate` to compare the whole output with the expected value using
 `Classify.defaultIsEqual`. The default evaluator returns one result with key
 `result`. `Classify.makeClassify` returns a label for one comparison; use it
 inside `evaluate` when you want to choose how values match.
+
+The runner keeps the first case for each input/expected-value hash. It warns
+and skips later duplicates before calling `program`, then continues the suite.
+Tags do not change a case's identity; the first case's tags are kept.
 
 `testCases` can also be an Effect `Stream`, which is useful for large or generated suites that are consumed lazily by the runner:
 
@@ -194,6 +198,17 @@ a new suite name for the new shape.
 
 ### CLI Commands
 
+The CLI reads and compares results in batches. It writes formatted rows to a
+temporary file, then reads them back to print the table with the correct column
+widths. Timing statistics use temporary SQLite tables, including the exact
+median. Temporary files and tables are removed after use or failure.
+
+This avoids keeping both full runs and the full table text in JavaScript memory.
+The runner still keeps one hash per distinct case to detect duplicates. Arrays
+you supply as `testCases` also stay in memory; use a stream to read cases as
+needed. Temporary storage grows with the report size. The existing commands,
+flags, table layout, and statistics stay the same.
+
 #### Summarize
 
 ```sh
@@ -231,22 +246,33 @@ or reduce the number of program calls. No matches produces an empty view;
 
 #### Summarize From Cache
 
-When results for the current run are already saved, `--cached` reads them
-without re-running the program or evaluator. If no cached results exist, it
-runs and saves the suite. After the first run, use it to inspect other keys
-without making another inference call:
+After the whole suite finishes successfully, `--cached` reads its saved results
+without re-running the program or evaluator. This also works for an empty
+suite. If the previous attempt failed or was interrupted, the CLI clears its
+partial results and runs the suite again.
+
+Use the cache to inspect other keys without making another inference call:
 
 ```sh
 pnpx tsx bant-suite.ts summarize --cached --keys budget,need
 ```
 
 `diff --cached` behaves the same way for the current-run side of the diff.
+The cache belongs to the suite name. It does not detect changes to the program
+or test cases; omit `--cached` when you want to run them again.
+
+After upgrading, use a fresh database and create a new baseline. See
+[database setup](./MIGRATION_GUIDE_V1.md#database-setup).
 
 #### Write Test Results
 
 ```bash
 pnpx tsx my-test-suite.ts commit
 ```
+
+`commit` saves the current results as the baseline for later comparisons.
+It rejects a tracked run that failed or is still running. Changing the
+baseline and creating the next current run happen in one database transaction.
 
 #### Diff
 
@@ -334,6 +360,30 @@ CLI.effect(
 );
 ```
 
+Each `CLI.effect` call opens and closes its own database connection. To share
+one repository across several commands, use `CLI.effectNoDeps` and provide
+the services once around the whole program. This also lets an in-memory
+database keep its results between commands:
+
+```ts
+import * as CLI from '@creative-introvert/tons-of-tests-cli';
+import {NodeRuntime} from '@effect/platform-node';
+import {Effect} from 'effect';
+
+const config = {testSuite, dbPath: ':memory:'};
+
+Effect.gen(function* () {
+    yield* CLI.effectNoDeps(config, ['node', 'script', 'summarize']);
+    yield* CLI.effectNoDeps(config, ['node', 'script', 'commit']);
+}).pipe(
+    Effect.provide(CLI.buildLayer(config)),
+    NodeRuntime.runMain,
+);
+```
+
+`effectNoDeps` uses the supplied platform services and `TestRepository`.
+Its `config.dbPath` is only used if you pass the config to `buildLayer`.
+
 If you need the last committed test-run hash from inside another script, use
 the dedicated helper:
 
@@ -347,7 +397,7 @@ const hash = await CLI.getLastTestRunHash({
 // hash: string | null
 ```
 
-When you use `CLI.effect`, `diff --exit-on-diff` fails with a typed
+When you use `CLI.effect` or `CLI.effectNoDeps`, `diff --exit-on-diff` fails with a typed
 `DiffNonEmpty` error when the current run has visible diffs. Handle it with
 `Effect.catchTag('DiffNonEmpty', handler)`; `error.count` gives the number of
 visible changed results.

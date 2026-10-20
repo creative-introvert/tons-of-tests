@@ -26,3 +26,4 @@ dist
 .metrics
 
 *.db*
+references

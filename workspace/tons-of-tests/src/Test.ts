@@ -29,8 +29,10 @@ export type Evaluate<O, T, A = O, B = T> = (
 ) => Array.NonEmptyReadonlyArray<EvaluationResult<A, B>>;
 
 /**
- * Runs `program` once per case, then evaluates its output. `O` and `T` describe
- * the whole output and expected value; `A` and `B` describe the evaluated values.
+ * Runs `program` once per distinct input/expected-value hash, then evaluates its
+ * output. Later duplicates are warned about and skipped; the first case's tags
+ * are kept. `O` and `T` describe the whole output and expected value; `A` and `B`
+ * describe the evaluated values.
  * Without `evaluate`, the default comparison returns one result with key `result`.
  */
 export type TestSuite<
@@ -86,7 +88,10 @@ export type TestResult<I = unknown, O = unknown, T = unknown> = {
     timeMillis: number;
 };
 
-export type TestRunResults<I = unknown, O = unknown, T = unknown> = TestRun & {
+export type TestRunResults<I = unknown, O = unknown, T = unknown> = Pick<
+    TestRun,
+    'id' | 'name' | 'hash'
+> & {
     /** Indexed by `resultKey`, which combines the case hash and evaluation key. */
     testResultsByKey: Record<string, TestResult<I, O, T>>;
     /** Keys into `testResultsByKey`, in display order. */
