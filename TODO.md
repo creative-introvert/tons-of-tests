@@ -1,0 +1,1 @@
+- re-introduce pruning as a dedicated command
