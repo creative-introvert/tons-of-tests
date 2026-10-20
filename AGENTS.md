@@ -1,3 +1,5 @@
+We're building a new major version. Any changes can be breaking. No pre-emptive backwards compatibility, unless expliclitly requested by the user.
+
 ## Rules
 
 - Always use skills: ts-principles, ts-effect-v4.
