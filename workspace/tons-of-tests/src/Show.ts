@@ -4,10 +4,14 @@ import type {Stats} from './Classify.js';
 import type {Diff, TestResult} from './Test.js';
 
 export {showDiff as diff} from './internal/diff.js';
-export {showStats as stats} from './internal/stats.js';
+export {
+    showStats as stats,
+    showRunSummaries as runSummaries,
+} from './internal/stats.js';
 export {
     showSummary as summarize,
     prepareSummary,
+    prepareComparison,
 } from './internal/summarize.js';
 
 export type DiffContext = {

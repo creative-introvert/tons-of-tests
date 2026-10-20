@@ -1,11 +1,22 @@
 import {expect, it} from '@effect/vitest';
-import {Effect, Exit, Schema, SchemaTransformation, Stream} from 'effect';
+import {
+    Effect,
+    Exit,
+    Option,
+    Schema,
+    SchemaTransformation,
+    Stream,
+} from 'effect';
 
 import * as Test from '../Test.js';
 import {TestRepository} from '../Test.repository.js';
 import {TestValueError} from '../TestValueError.js';
 import * as Show from '../Show.js';
-import {getAllTestResults} from './test-repository-fixtures.js';
+import {
+    getAllTestResults,
+    getAllTestRunResults,
+    getAllTestRuns,
+} from './test-repository-fixtures.js';
 
 it.effect(
     'keeps original case values and stores only the evaluated output',
@@ -26,33 +37,40 @@ it.effect(
                 testCase: {input: Case, expected: Case},
                 evaluation: {result: Schema.BigInt, expected: Schema.BigInt},
             };
-            const results = yield* Test.all({
-                name: 'original-values',
-                schemas,
-                testCases: [{input, expected}],
-                program: (value: typeof input) => {
-                    programInput = value;
-                    // The output need not be serializable: evaluate selects what to store.
-                    return Effect.succeed({getAmount: () => value.amount});
-                },
-                evaluate: (output, target) => {
-                    evaluationExpected = target;
-                    return [
-                        {
-                            key: 'amount',
-                            result: output.getAmount(),
-                            expected: target.amount,
-                            label: 'TP',
+            const results = yield* Test.all(
+                {
+                    name: 'original-values',
+                    schemas,
+                    testCases: [{input, expected}],
+                    variants: {
+                        A: {
+                            program: (value: typeof input) => {
+                                programInput = value;
+                                // Only evaluate's selected values must be serializable.
+                                return Effect.succeed({
+                                    getAmount: () => value.amount,
+                                });
+                            },
                         },
-                    ];
+                    },
+                    evaluate: (output, target) => {
+                        evaluationExpected = target;
+                        return [
+                            {
+                                key: 'amount',
+                                result: output.getAmount(),
+                                expected: target.amount,
+                                label: 'TP',
+                            },
+                        ];
+                    },
                 },
-            }).pipe(Stream.runCollect);
+                {variant: 'A'},
+            ).pipe(Stream.runCollect);
             const repository = yield* TestRepository;
-            const run =
-                yield* repository.getOrCreateCurrentTestRun('original-values');
-            yield* repository.withTestRun(
-                run,
-                repository.insertTestResults(results, run, schemas),
+            const {run} = yield* repository.withTestRun(
+                {name: 'original-values', variant: 'A'},
+                run => repository.insertTestResults(results, run, schemas),
             );
             const saved = yield* repository
                 .getTestResultsStream(run, schemas)
@@ -98,20 +116,31 @@ it.effect(
                     testCase: {input: Value, expected: Value},
                     evaluation: {result: Value, expected: Value},
                 },
-                program: (input: typeof Value.Type) => Effect.succeed(input),
+                variants: {
+                    A: {
+                        program: (input: typeof Value.Type) =>
+                            Effect.succeed(input),
+                    },
+                },
             };
-            const results = yield* Test.all({
-                ...suite,
-                testCases: [
-                    {input: first, expected: first},
-                    {input: reordered, expected: reordered},
-                    {input: reversed, expected: first},
-                ],
-            }).pipe(Stream.runCollect);
-            const again = yield* Test.all({
-                ...suite,
-                testCases: [{input: reordered, expected: reordered}],
-            }).pipe(Stream.runCollect);
+            const results = yield* Test.all(
+                {
+                    ...suite,
+                    testCases: [
+                        {input: first, expected: first},
+                        {input: reordered, expected: reordered},
+                        {input: reversed, expected: first},
+                    ],
+                },
+                {variant: 'A'},
+            ).pipe(Stream.runCollect);
+            const again = yield* Test.all(
+                {
+                    ...suite,
+                    testCases: [{input: reordered, expected: reordered}],
+                },
+                {variant: 'A'},
+            ).pipe(Stream.runCollect);
             expect(
                 results.map(({ordering, label}) => ({ordering, label})),
             ).toEqual([
@@ -319,8 +348,6 @@ it.effect(
                 evaluation: {result: Value, expected: Value},
             };
             const repository = yield* TestRepository;
-            const run =
-                yield* repository.getOrCreateCurrentTestRun('lossy-result');
             const result: Test.TestResult<number, string, string> = {
                 id: 'lossy',
                 hashTestCase: 'case',
@@ -335,11 +362,16 @@ it.effect(
                 timeMillis: 1,
             };
             const saveError = yield* repository
-                .withTestRun(
-                    run,
+                .withTestRun({name: 'lossy-result', variant: 'A'}, run =>
                     repository.insertTestResult(result, run, schemas),
                 )
                 .pipe(Effect.flip);
+            const run = Option.getOrThrow(
+                yield* repository.getLatestTestRun({
+                    name: 'lossy-result',
+                    variant: 'A',
+                }),
+            );
             const testRun = yield* Stream.make(result).pipe(
                 Test.runCollectRecord(run),
             );
@@ -347,7 +379,7 @@ it.effect(
                 Effect.flip,
             );
             const commitError = yield* repository
-                .commitCurrentTestRun({name: run.name, hash: 'baseline'})
+                .commitTestRun(run.id)
                 .pipe(Effect.flip);
             expect({
                 errors: [saveError, displayError].map(error =>
@@ -359,8 +391,10 @@ it.effect(
                           }
                         : error._tag,
                 ),
-                complete: yield* repository.isComplete(run),
-                saved: yield* repository.hasResults(run),
+                state: run.state,
+                saved: yield* repository
+                    .getTestResultsStream(run, schemas)
+                    .pipe(Stream.runCollect),
                 commit: commitError._tag,
             }).toEqual({
                 errors: Array.from({length: 2}, () => ({
@@ -368,9 +402,124 @@ it.effect(
                     field: 'evaluation.result',
                     operation: 'roundTrip',
                 })),
-                complete: false,
-                saved: false,
+                state: 'Failed',
+                saved: [],
                 commit: 'TestRunIncomplete',
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect.each(
+    (['from', 'to'] as const).flatMap(side =>
+        (
+            [
+                'testCase.input',
+                'evaluation.result',
+                'evaluation.expected',
+            ] as const
+        ).map(field => ({side, field})),
+    ),
+)(
+    'attributes incompatible $field codecs to the $side saved suite without changing storage',
+    ({side, field}) =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const schemas = {
+                testCase: {input: Schema.Finite, expected: Schema.Finite},
+                evaluation: {result: Schema.Finite, expected: Schema.Finite},
+            };
+            let calls = 0;
+            const save = (name: string, variant: string, value: number) =>
+                repository.withTestRun({name, variant}, run =>
+                    Test.all(
+                        {
+                            name,
+                            schemas,
+                            testCases: [
+                                {input: value, expected: value, tags: [name]},
+                            ],
+                            variants: {
+                                [variant]: {
+                                    program: (input: number) =>
+                                        Effect.sync(() => {
+                                            calls++;
+                                            return input;
+                                        }),
+                                },
+                            },
+                        },
+                        {variant},
+                    ).pipe(
+                        Stream.runCollect,
+                        Effect.flatMap(results =>
+                            repository.insertTestResults(results, run, schemas),
+                        ),
+                    ),
+                );
+            const {run: from} = yield* save('saved-from-suite', 'A', 1);
+            const {run: to} = yield* save('saved-to-suite', 'B', 2);
+            yield* repository.commitTestRun(from.id);
+            yield* repository.commitTestRun(to.id);
+            const snapshot = Effect.gen(function* () {
+                return {
+                    runs: yield* getAllTestRuns,
+                    results: yield* getAllTestResults,
+                    runResults: yield* getAllTestRunResults,
+                    baselines: [
+                        yield* repository.getBaselineTestRun(from),
+                        yield* repository.getBaselineTestRun(to),
+                    ],
+                    decoded: [
+                        yield* repository
+                            .getTestResultsStream(from, schemas)
+                            .pipe(Stream.runCollect),
+                        yield* repository
+                            .getTestResultsStream(to, schemas)
+                            .pipe(Stream.runCollect),
+                    ],
+                };
+            });
+            const before = yield* snapshot;
+            const invalid = side === 'from' ? 1 : 2;
+            const Allowed = Schema.Finite.check(
+                Schema.makeFilter(value => value !== invalid),
+            );
+            const incompatible = {
+                testCase: {
+                    input: field === 'testCase.input' ? Allowed : Schema.Finite,
+                },
+                evaluation: {
+                    result:
+                        field === 'evaluation.result' ? Allowed : Schema.Finite,
+                    expected:
+                        field === 'evaluation.expected'
+                            ? Allowed
+                            : Schema.Finite,
+                },
+            };
+            const comparison = yield* Test.compareRuns({
+                from,
+                to,
+                schemas: incompatible,
+            }).pipe(Stream.runDrain, Effect.flip);
+            const summary = yield* Test.summarizeRun({
+                run: side === 'from' ? from : to,
+                schemas: incompatible,
+            }).pipe(Effect.flip);
+            expect([comparison, summary]).toMatchObject(
+                Array.from({length: 2}, () => ({
+                    _tag: 'TestValueError',
+                    suite: side === 'from' ? from.name : to.name,
+                    caseNumber: 1,
+                    key: 'result',
+                    field,
+                    operation: 'decode',
+                    cause: {_tag: 'SchemaError'},
+                })),
+            );
+            expect({calls, saved: yield* snapshot}).toEqual({
+                calls: 2,
+                saved: before,
             });
         }).pipe(Effect.provide(TestRepository.TestLayer)),
 );

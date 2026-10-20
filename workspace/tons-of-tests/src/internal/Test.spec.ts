@@ -3,7 +3,12 @@ import {Array as A, Effect, Exit, Option, Result, Schema, Stream} from 'effect';
 
 import {Stats, makeClassify} from '../Classify.js';
 import type {Evaluate, EvaluationResult, TestResult} from '../Test.js';
-import {TestRun} from '../Test.repository.js';
+import * as Test from '../Test.js';
+import {
+    TestRepository,
+    TestRun,
+    type TestResultSchemas,
+} from '../Test.repository.js';
 import {
     all,
     diff,
@@ -13,7 +18,12 @@ import {
     runCollectRecord,
 } from './Test.js';
 
-const run = new TestRun({id: 1, name: 'suite', hash: null});
+const run = new TestRun({
+    id: 1,
+    name: 'suite',
+    variant: 'default',
+    state: 'Complete',
+});
 const numberSchemas = {
     testCase: {input: Schema.Finite, expected: Schema.Finite},
     evaluation: {result: Schema.Finite, expected: Schema.Finite},
@@ -39,6 +49,7 @@ const mkResult = <
         result: args.result,
         expected: args.expected,
         label: args.label,
+        key: args.key ?? 'result',
     }),
     hashTestCase: makeSha256({input: args.input, expected: args.expected}),
     key: args.key ?? 'result',
@@ -68,6 +79,266 @@ const mkTN = (args: {
 
 const collect = (results: readonly AnyResult[]) =>
     Stream.fromIterable(results).pipe(runCollectRecord(run));
+
+const saveRun = <I, A, B>(
+    selection: Pick<TestRun, 'name' | 'variant'>,
+    results: ReadonlyArray<TestResult<I, A, B>>,
+    schemas: TestResultSchemas<I, A, B>,
+) =>
+    Effect.gen(function* () {
+        const repository = yield* TestRepository;
+        const saved = yield* repository.withTestRun(selection, run =>
+            repository.insertTestResults(results, run, schemas),
+        );
+        return saved.run;
+    });
+
+t.describe('variant selection', () => {
+    t.it.effect.each([undefined, 'default'])(
+        'selects the single program for %s',
+        variant =>
+            Effect.gen(function* () {
+                const program = (input: number) => Effect.succeed(input);
+                const suite = {
+                    name: 'single-program',
+                    schemas: numberSchemas,
+                    testCases: [{input: 1, expected: 1}],
+                    program,
+                };
+                const selected = yield* Test.selectVariant(suite, variant);
+                const results = yield* Test.all(suite, {variant}).pipe(
+                    Stream.runCollect,
+                );
+                t.expect(selected).toEqual({name: 'default', program});
+                t.expect(
+                    results.map(({result, label}) => ({result, label})),
+                ).toEqual([{result: 1, label: 'TP'}]);
+            }),
+    );
+
+    t.it.effect.each([
+        {variants: ['A'], variant: undefined, tag: 'TestVariantRequired'},
+        {variants: ['A', 'B'], variant: 'C', tag: 'TestVariantNotFound'},
+        {variants: [], variant: undefined, tag: 'TestVariantRequired'},
+        {variants: [], variant: 'A', tag: 'TestVariantNotFound'},
+    ])(
+        'rejects selection $variant from $variants before consuming cases',
+        ({variants, variant, tag}) =>
+            Effect.gen(function* () {
+                let cases = 0;
+                let programs = 0;
+                let evaluations = 0;
+                const program = (input: number) =>
+                    Effect.sync(() => {
+                        programs++;
+                        return input;
+                    });
+                const suite = {
+                    name: 'selection-failure',
+                    schemas: numberSchemas,
+                    testCases: Stream.fromEffect(
+                        Effect.sync(() => {
+                            cases++;
+                            return {input: 1, expected: 1};
+                        }),
+                    ),
+                    variants: Object.fromEntries(
+                        variants.map(name => [name, {program}]),
+                    ),
+                    evaluate: (result: number, expected: number) => {
+                        evaluations++;
+                        return [
+                            {key: 'result', result, expected, label: 'TP'},
+                        ] as const;
+                    },
+                };
+                const selectionError = yield* Test.selectVariant(
+                    suite,
+                    variant,
+                ).pipe(Effect.flip);
+                const executionError = yield* Test.all(suite, {variant}).pipe(
+                    Stream.runDrain,
+                    Effect.flip,
+                );
+                t.expect({
+                    selection: selectionError._tag,
+                    execution: executionError._tag,
+                    cases,
+                    programs,
+                    evaluations,
+                }).toEqual({
+                    selection: tag,
+                    execution: tag,
+                    cases: 0,
+                    programs: 0,
+                    evaluations: 0,
+                });
+            }),
+    );
+
+    t.it.effect('rejects an unknown selection for a single-program suite', () =>
+        Effect.gen(function* () {
+            const error = yield* Test.selectVariant(
+                {
+                    name: 'single-program',
+                    schemas: numberSchemas,
+                    testCases: [],
+                    program: (input: number) => Effect.succeed(input),
+                },
+                'A',
+            ).pipe(Effect.flip);
+            t.expect(error._tag).toBe('TestVariantNotFound');
+        }),
+    );
+
+    t.it.effect.each([' A ', 'A:B', 'Run:1'])(
+        'preserves variant ID %s exactly',
+        name =>
+            Effect.gen(function* () {
+                const program = (input: number) => Effect.succeed(input);
+                const selected = yield* Test.selectVariant(
+                    {
+                        name: 'exact-id',
+                        schemas: numberSchemas,
+                        testCases: [],
+                        variants: {[name]: {program}},
+                    },
+                    name,
+                );
+                t.expect(selected).toEqual({name, program});
+            }),
+    );
+
+    t.it.effect.each(['', 'A,B', 'run:1'])(
+        'rejects invalid variant ID %s before consuming cases',
+        invalidName =>
+            Effect.gen(function* () {
+                let cases = 0;
+                let programs = 0;
+                const program = (input: number) =>
+                    Effect.sync(() => {
+                        programs++;
+                        return input;
+                    });
+                const exit = yield* Test.all(
+                    {
+                        name: 'invalid-id',
+                        schemas: numberSchemas,
+                        testCases: Stream.fromEffect(
+                            Effect.sync(() => {
+                                cases++;
+                                return {input: 1, expected: 1};
+                            }),
+                        ),
+                        variants: {
+                            A: {program},
+                            [invalidName]: {program},
+                        },
+                    },
+                    {variant: 'A'},
+                ).pipe(Stream.runDrain, Effect.exit);
+                t.expect({defect: Exit.hasDies(exit), cases, programs}).toEqual(
+                    {
+                        defect: true,
+                        cases: 0,
+                        programs: 0,
+                    },
+                );
+            }),
+    );
+
+    t.it.effect.each(['both', 'neither'] as const)(
+        'rejects %s program definitions before consuming cases',
+        shape =>
+            Effect.gen(function* () {
+                let cases = 0;
+                let programs = 0;
+                const program = (input: number) =>
+                    Effect.sync(() => {
+                        programs++;
+                        return input;
+                    });
+                const shared = {
+                    name: 'invalid-definition',
+                    schemas: numberSchemas,
+                    testCases: Stream.fromEffect(
+                        Effect.sync(() => {
+                            cases++;
+                            return {input: 1, expected: 1};
+                        }),
+                    ),
+                };
+                const suite =
+                    shape === 'both'
+                        ? {...shared, program, variants: {A: {program}}}
+                        : shared;
+                // @ts-expect-error JavaScript callers can supply both forms or neither.
+                const output = Test.all(suite, {variant: 'A'});
+                const exit = yield* output.pipe(Stream.runDrain, Effect.exit);
+                t.expect({defect: Exit.hasDies(exit), cases, programs}).toEqual(
+                    {
+                        defect: true,
+                        cases: 0,
+                        programs: 0,
+                    },
+                );
+            }),
+    );
+
+    t.it.effect(
+        'runs each variant independently and keeps shared case identities',
+        () =>
+            Effect.gen(function* () {
+                const calls: string[] = [];
+                const suite = {
+                    name: 'independent-programs',
+                    schemas: numberSchemas,
+                    testCases: [
+                        {input: 1, expected: 2},
+                        {input: 1, expected: 2},
+                        {input: 2, expected: 4},
+                    ],
+                    variants: {
+                        A: {
+                            program: (input: number) =>
+                                Effect.sync(() => {
+                                    calls.push(`A:${input}`);
+                                    return input * 2;
+                                }),
+                        },
+                        B: {
+                            program: (input: number) =>
+                                Effect.sync(() => {
+                                    calls.push(`B:${input}`);
+                                    return input * 3;
+                                }),
+                        },
+                    },
+                };
+                const first = yield* Test.all(suite, {variant: 'A'}).pipe(
+                    Stream.runCollect,
+                );
+                t.expect(calls).toEqual(['A:1', 'A:2']);
+                const second = yield* Test.all(suite, {variant: 'B'}).pipe(
+                    Stream.runCollect,
+                );
+                t.expect(calls).toEqual(['A:1', 'A:2', 'B:1', 'B:2']);
+                t.expect(
+                    first.map(({result, label}) => ({result, label})),
+                ).toEqual([
+                    {result: 2, label: 'TP'},
+                    {result: 4, label: 'TP'},
+                ]);
+                t.expect(
+                    second.map(({result, label}) => ({result, label})),
+                ).toEqual([
+                    {result: 3, label: 'FP'},
+                    {result: 6, label: 'FP'},
+                ]);
+                t.expect(first.map(resultKey)).toEqual(second.map(resultKey));
+            }),
+    );
+});
 
 t.describe('all', () => {
     const cases = [
@@ -448,7 +719,8 @@ t.describe('runCollectRecord', () => {
             t.expect(out).toEqual({
                 id: run.id,
                 name: run.name,
-                hash: run.hash,
+                variant: run.variant,
+                state: run.state,
                 stats: Stats.empty(),
                 testCaseHashes: [],
                 testResultsByKey: {},
@@ -598,7 +870,8 @@ t.describe('Test.diff', () => {
     const mkRunResults = (stats: Stats) => ({
         id: run.id,
         name: run.name,
-        hash: run.hash,
+        variant: run.variant,
+        state: run.state,
         stats,
         testCaseHashes: [],
         testResultKeys: [],
@@ -655,4 +928,382 @@ t.describe('Test.diff', () => {
         const out = diff({testRun, previousTestRun: previous});
         t.expect(out).toMatchObject(expected);
     });
+});
+
+t.describe('saved run comparison', () => {
+    t.it.effect(
+        'matches case and key, compares decoded values, and includes added and removed results in saved order',
+        () =>
+            Effect.gen(function* () {
+                const Value = Schema.Finite.pipe(
+                    Schema.overrideToEquivalence(
+                        () => (a, b) => Math.abs(a) === Math.abs(b),
+                    ),
+                );
+                const schemas = {
+                    testCase: {input: Schema.Finite},
+                    evaluation: {result: Value, expected: Value},
+                };
+                const fromResults = [
+                    ...['equal', 'result', 'expected', 'removed-key'].map(
+                        (key, resultOrdering) =>
+                            mkResult({
+                                input: 1,
+                                result: 1,
+                                expected: 1,
+                                label: 'TP',
+                                timeMillis: 10,
+                                key,
+                                resultOrdering,
+                            }),
+                    ),
+                    mkResult({
+                        input: 2,
+                        result: 1,
+                        expected: 1,
+                        label: 'TP',
+                        timeMillis: 20,
+                        key: 'label',
+                        ordering: 1,
+                    }),
+                    mkResult({
+                        input: 3,
+                        result: 1,
+                        expected: 1,
+                        label: 'TP',
+                        timeMillis: 30,
+                        ordering: 2,
+                    }),
+                ];
+                const toResults: TestResult<number, number, number>[] = [
+                    {
+                        ...fromResults[4],
+                        id: 'changed-label',
+                        label: 'FP',
+                        ordering: 0,
+                    },
+                    mkResult({
+                        input: 4,
+                        result: 1,
+                        expected: 1,
+                        label: 'TP',
+                        timeMillis: 40,
+                        ordering: 1,
+                    }),
+                    {
+                        ...fromResults[2],
+                        id: 'changed-expected',
+                        expected: 3,
+                        ordering: 2,
+                        resultOrdering: 0,
+                    },
+                    {
+                        ...fromResults[0],
+                        id: 'equivalent-values',
+                        result: -1,
+                        expected: -1,
+                        tags: ['new-tag'],
+                        timeMillis: 100,
+                        ordering: 2,
+                        resultOrdering: 1,
+                    },
+                    {
+                        ...fromResults[1],
+                        id: 'changed-result',
+                        result: 2,
+                        ordering: 2,
+                        resultOrdering: 2,
+                    },
+                    mkResult({
+                        input: 1,
+                        result: 1,
+                        expected: 1,
+                        label: 'TP',
+                        timeMillis: 10,
+                        key: 'added-key',
+                        ordering: 2,
+                        resultOrdering: 3,
+                    }),
+                ];
+                const from = yield* saveRun(
+                    {name: 'comparison', variant: 'A'},
+                    fromResults,
+                    schemas,
+                );
+                const to = yield* saveRun(
+                    {name: 'comparison', variant: 'B'},
+                    A.reverse(toResults),
+                    schemas,
+                );
+                const comparisons = yield* Test.compareRuns({
+                    from,
+                    to,
+                    schemas,
+                }).pipe(Stream.runCollect);
+                t.expect(comparisons).toEqual([
+                    {
+                        _tag: 'Matched',
+                        from: fromResults[4],
+                        to: toResults[0],
+                        changed: true,
+                    },
+                    {_tag: 'OnlyTo', to: toResults[1]},
+                    {
+                        _tag: 'Matched',
+                        from: fromResults[2],
+                        to: toResults[2],
+                        changed: true,
+                    },
+                    {
+                        _tag: 'Matched',
+                        from: fromResults[0],
+                        to: toResults[3],
+                        changed: false,
+                    },
+                    {
+                        _tag: 'Matched',
+                        from: fromResults[1],
+                        to: toResults[4],
+                        changed: true,
+                    },
+                    {_tag: 'OnlyTo', to: toResults[5]},
+                    {_tag: 'OnlyFrom', from: fromResults[3]},
+                    {_tag: 'OnlyFrom', from: fromResults[5]},
+                ]);
+                t.expect(
+                    yield* Test.compareRuns({from, to: from, schemas}).pipe(
+                        Stream.runCollect,
+                    ),
+                ).toEqual(
+                    fromResults.map(result => ({
+                        _tag: 'Matched',
+                        from: result,
+                        to: result,
+                        changed: false,
+                    })),
+                );
+            }).pipe(Effect.provide(TestRepository.TestLayer)),
+    );
+
+    t.it.effect('keeps additions and removals across result batches', () =>
+        Effect.gen(function* () {
+            const rows = Array.from({length: 125}, (_, index) =>
+                mkResult({
+                    input: index,
+                    result: index,
+                    expected: index,
+                    label: 'TP',
+                    timeMillis: index + 1,
+                    ordering: index,
+                }),
+            );
+            const from = yield* saveRun(
+                {name: 'batches', variant: 'A'},
+                rows.slice(0, 110),
+                numberSchemas,
+            );
+            const to = yield* saveRun(
+                {name: 'batches', variant: 'B'},
+                rows
+                    .slice(50)
+                    .filter(({input}) => input !== 70 && input !== 105),
+                numberSchemas,
+            );
+            const comparisons = yield* Test.compareRuns({
+                from,
+                to,
+                schemas: numberSchemas,
+            }).pipe(Stream.runCollect);
+            t.expect(comparisons).toEqual([
+                ...rows
+                    .slice(50, 110)
+                    .filter(({input}) => input !== 70 && input !== 105)
+                    .map(result => ({
+                        _tag: 'Matched',
+                        from: result,
+                        to: result,
+                        changed: false,
+                    })),
+                ...rows.slice(110).map(to => ({_tag: 'OnlyTo', to})),
+                ...[...rows.slice(0, 50), rows[70], rows[105]].map(from => ({
+                    _tag: 'OnlyFrom',
+                    from,
+                })),
+            ]);
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+    );
+});
+
+t.describe('saved run summaries', () => {
+    t.it.effect(
+        'filters decoded results and counts each represented case time once across batches',
+        () =>
+            Effect.gen(function* () {
+                const results = Array.from({length: 60}, (_, index) => [
+                    mkResult({
+                        input: index,
+                        result: index,
+                        expected: index,
+                        label: 'TP',
+                        timeMillis: index + 1,
+                        ordering: index,
+                        key: 'first',
+                    }),
+                    mkResult({
+                        input: index,
+                        result: -1,
+                        expected: index,
+                        label: 'FP',
+                        timeMillis: index + 1,
+                        ordering: index,
+                        key: 'second',
+                        resultOrdering: 1,
+                    }),
+                ]).flatMap((results, index) =>
+                    index < 30 ? results.slice(0, 1) : results,
+                );
+                const run = yield* saveRun(
+                    {name: 'summary', variant: 'A'},
+                    results,
+                    numberSchemas,
+                );
+                const all = yield* Test.summarizeRun({
+                    run,
+                    schemas: numberSchemas,
+                });
+                const filtered = yield* Test.summarizeRun({
+                    run,
+                    schemas: numberSchemas,
+                    predicate: result =>
+                        result.key === 'second' && result.input >= 30,
+                });
+                const empty = yield* Test.summarizeRun({
+                    run,
+                    schemas: numberSchemas,
+                    predicate: () => false,
+                });
+                t.expect([all, filtered, empty]).toEqual([
+                    {
+                        run,
+                        stats: new Stats({
+                            TP: 60,
+                            TN: 0,
+                            FP: 30,
+                            FN: 0,
+                            total: 90,
+                            testCases: 60,
+                            precision: 2 / 3,
+                            recall: 1,
+                            timeMin: Option.some(1),
+                            timeMax: Option.some(60),
+                            timeMean: Option.some(30.5),
+                            timeMedian: Option.some(30.5),
+                        }),
+                    },
+                    {
+                        run,
+                        stats: new Stats({
+                            TP: 0,
+                            TN: 0,
+                            FP: 30,
+                            FN: 0,
+                            total: 30,
+                            testCases: 30,
+                            precision: 0,
+                            recall: 0,
+                            timeMin: Option.some(31),
+                            timeMax: Option.some(60),
+                            timeMean: Option.some(45.5),
+                            timeMedian: Option.some(45.5),
+                        }),
+                    },
+                    {run, stats: Stats.empty()},
+                ]);
+            }).pipe(Effect.provide(TestRepository.TestLayer)),
+    );
+
+    t.it.effect(
+        'summarizes a completed empty run with absent timing values',
+        () =>
+            Effect.gen(function* () {
+                const run = yield* saveRun(
+                    {name: 'empty', variant: 'A'},
+                    [],
+                    numberSchemas,
+                );
+                t.expect(
+                    yield* Test.summarizeRun({run, schemas: numberSchemas}),
+                ).toEqual({run, stats: Stats.empty()});
+                t.expect(
+                    yield* Test.compareRuns({
+                        from: run,
+                        to: run,
+                        schemas: numberSchemas,
+                    }).pipe(Stream.runCollect),
+                ).toEqual([]);
+            }).pipe(Effect.provide(TestRepository.TestLayer)),
+    );
+
+    t.it.effect.each(['Running', 'Failed'] as const)(
+        'checks the saved %s state even when callers supply Complete metadata',
+        state =>
+            Effect.gen(function* () {
+                const repository = yield* TestRepository;
+                const complete = yield* saveRun(
+                    {name: 'complete', variant: 'A'},
+                    [],
+                    numberSchemas,
+                );
+                const check = (saved: TestRun) =>
+                    Effect.gen(function* () {
+                        const run = new TestRun({
+                            id: saved.id,
+                            name: saved.name,
+                            variant: saved.variant,
+                            state: 'Complete',
+                        });
+                        const summary = yield* Test.summarizeRun({
+                            run,
+                            schemas: numberSchemas,
+                        }).pipe(Effect.flip);
+                        const from = yield* Test.compareRuns({
+                            from: run,
+                            to: complete,
+                            schemas: numberSchemas,
+                        }).pipe(Stream.runDrain, Effect.flip);
+                        const to = yield* Test.compareRuns({
+                            from: complete,
+                            to: run,
+                            schemas: numberSchemas,
+                        }).pipe(Stream.runDrain, Effect.flip);
+                        t.expect([summary, from, to]).toMatchObject(
+                            Array.from({length: 3}, () => ({
+                                _tag: 'TestRunIncomplete',
+                                testRunId: saved.id,
+                                testSuiteName: saved.name,
+                                variant: saved.variant,
+                            })),
+                        );
+                    });
+                if (state === 'Running') {
+                    yield* repository.withTestRun(
+                        {name: 'incomplete', variant: 'A'},
+                        check,
+                    );
+                } else {
+                    yield* repository
+                        .withTestRun({name: 'incomplete', variant: 'A'}, () =>
+                            Effect.fail('failed'),
+                        )
+                        .pipe(Effect.flip);
+                    const failed = Option.getOrThrow(
+                        yield* repository.getLatestTestRun({
+                            name: 'incomplete',
+                            variant: 'A',
+                        }),
+                    );
+                    yield* check(failed);
+                }
+            }).pipe(Effect.provide(TestRepository.TestLayer)),
+    );
 });

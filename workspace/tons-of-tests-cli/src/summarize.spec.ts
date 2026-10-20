@@ -67,10 +67,11 @@ it.effect(
 it.effect('label filters leave stored results intact', () =>
     Effect.gen(function* () {
         const repository = yield* PT.TestRepository.TestRepository;
-        yield* prepareReport({mode: 'summarize', config, cached: false});
-        const run = yield* repository.getOrCreateCurrentTestRun(
-            config.testSuite.name,
-        );
+        const {run} = yield* prepareReport({
+            mode: 'summarize',
+            config,
+            cached: false,
+        });
         const before = yield* repository
             .getTestResultsStream(run, config.testSuite.schemas)
             .pipe(Stream.runCollect);
@@ -159,9 +160,7 @@ it.effect('filters grouped results while keeping the full cache', () =>
             cached: true,
             keys: Option.some(['missing']),
         });
-        const run = yield* repository.getOrCreateCurrentTestRun(
-            grouped.testSuite.name,
-        );
+        const run = cached.run;
         const saved = yield* repository
             .getTestResultsStream(run, grouped.testSuite.schemas)
             .pipe(Stream.runCollect);

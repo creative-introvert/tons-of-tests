@@ -1,9 +1,11 @@
 import colors from 'ansi-colors';
 import {Option} from 'effect';
 
+import type {Stats} from '../Classify.js';
 import type {DisplayConfig} from '../DisplayConfig.js';
 import type {StatsColumn, StatsColumnNames, StatsContext} from '../Show.js';
 import type {TestRunResults} from '../Test.js';
+import type {TestRun} from '../Test.repository.js';
 import {
     colorNegative,
     colorPositive,
@@ -164,4 +166,80 @@ export const showStats = <I, O, T>({
     s += showBorder(cfg, columnWidths, 'bottom');
 
     return s;
+};
+
+/** Missing baselines have no metrics; completed empty runs have zero counts. */
+export const showRunSummaries = ({
+    summaries,
+    displayConfig,
+}: {
+    summaries: ReadonlyArray<{
+        name: string;
+        variant: string;
+        run: Option.Option<TestRun>;
+        stats: Option.Option<Stats>;
+        retired: boolean;
+    }>;
+    displayConfig?: Partial<DisplayConfig> | undefined;
+}): string => {
+    const cfg = {...makeDefault(), ...displayConfig};
+    const labels = [
+        'suite',
+        'variant',
+        'run',
+        'status',
+        'cases',
+        'results',
+        'precision',
+        'recall',
+        'mean time',
+    ];
+    const rows = summaries.map(summary => {
+        const stats = Option.getOrUndefined(summary.stats);
+        const fields = [
+            summary.name,
+            summary.variant,
+            Option.match(summary.run, {
+                onNone: () => '-',
+                onSome: run => `run:${run.id}`,
+            }),
+            [
+                ...(summary.retired ? ['retired'] : []),
+                ...(Option.isNone(summary.run) ? ['no baseline'] : []),
+            ].join(', '),
+            stats === undefined ? '-' : String(stats.testCases),
+            stats === undefined ? '-' : String(stats.total),
+            stats === undefined ? '-' : stats.precision.toFixed(2),
+            stats === undefined ? '-' : stats.recall.toFixed(2),
+            stats === undefined
+                ? '-'
+                : Option.match(stats.timeMean, {
+                      onNone: () => '-',
+                      onSome: time => `${time.toFixed(2)}ms`,
+                  }),
+        ];
+        return fields.map((field, index): [string, string[]] => [
+            labels[index],
+            [field],
+        ]);
+    });
+    const widths = labels.map((label, index) =>
+        rows.reduce(
+            (width, row) =>
+                Math.max(width, colors.unstyle(row[index][1][0]).length),
+            label.length,
+        ),
+    );
+    const header = showHeader(
+        cfg,
+        widths,
+        labels.map(label => ({label})),
+    );
+    return (
+        showTitle(cfg, widths, colors.bold('RUN STATISTICS')) +
+        header +
+        showBorder(cfg, widths, 'middle') +
+        rows.map(row => showRow(cfg, row, widths, 1)).join('') +
+        showBorder(cfg, widths, 'bottom')
+    );
 };

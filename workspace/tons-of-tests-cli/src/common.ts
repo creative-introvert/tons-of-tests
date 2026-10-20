@@ -5,9 +5,72 @@ import {Option, Schema, SchemaTransformation} from 'effect';
 export const cached = Flag.Boolean('cached').pipe(
     Flag.withDefault(false),
     Flag.withDescription(
-        'Reuse a completed current run; otherwise run the suite.',
+        'Reuse the latest attempt only if it is Complete, even if it is the baseline. Otherwise start a new run.',
     ),
 );
+
+const VariantId = Schema.String.check(
+    Schema.isNonEmpty(),
+    Schema.makeFilter(
+        value => !value.includes(',') && !value.startsWith('run:'),
+        {message: 'A variant cannot contain a comma or start with run:.'},
+    ),
+);
+
+export const variant = Flag.String('variant').pipe(
+    Flag.withSchema(VariantId),
+    Flag.optional,
+    Flag.withDescription(
+        'Select a variant by ID. Suites defined with program use default.',
+    ),
+);
+
+const ExactRunReference = Schema.String.check(
+    Schema.makeFilter(
+        value =>
+            /^run:[1-9]\d*$/.test(value) &&
+            Number.isSafeInteger(Number(value.slice(4))),
+        {message: 'Use run:<positive integer> for an exact saved run.'},
+    ),
+).pipe(
+    Schema.decodeTo(
+        Schema.TaggedStruct('Run', {id: Schema.Int}),
+        SchemaTransformation.transform({
+            decode: value => ({
+                _tag: 'Run' as const,
+                id: Number(value.slice(4)),
+            }),
+            encode: value => `run:${value.id}`,
+        }),
+    ),
+);
+
+const BaselineReference = VariantId.pipe(
+    Schema.decodeTo(
+        Schema.TaggedStruct('Baseline', {variant: Schema.String}),
+        SchemaTransformation.transform({
+            decode: value => ({_tag: 'Baseline' as const, variant: value}),
+            encode: value => value.variant,
+        }),
+    ),
+);
+
+export const RunReference = Schema.Union([
+    ExactRunReference,
+    BaselineReference,
+]);
+export type RunReference = typeof RunReference.Type;
+
+export const exactRun = Flag.String('run').pipe(
+    Flag.withSchema(ExactRunReference),
+    Flag.optional,
+    Flag.withDescription('Commit an exact complete run, for example run:17.'),
+);
+
+export class InvalidCommandOptions extends Schema.TaggedError<
+    InvalidCommandOptions,
+    {readonly brand: unique symbol}
+>()('InvalidCommandOptions', {message: Schema.String}) {}
 
 const CommaSeparatedStringsSchema = Schema.String.pipe(
     Schema.decodeTo(
@@ -43,7 +106,7 @@ export const resultFilterFlags = {
         Flag.withSchema(LabelSchema),
         Flag.optional,
         Flag.withDescription(
-            'Show results with any listed current label (comma-separated).',
+            'Show results with any listed label, separated by commas. Diff uses the to side when present and the from side for removed rows.',
         ),
     ),
     orTags: Flag.String('tags').pipe(

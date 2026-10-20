@@ -2,10 +2,12 @@ import * as PT from '@creative-introvert/tons-of-tests';
 import {NodeServices} from '@effect/platform-node';
 import {expect, it} from '@effect/vitest';
 import {
+    Console,
     Effect,
     FileSystem,
     Layer,
     Option,
+    PlatformError,
     Schema,
     SchemaTransformation,
     Stream,
@@ -13,6 +15,7 @@ import {
 import {SqlClient} from 'effect/sql';
 
 import {prepareReport} from './test-run.js';
+import {effectNoDeps} from './index.js';
 import type {ResultFilters} from './common.js';
 
 const numberSchemas = {
@@ -68,10 +71,7 @@ it.effect(
                 cached: false,
             });
             const repository = yield* PT.TestRepository.TestRepository;
-            yield* repository.commitCurrentTestRun({
-                name: config.testSuite.name,
-                hash: 'baseline',
-            });
+            yield* repository.commitTestRun(first.run.id);
             const unchanged = yield* prepareReport({
                 mode: 'diff',
                 config,
@@ -103,9 +103,7 @@ it.effect(
                 cachedStats: fresh.stats,
                 cachedOutput: yield* fresh.chunks.pipe(Stream.runCollect),
             });
-            const run = yield* repository.getOrCreateCurrentTestRun(
-                config.testSuite.name,
-            );
+            const run = cached.run;
             const testRun = yield* repository
                 .getTestResultsStream(run, config.testSuite.schemas)
                 .pipe(PT.Test.runCollectRecord(run));
@@ -192,26 +190,24 @@ it.effect.each([
                         },
                     ),
                 ).flat();
-            const previous =
-                yield* repository.getOrCreateCurrentTestRun('report');
-            yield* repository.insertTestResults(
-                makeResults(false),
-                previous,
-                config.testSuite.schemas,
+            const {run: previous} = yield* repository.withTestRun(
+                {name: 'report', variant: 'default'},
+                run =>
+                    repository.insertTestResults(
+                        makeResults(false),
+                        run,
+                        config.testSuite.schemas,
+                    ),
             );
-            yield* repository.commitCurrentTestRun({
-                name: 'report',
-                hash: 'baseline',
-            });
-            const current =
-                yield* repository.getOrCreateCurrentTestRun('report');
-            yield* repository.withTestRun(
-                current,
-                repository.insertTestResults(
-                    makeResults(true),
-                    current,
-                    config.testSuite.schemas,
-                ),
+            yield* repository.commitTestRun(previous.id);
+            const {run: current} = yield* repository.withTestRun(
+                {name: 'report', variant: 'default'},
+                run =>
+                    repository.insertTestResults(
+                        makeResults(true),
+                        run,
+                        config.testSuite.schemas,
+                    ),
             );
             const filters: ResultFilters = filtered
                 ? {
@@ -251,17 +247,11 @@ it.effect.each([
                 ),
             );
             expect({
-                output,
                 count: report.count,
                 stats: report.stats,
                 previousStats:
                     mode === 'diff' ? report.previousStats : Option.none(),
             }).toEqual({
-                output: yield* PT.Show.summarize({
-                    ...expected,
-                    schemas: config.testSuite.schemas,
-                    displayConfig: config.displayConfig,
-                }),
                 count: expected.testRun.testResultKeys.length,
                 stats: expected.testRun.stats,
                 previousStats:
@@ -269,6 +259,12 @@ it.effect.each([
                         ? Option.map(expected.previousTestRun, run => run.stats)
                         : Option.none(),
             });
+            expect(output).toContain('first line');
+            expect(output).toContain('日本語');
+            if (mode === 'diff') {
+                expect(output).toContain(`run:${previous.id}`);
+                expect(output).toContain(`run:${current.id}`);
+            }
         }).pipe(Effect.scoped, Effect.provide(services)),
 );
 
@@ -315,7 +311,8 @@ it.effect('fresh and cached reports use both directions of custom codecs', () =>
                 new PT.TestRepository.TestRun({
                     id: 0,
                     name: config.testSuite.name,
-                    hash: null,
+                    variant: 'default',
+                    state: 'Complete',
                 }),
             ),
         );
@@ -383,7 +380,21 @@ it.effect(
             const fs = yield* FileSystem.FileSystem;
             const sql = yield* SqlClient.SqlClient;
             const files: string[] = [];
-            const failure = {_tag: 'TestFailure'} as const;
+            const console = yield* Console.Console;
+            const output: string[] = [];
+            const capturedConsole: Console.Console = Object.assign(
+                Object.create(console),
+                {
+                    log: (...args: ReadonlyArray<unknown>) => {
+                        output.push(args.map(String).join(' '));
+                    },
+                },
+            );
+            const failure = PlatformError.systemError({
+                _tag: 'Unknown',
+                module: 'FileSystem',
+                method: 'makeTempFileScoped',
+            });
             const config = {
                 dbPath: ':memory:',
                 testSuite: {
@@ -393,17 +404,15 @@ it.effect(
                         input,
                         expected: input,
                     })),
-                    program: (input: number) =>
-                        input === 55
-                            ? Effect.fail(failure)
-                            : Effect.succeed(input),
+                    program: (input: number) => Effect.succeed(input),
                 },
             };
-            const error = yield* prepareReport({
-                mode: 'summarize',
-                config,
-                cached: false,
-            }).pipe(
+            const error = yield* effectNoDeps(config, [
+                'node',
+                'suite',
+                'summarize',
+            ]).pipe(
+                Effect.provideService(Console.Console, capturedConsole),
                 Effect.provideService(FileSystem.FileSystem, {
                     ...fs,
                     makeTempFileScoped: options =>
@@ -413,10 +422,18 @@ it.effect(
                                     files.push(path);
                                 }),
                             ),
+                            Effect.andThen(Effect.fail(failure)),
                         ),
                 }),
                 Effect.scoped,
                 Effect.flip,
+            );
+            const saved = Option.getOrThrow(
+                yield* (yield* PT.TestRepository
+                    .TestRepository).getLatestTestRun({
+                    name: 'report-cleanup',
+                    variant: 'default',
+                }),
             );
             expect({
                 error,
@@ -425,11 +442,15 @@ it.effect(
                     fs.exists(path),
                 ),
                 tables: yield* sql`SELECT name FROM sqlite_temp_master WHERE type = 'table' AND name LIKE 'tots_stats_%';`,
+                state: saved.state,
+                output,
             }).toEqual({
                 error: failure,
                 createdFiles: 1,
                 filesStillPresent: [false],
                 tables: [],
+                state: 'Complete',
+                output: [`Created report-cleanup / default / run:${saved.id}.`],
             });
         }).pipe(Effect.provide(services)),
 );

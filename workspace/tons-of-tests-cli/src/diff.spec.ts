@@ -2,11 +2,21 @@ import {Command} from 'effect/cli';
 import {NodeServices} from '@effect/platform-node';
 import * as PT from '@creative-introvert/tons-of-tests';
 import {expect, it} from '@effect/vitest';
-import {Effect, Layer, Option, Result, Schema, Stdio, Stream} from 'effect';
+import {
+    Effect,
+    Layer,
+    Option,
+    Result,
+    Schema,
+    Sink,
+    Stdio,
+    Stream,
+} from 'effect';
 
 import {_commit} from './commit.js';
 import {diff as diffCommand} from './diff.js';
 import {prepareReport} from './test-run.js';
+import {effectNoDeps} from './index.js';
 
 const services = Layer.mergeAll(
     PT.TestRepository.TestRepository.TestLayer,
@@ -70,9 +80,7 @@ it.effect.each([
                 config: {...config, testSuite: {...config.testSuite, program}},
                 cached: false,
             });
-            const current = yield* repository.getOrCreateCurrentTestRun(
-                config.testSuite.name,
-            );
+            const current = report.run;
             const selected = yield* repository
                 .getTestResultsStream(current, config.testSuite.schemas)
                 .pipe(
@@ -81,9 +89,10 @@ it.effect.each([
                     ),
                     PT.Test.runCollectRecord(current),
                 );
-            const previous = yield* repository.getPreviousTestRun(
-                config.testSuite.name,
-            );
+            const previous = yield* repository.getBaselineTestRun({
+                name: config.testSuite.name,
+                variant: 'default',
+            });
             const selectedPrevious = Option.isNone(previous)
                 ? Option.none()
                 : Option.some(
@@ -103,16 +112,10 @@ it.effect.each([
                 count: report.count,
                 stats: report.stats,
                 previous: report.previousStats,
-                output: (yield* report.chunks.pipe(Stream.runCollect)).join(''),
             }).toEqual({
                 count: inputs.length,
                 stats: selected.stats,
                 previous: Option.map(selectedPrevious, run => run.stats),
-                output: yield* PT.Show.summarize({
-                    schemas: config.testSuite.schemas,
-                    testRun: selected,
-                    previousTestRun: selectedPrevious,
-                }),
             });
         }).pipe(Effect.scoped, Effect.provide(services)),
 );
@@ -330,4 +333,194 @@ it.effect(
             });
             expect(replacement.count).toBe(1);
         }).pipe(Effect.scoped, Effect.provide(services)),
+);
+
+it.effect(
+    'saved references include removals and do not run programs or change baselines',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* PT.TestRepository.TestRepository;
+            let calls = 0;
+            const base = {
+                ...config,
+                testSuite: {
+                    name: config.testSuite.name,
+                    schemas: config.testSuite.schemas,
+                    testCases: config.testSuite.testCases,
+                    variants: {
+                        A: {
+                            program: (input: number) =>
+                                Effect.sync(() => {
+                                    calls++;
+                                    return input + 1;
+                                }),
+                        },
+                        B: {
+                            program: (input: number) =>
+                                Effect.sync(() => {
+                                    calls++;
+                                    return input + 1;
+                                }),
+                        },
+                    },
+                },
+            };
+            const old = yield* prepareReport({
+                config: base,
+                mode: 'summarize',
+                cached: false,
+                variant: 'A',
+            });
+            yield* repository.commitTestRun(old.run.id);
+            const current = yield* prepareReport({
+                config: {
+                    ...base,
+                    testSuite: {
+                        ...base.testSuite,
+                        testCases: [base.testSuite.testCases[0]],
+                    },
+                },
+                mode: 'summarize',
+                cached: false,
+                variant: 'B',
+            });
+            yield* repository.commitTestRun(current.run.id);
+            yield* prepareReport({
+                config: base,
+                mode: 'summarize',
+                cached: false,
+                variant: 'A',
+            });
+            yield* prepareReport({
+                config: base,
+                mode: 'summarize',
+                cached: false,
+                variant: 'B',
+            });
+            const external = yield* prepareReport({
+                config: {
+                    ...base,
+                    testSuite: {
+                        ...base.testSuite,
+                        name: 'other-suite',
+                        testCases: [base.testSuite.testCases[0]],
+                    },
+                },
+                mode: 'summarize',
+                cached: false,
+                variant: 'A',
+            });
+            const before = yield* repository.listTestRuns({
+                name: config.testSuite.name,
+                limit: 100,
+            });
+            const otherBefore = yield* repository.listTestRuns({
+                name: 'other-suite',
+                limit: 100,
+            });
+            for (const references of [
+                {from: 'A', to: 'B', selected: current.run},
+                {
+                    from: `run:${old.run.id}`,
+                    to: `run:${current.run.id}`,
+                    selected: current.run,
+                },
+                {
+                    from: `run:${old.run.id}`,
+                    to: `run:${external.run.id}`,
+                    selected: external.run,
+                },
+            ]) {
+                const output: string[] = [];
+                const error = yield* effectNoDeps(base, [
+                    'node',
+                    'suite',
+                    'diff',
+                    '--from',
+                    references.from,
+                    '--to',
+                    references.to,
+                    '--exit-on-diff',
+                ]).pipe(
+                    Effect.provide(
+                        Stdio.layerTest({
+                            stdout: () =>
+                                Sink.forEach(chunk =>
+                                    Effect.sync(() => {
+                                        output.push(String(chunk));
+                                    }),
+                                ),
+                        }),
+                    ),
+                    Effect.flip,
+                );
+                expect(
+                    error._tag === 'DiffNonEmpty' ? error.count : error._tag,
+                ).toBe(1);
+                expect(output.join('')).toContain(
+                    `from: ${old.run.name} / ${old.run.variant} / run:${old.run.id}`,
+                );
+                expect(output.join('')).toContain(
+                    `to: ${references.selected.name} / ${references.selected.variant} / run:${references.selected.id}`,
+                );
+                expect(output.join('')).toContain('removed');
+            }
+            expect({
+                calls,
+                runs: yield* repository.listTestRuns({
+                    name: config.testSuite.name,
+                    limit: 100,
+                }),
+                other: yield* repository.listTestRuns({
+                    name: 'other-suite',
+                    limit: 100,
+                }),
+            }).toEqual({calls: 8, runs: before, other: otherBefore});
+        }).pipe(Effect.scoped, Effect.provide(services)),
+);
+
+it.effect.each([
+    {args: ['--from', 'A'], tag: 'InvalidCommandOptions'},
+    {args: ['--to', 'B'], tag: 'InvalidCommandOptions'},
+    {
+        args: ['--from', 'A', '--to', 'B', '--variant', 'A'],
+        tag: 'InvalidCommandOptions',
+    },
+    {
+        args: ['--from', 'A', '--to', 'B', '--cached'],
+        tag: 'InvalidCommandOptions',
+    },
+    {args: ['--from', 'run:0', '--to', 'B'], tag: 'ShowHelp'},
+    {args: ['--from', 'run:1x', '--to', 'B'], tag: 'ShowHelp'},
+    {args: ['--from', 'run:9007199254740992', '--to', 'B'], tag: 'ShowHelp'},
+    {args: ['--from', 'A', '--to', 'B'], tag: 'TestBaselineNotFound'},
+    {args: ['--from', 'run:999', '--to', 'B'], tag: 'TestRunNotFound'},
+])('rejects invalid diff selections before execution ($tag)', ({args, tag}) =>
+    Effect.gen(function* () {
+        let calls = 0;
+        const selected = {
+            ...config,
+            testSuite: {
+                ...config.testSuite,
+                program: (input: number) =>
+                    Effect.sync(() => {
+                        calls++;
+                        return input;
+                    }),
+            },
+        };
+        const error = yield* Command.runWith(diffCommand(selected), {
+            version: 'test',
+            renderErrors: false,
+        })(args).pipe(Effect.flip);
+        const repository = yield* PT.TestRepository.TestRepository;
+        expect({
+            tag: error._tag,
+            calls,
+            runs: yield* repository.listTestRuns({
+                name: selected.testSuite.name,
+                limit: 100,
+            }),
+        }).toEqual({tag, calls: 0, runs: []});
+    }).pipe(Effect.provide(services)),
 );

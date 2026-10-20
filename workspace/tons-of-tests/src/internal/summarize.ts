@@ -15,8 +15,8 @@ import type {
     SummarizeColumnNames,
     SummarizeContext,
 } from '../Show.js';
-import type {TestRunResults} from '../Test.js';
-import type {TestResultSchemas} from '../Test.repository.js';
+import type {TestResultComparison, TestRunResults} from '../Test.js';
+import type {TestResultSchemas, TestRun} from '../Test.repository.js';
 import {makeResultCodec} from './Test.serialization.js';
 import {showBorder, showHeader, showRow, showTitle} from './common.js';
 import {makeDefault} from './DisplayConfig.js';
@@ -299,20 +299,13 @@ export const prepareSummary = Effect.fnUntraced(function* <I, O, T, E, R>(
     },
 ) {
     const codec = makeResultCodec(schemas, suite);
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* fs.makeTempFileScoped({
-        prefix: 'tons-of-tests-summary-',
-        suffix: '.jsonl',
-    });
-    const cfg = {...makeDefault(), ...displayConfig};
     const selected = columns
         .filter(column => selectColumns.includes(column.name))
         .filter(column => !column.name.startsWith('prev_') || hasPrevious);
-    let widths = selected.map(column => column.label.length);
-    let count = 0;
-    yield* results.pipe(
+    const rows = results.pipe(
+        Stream.zipWithIndex,
         Stream.mapEffect(
-            Effect.fnUntraced(function* (context) {
+            Effect.fnUntraced(function* ([context, i]) {
                 const testResult = yield* codec.encode(context.testResult);
                 const previousTestResult = Option.isSome(
                     context.previousTestResult,
@@ -321,28 +314,192 @@ export const prepareSummary = Effect.fnUntraced(function* <I, O, T, E, R>(
                           yield* codec.encode(context.previousTestResult.value),
                       )
                     : Option.none();
-                const row = makeRow(selected, {
+                return makeRow(selected, {
                     testResult,
                     previousTestResult,
-                    i: count++,
+                    i,
                     resultCount: 0,
                 });
-                widths = measureRow(widths, row);
-                return `${JSON.stringify(row)}\n`;
             }),
         ),
+    );
+    return yield* prepareTable(rows, {
+        columns: selected,
+        title: 'SUMMARY',
+        indexColumn: selected.findIndex(column => column.name === 'index'),
+        displayConfig,
+    });
+});
+
+/**
+ * Show added and removed results with `-` where the other side is missing.
+ * Each side uses its own suite name when reporting a codec failure.
+ * Prepare and consume the chunks inside `Effect.scoped` so temporary files stay available.
+ */
+export const prepareComparison = Effect.fnUntraced(function* <I, A, B, E, R>(
+    comparisons: Stream.Stream<TestResultComparison<I, A, B>, E, R>,
+    {
+        from,
+        to,
+        schemas,
+        displayConfig,
+    }: {
+        from: Option.Option<TestRun>;
+        to: TestRun;
+        schemas: TestResultSchemas<I, A, B>;
+        displayConfig?: Partial<DisplayConfig> | undefined;
+    },
+) {
+    const fromCodec = Option.map(from, run =>
+        makeResultCodec(schemas, run.name),
+    );
+    const toCodec = makeResultCodec(schemas, to.name);
+    const labels = [
+        '#/∑',
+        'change',
+        'key',
+        'input',
+        'from label',
+        'from expected',
+        'from result',
+        'to label',
+        'to expected',
+        'to result',
+    ];
+    const rows = comparisons.pipe(
+        Stream.mapEffect(
+            Effect.fnUntraced(function* (comparison) {
+                const before =
+                    comparison._tag === 'OnlyTo'
+                        ? undefined
+                        : yield* Option.getOrThrow(fromCodec).encode(
+                              comparison.from,
+                          );
+                const after =
+                    comparison._tag === 'OnlyFrom'
+                        ? undefined
+                        : yield* toCodec.encode(comparison.to);
+                const result =
+                    comparison._tag === 'OnlyFrom'
+                        ? comparison.from
+                        : comparison.to;
+                const fields = [
+                    '',
+                    comparison._tag === 'OnlyFrom'
+                        ? 'removed'
+                        : comparison._tag === 'OnlyTo'
+                          ? 'added'
+                          : comparison.changed
+                            ? 'changed'
+                            : 'unchanged',
+                    result.key,
+                    JSON.stringify(
+                        after === undefined ? before?.input : after.input,
+                        null,
+                        2,
+                    ),
+                    before?.label ?? '-',
+                    before === undefined
+                        ? '-'
+                        : JSON.stringify(before.expected, null, 2),
+                    before === undefined
+                        ? '-'
+                        : JSON.stringify(before.result, null, 2),
+                    after?.label ?? '-',
+                    after === undefined
+                        ? '-'
+                        : JSON.stringify(after.expected, null, 2),
+                    after === undefined
+                        ? '-'
+                        : JSON.stringify(after.result, null, 2),
+                ];
+                return fields.map((value, index): [string, string[]] => [
+                    labels[index],
+                    value.split('\n'),
+                ]);
+            }),
+        ),
+    );
+    const identity = (run: TestRun) =>
+        `${run.name} / ${run.variant} / run:${run.id}`;
+    const previous = Option.match(from, {
+        onNone: () => 'no baseline',
+        onSome: identity,
+    });
+    const table = yield* prepareTable(rows, {
+        columns: labels.map(label => ({label})),
+        title: 'COMPARISON',
+        indexColumn: 0,
+        displayConfig,
+    });
+    return {
+        ...table,
+        chunks: Stream.make(`from: ${previous}\nto: ${identity(to)}\n`).pipe(
+            Stream.concat(table.chunks),
+        ),
+    };
+});
+
+const prepareTable = Effect.fnUntraced(function* <E, R>(
+    formattedRows: Stream.Stream<
+        ReadonlyArray<readonly [string, ReadonlyArray<string>]>,
+        E,
+        R
+    >,
+    {
+        columns,
+        title,
+        indexColumn,
+        displayConfig,
+    }: {
+        columns: {label: string}[];
+        title: string;
+        indexColumn: number;
+        displayConfig?: Partial<DisplayConfig> | undefined;
+    },
+) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* fs.makeTempFileScoped({
+        prefix: 'tons-of-tests-summary-',
+        suffix: '.jsonl',
+    });
+    const cfg = {...makeDefault(), ...displayConfig};
+    let widths = columns.map(column => column.label.length);
+    let count = 0;
+    yield* formattedRows.pipe(
+        Stream.map(row => {
+            const height = row.reduce(
+                (height, [, values]) => Math.max(height, values.length),
+                1,
+            );
+            const padded = row.map(
+                ([label, values]) =>
+                    [
+                        label,
+                        [
+                            ...values,
+                            ...Array.from(
+                                {length: height - values.length},
+                                () => '',
+                            ),
+                        ],
+                    ] as const,
+            );
+            widths = measureRow(widths, padded);
+            count++;
+            return `${JSON.stringify(padded)}\n`;
+        }),
         Stream.encodeText,
         Stream.run(fs.sink(path)),
     );
-    const indexColumn = selected.findIndex(column => column.name === 'index');
     if (indexColumn >= 0)
         widths[indexColumn] = Math.max(
             widths[indexColumn],
             `${count}/${count}`.length,
         );
-    const header = showHeader(cfg, widths, selected);
+    const header = showHeader(cfg, widths, columns);
     const start =
-        showTitle(cfg, widths, colors.bold('SUMMARY')) +
+        showTitle(cfg, widths, colors.bold(title)) +
         header +
         showBorder(cfg, widths, 'middle');
     const end = header + showBorder(cfg, widths, 'bottom');

@@ -1,9 +1,14 @@
 import * as t from '@effect/vitest';
 import * as PT from '@creative-introvert/tons-of-tests';
-import {Context, Effect, Ref, Schema, Stream} from 'effect';
+import {Context, Effect, FileSystem, Ref, Schema, Stream} from 'effect';
+import {NodeServices} from '@effect/platform-node';
+import type {PlatformError} from 'effect/PlatformError';
+import type {CliError} from 'effect/cli/CliError';
+import type {MigrationError} from 'effect/sql/Migrator';
 
+import type {InvalidCommandOptions} from './common.js';
 import {DiffNonEmpty} from './diff.js';
-import {effect as cliEffect} from './index.js';
+import {effect as cliEffect, getBaselineRun, type Config} from './index.js';
 
 const numberSchemas = {
     testCase: {input: Schema.Finite, expected: Schema.Finite},
@@ -211,3 +216,259 @@ t.describe('CLI.effect', () => {
         }),
     );
 });
+
+t.it.effect(
+    'getBaselineRun reads the selected baseline or null through a new connection',
+    () =>
+        Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const directory = yield* fs.makeTempDirectoryScoped();
+            const config = {
+                dbPath: `${directory}/baselines.db`,
+                testSuite: {
+                    name: 'baseline-helper',
+                    schemas: numberSchemas,
+                    testCases: [{input: 1, expected: 1}],
+                    variants: {
+                        A: {program: (input: number) => Effect.succeed(input)},
+                        B: {program: (input: number) => Effect.succeed(input)},
+                    },
+                },
+            };
+            const before = yield* Effect.promise(() =>
+                getBaselineRun(config, 'A'),
+            );
+            yield* cliEffect(config, [
+                'node',
+                'suite',
+                'summarize',
+                '--variant',
+                'A',
+            ]);
+            yield* cliEffect(config, [
+                'node',
+                'suite',
+                'commit',
+                '--variant',
+                'A',
+            ]);
+            const after = yield* Effect.promise(() =>
+                getBaselineRun(config, 'A'),
+            );
+            const other = yield* Effect.promise(() =>
+                getBaselineRun(config, 'B'),
+            );
+            t.expect({
+                before,
+                other,
+                selected: after && {
+                    id: after.id,
+                    name: after.name,
+                    variant: after.variant,
+                    state: after.state,
+                },
+            }).toEqual({
+                before: null,
+                other: null,
+                selected: {
+                    id: 1,
+                    name: 'baseline-helper',
+                    variant: 'A',
+                    state: 'Complete',
+                },
+            });
+        }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+class ProgramA extends Context.Service<ProgramA, {readonly value: number}>()(
+    'ProgramA',
+) {}
+class ProgramB extends Context.Service<ProgramB, {readonly value: number}>()(
+    'ProgramB',
+) {}
+class Cases extends Context.Service<Cases, {readonly value: number}>()(
+    'Cases',
+) {}
+
+const failureA = {_tag: 'FailureA'} as const;
+const failureB = {_tag: 'FailureB'} as const;
+const failureCases = {_tag: 'FailureCases'} as const;
+const typedCases = Stream.fromEffect(
+    Effect.gen(function* () {
+        const cases = yield* Cases;
+        if (cases.value < 0) return yield* Effect.fail(failureCases);
+        return {input: cases.value, expected: cases.value};
+    }),
+);
+const programA = (input: number) =>
+    Effect.gen(function* () {
+        const service = yield* ProgramA;
+        if (input < 0) return yield* Effect.fail(failureA);
+        return input + service.value;
+    });
+const programB = (input: number) =>
+    Effect.gen(function* () {
+        const service = yield* ProgramB;
+        if (input < 0) return yield* Effect.fail(failureB);
+        return input + service.value;
+    });
+type LibraryError =
+    | DiffNonEmpty
+    | InvalidCommandOptions
+    | MigrationError
+    | PlatformError
+    | PT.Test.TestVariantNotFound
+    | PT.Test.TestVariantRequired
+    | CliError
+    | PT.Error.RepositoryError;
+t.it(
+    'preserves all program and case-stream channels in inline CLI suites',
+    () => {
+        const annotated: Config<number, number, number> = {
+            dbPath: ':memory:',
+            testSuite: {
+                name: 'annotated',
+                schemas: numberSchemas,
+                testCases: [{input: 1, expected: 1}],
+                program: (input: number) => Effect.succeed(input),
+            },
+        };
+        const annotatedEffect = cliEffect(annotated);
+        t.expectTypeOf<
+            Effect.Services<typeof annotatedEffect>
+        >().toEqualTypeOf<never>();
+        const defaultVariants = cliEffect(
+            {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'typed-default-variants',
+                    schemas: numberSchemas,
+                    testCases: typedCases,
+                    variants: {A: {program: programA}, B: {program: programB}},
+                },
+            },
+            ['node', 'suite', 'summarize', '--variant', 'A'],
+        );
+        const customVariants = cliEffect({
+            dbPath: ':memory:',
+            testSuite: {
+                name: 'typed-custom-variants',
+                schemas: numberSchemas,
+                testCases: typedCases,
+                variants: {
+                    A: {
+                        program: (input: number) =>
+                            programA(input).pipe(
+                                Effect.map(answer => ({
+                                    answer,
+                                    read: () => answer,
+                                })),
+                            ),
+                    },
+                    B: {
+                        program: (input: number) =>
+                            programB(input).pipe(
+                                Effect.map(answer => ({
+                                    answer,
+                                    read: () => answer,
+                                })),
+                            ),
+                    },
+                },
+                evaluate: (output, expected) => [
+                    {
+                        key: 'answer',
+                        result: output.answer,
+                        expected,
+                        label: 'TP',
+                    },
+                ],
+            },
+        });
+        const defaultSingle = cliEffect({
+            dbPath: ':memory:',
+            testSuite: {
+                name: 'typed-default-single',
+                schemas: numberSchemas,
+                testCases: typedCases,
+                program: programA,
+            },
+        });
+        const customSingle = cliEffect({
+            dbPath: ':memory:',
+            testSuite: {
+                name: 'typed-custom-single',
+                schemas: numberSchemas,
+                testCases: typedCases,
+                program: (input: number) =>
+                    programA(input).pipe(Effect.map(answer => ({answer}))),
+                evaluate: (output, expected) => [
+                    {
+                        key: 'answer',
+                        result: output.answer,
+                        expected,
+                        label: 'TP',
+                    },
+                ],
+            },
+        });
+        const emptyDefault = cliEffect({
+            dbPath: ':memory:',
+            testSuite: {
+                name: 'typed-empty-default',
+                schemas: numberSchemas,
+                testCases: typedCases,
+                variants: {},
+            },
+        });
+        const emptyCustom = cliEffect({
+            dbPath: ':memory:',
+            testSuite: {
+                name: 'typed-empty-custom',
+                schemas: numberSchemas,
+                testCases: typedCases,
+                variants: {},
+                evaluate: (output: number, expected) => [
+                    {key: 'answer', result: output, expected, label: 'TP'},
+                ],
+            },
+        });
+        type Failures = typeof failureA | typeof failureB | typeof failureCases;
+        t.expectTypeOf<Effect.Error<typeof defaultVariants>>().toEqualTypeOf<
+            LibraryError | Failures
+        >();
+        t.expectTypeOf<Effect.Services<typeof defaultVariants>>().toEqualTypeOf<
+            ProgramA | ProgramB | Cases
+        >();
+        t.expectTypeOf<Effect.Error<typeof customVariants>>().toEqualTypeOf<
+            LibraryError | Failures
+        >();
+        t.expectTypeOf<Effect.Services<typeof customVariants>>().toEqualTypeOf<
+            ProgramA | ProgramB | Cases
+        >();
+        t.expectTypeOf<Effect.Error<typeof defaultSingle>>().toEqualTypeOf<
+            LibraryError | typeof failureA | typeof failureCases
+        >();
+        t.expectTypeOf<Effect.Services<typeof defaultSingle>>().toEqualTypeOf<
+            ProgramA | Cases
+        >();
+        t.expectTypeOf<Effect.Error<typeof customSingle>>().toEqualTypeOf<
+            LibraryError | typeof failureA | typeof failureCases
+        >();
+        t.expectTypeOf<Effect.Services<typeof customSingle>>().toEqualTypeOf<
+            ProgramA | Cases
+        >();
+        t.expectTypeOf<Effect.Error<typeof emptyDefault>>().toEqualTypeOf<
+            LibraryError | typeof failureCases
+        >();
+        t.expectTypeOf<
+            Effect.Services<typeof emptyDefault>
+        >().toEqualTypeOf<Cases>();
+        t.expectTypeOf<Effect.Error<typeof emptyCustom>>().toEqualTypeOf<
+            LibraryError | typeof failureCases
+        >();
+        t.expectTypeOf<
+            Effect.Services<typeof emptyCustom>
+        >().toEqualTypeOf<Cases>();
+    },
+);

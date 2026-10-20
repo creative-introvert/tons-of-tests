@@ -29,6 +29,7 @@ export const getAllTestRunResults = Effect.gen(function* () {
                 ordering: Schema.Int,
                 resultOrdering: Schema.Int,
                 timeMillis: Schema.Finite,
+                tags: Schema.fromJsonString(Schema.Array(Schema.String)),
             }),
         ),
     )(yield* sql`SELECT * FROM ${sql(tables.testRunResults)};`);

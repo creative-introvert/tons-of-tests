@@ -7,7 +7,11 @@ import type {
     TestResultSchemas,
 } from '../Test.repository.js';
 import {TestRun} from '../TestRun.js';
-import {TestRunNotCreated, TestRunIncomplete} from '../RepositoryError.js';
+import {
+    TestRunNotCreated,
+    TestRunIncomplete,
+    TestRunNotFound,
+} from '../RepositoryError.js';
 import {LabelSchema} from './Classify.js';
 import {migrate, tables} from './test-repository-migrations.js';
 import {withStats} from './test-result-stats.js';
@@ -19,45 +23,58 @@ export const TestResultStorage = Schema.Struct({
     id: Schema.String,
     hashTestCase: Schema.String,
     key: Schema.String,
-    ordering: Schema.Int,
-    resultOrdering: Schema.Int,
     input: Schema.fromJsonString(Schema.Json),
     result: Schema.fromJsonString(Schema.Json),
     expected: Schema.fromJsonString(Schema.Json),
     label: LabelSchema,
-    tags: Schema.fromJsonString(Schema.Array(Schema.String)),
-    timeMillis: Schema.Finite,
 });
 const StoredResult = Schema.Struct({
     ...TestResultStorage.fields,
     input: Schema.String,
     result: Schema.String,
     expected: Schema.String,
+    ordering: Schema.Int,
+    resultOrdering: Schema.Int,
+    tags: Schema.fromJsonString(Schema.Array(Schema.String)),
+    timeMillis: Schema.Finite,
 });
 const encodeResult = Schema.encodeEffect(StoredResult);
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(StoredResult));
 const decodeRuns = Schema.decodeUnknownEffect(Schema.Array(TestRun));
-const decodeRunStates = Schema.decodeUnknownEffect(
+const decodeListedRuns = Schema.decodeUnknownEffect(
     Schema.Array(
         Schema.Struct({
             ...TestRun.fields,
-            state: Schema.Literals([
-                'Untracked',
-                'Running',
-                'Complete',
-                'Failed',
-            ]),
+            isBaseline: Schema.Literals([0, 1]),
         }),
     ),
 );
-const decodeCount = Schema.decodeUnknownEffect(
-    Schema.Tuple([Schema.Struct({count: Schema.Int})]),
+const decodeVariantBaselines = Schema.decodeUnknownEffect(
+    Schema.Array(
+        Schema.Struct({
+            variant: Schema.String,
+            id: Schema.NullOr(TestRun.fields.id),
+            name: Schema.NullOr(TestRun.fields.name),
+            state: Schema.NullOr(TestRun.fields.state),
+        }),
+    ),
+);
+const decodeRunLimit = Schema.decodeUnknownEffect(
+    Schema.Int.check(Schema.isBetween({minimum: 1, maximum: 100})),
 );
 
 export const makeTestRepository = Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`PRAGMA auto_vacuum = FULL;`;
     yield* migrate;
+
+    const getTestRun = Effect.fnUntraced(function* (id: number) {
+        return A.head(
+            yield* decodeRuns(
+                yield* sql`SELECT * FROM ${sql(tables.testRuns)} WHERE id = ${id};`,
+            ),
+        );
+    });
 
     const insertTestResults = Effect.fnUntraced(function* <I, O, T>(
         results: ReadonlyArray<TestResult<I, O, T>>,
@@ -66,7 +83,11 @@ export const makeTestRepository = Effect.gen(function* () {
     ) {
         const codec = makeResultCodec(schemas, run.name);
         // Each statement stays below SQLite's lowest default limit of 999 parameters.
-        for (let offset = 0; offset < results.length; offset += 50) {
+        for (
+            let offset = 0;
+            offset < Math.max(1, results.length);
+            offset += 50
+        ) {
             const encoded = yield* Effect.forEach(
                 results.slice(offset, offset + 50),
                 Effect.fnUntraced(function* (result) {
@@ -79,28 +100,53 @@ export const makeTestRepository = Effect.gen(function* () {
                     });
                 }),
             );
-            yield* sql`
-                INSERT INTO ${sql(tables.testResults)} ${sql.insert(encoded)}
-                ON CONFLICT(id) DO NOTHING;
-            `;
-            const links = encoded.map(result => ({
-                testRun: run.id,
-                testResult: result.id,
-                ordering: result.ordering,
-                resultOrdering: result.resultOrdering,
-                timeMillis: result.timeMillis,
-                tags: result.tags,
-            }));
-            yield* sql`
-                INSERT INTO ${sql(tables.testRunResults)} ${sql.insert(links)}
-                ON CONFLICT(testRun, testResult) DO UPDATE SET
-                    ordering = excluded.ordering,
-                    resultOrdering = excluded.resultOrdering,
-                    timeMillis = excluded.timeMillis,
-                    tags = excluded.tags;
-            `;
+            yield* sql.withTransaction(
+                Effect.gen(function* () {
+                    const saved = yield* getTestRun(run.id);
+                    if (Option.isNone(saved)) {
+                        return yield* new TestRunNotFound({testRunId: run.id});
+                    }
+                    if (saved.value.state !== 'Running') {
+                        return yield* Effect.die(
+                            new Error(
+                                'Only Running test runs accept result writes.',
+                            ),
+                        );
+                    }
+                    if (encoded.length === 0) return;
+                    const content = encoded.map(result => ({
+                        id: result.id,
+                        hashTestCase: result.hashTestCase,
+                        key: result.key,
+                        input: result.input,
+                        result: result.result,
+                        expected: result.expected,
+                        label: result.label,
+                    }));
+                    yield* sql`
+                        INSERT INTO ${sql(tables.testResults)} ${sql.insert(content)}
+                        ON CONFLICT(id) DO NOTHING;
+                    `;
+                    const links = encoded.map(result => ({
+                        testRun: run.id,
+                        testResult: result.id,
+                        ordering: result.ordering,
+                        resultOrdering: result.resultOrdering,
+                        timeMillis: result.timeMillis,
+                        tags: result.tags,
+                    }));
+                    yield* sql`
+                        INSERT INTO ${sql(tables.testRunResults)} ${sql.insert(links)}
+                        ON CONFLICT(testRun, testResult) DO UPDATE SET
+                            ordering = excluded.ordering,
+                            resultOrdering = excluded.resultOrdering,
+                            timeMillis = excluded.timeMillis,
+                            tags = excluded.tags;
+                    `;
+                }),
+            );
         }
-    }, sql.withTransaction);
+    });
 
     const getTestResultsStream = <I = unknown, O = unknown, T = unknown>(
         run: TestRun,
@@ -176,180 +222,185 @@ export const makeTestRepository = Effect.gen(function* () {
         );
     };
 
-    const hasResults = Effect.fnUntraced(function* (run: Pick<TestRun, 'id'>) {
-        const [{count}] = yield* decodeCount(
-            yield* sql`
-            SELECT EXISTS(SELECT 1 FROM ${sql(tables.testRunResults)} WHERE testRun = ${run.id}) AS count;
-        `,
-        );
-        return count > 0;
-    });
-
-    const getPreviousTestRun = Effect.fnUntraced(function* (name: string) {
+    const getLatestTestRun = Effect.fnUntraced(function* ({
+        name,
+        variant,
+    }: {
+        name: string;
+        variant: string;
+    }) {
         return A.head(
             yield* decodeRuns(
                 yield* sql`
-            SELECT * FROM ${sql(tables.testRuns)}
-            WHERE hash IS NOT NULL AND name = ${name} ORDER BY id DESC LIMIT 1;
-        `,
+                    SELECT * FROM ${sql(tables.testRuns)}
+                    WHERE name = ${name} AND variant = ${variant}
+                    ORDER BY id DESC LIMIT 1;
+                `,
             ),
         );
     });
 
-    const getLastTestRunHash = Effect.fnUntraced(function* (name: string) {
-        return (yield* getPreviousTestRun(name)).pipe(
-            Option.flatMap(run => Option.fromNullishOr(run.hash)),
-        );
-    });
-
-    const getOrCreateCurrentTestRun = Effect.fnUntraced(function* (
-        name: string,
-    ) {
-        const current = A.head(
+    const getBaselineTestRun = Effect.fnUntraced(function* ({
+        name,
+        variant,
+    }: {
+        name: string;
+        variant: string;
+    }) {
+        return A.head(
             yield* decodeRuns(
                 yield* sql`
-            SELECT * FROM ${sql(tables.testRuns)}
-            WHERE hash IS NULL AND name = ${name} ORDER BY id DESC LIMIT 1;
-        `,
+                    SELECT run.* FROM ${sql(tables.testBaselines)} baseline
+                    JOIN ${sql(tables.testRuns)} run ON run.id = baseline.testRun
+                    WHERE baseline.name = ${name} AND baseline.variant = ${variant};
+                `,
             ),
         );
-        if (Option.isSome(current)) return current.value;
+    });
+
+    const createTestRun = Effect.fnUntraced(function* (input: {
+        name: string;
+        variant: string;
+    }) {
         const inserted = yield* decodeRuns(
             yield* sql`
-            INSERT INTO ${sql(tables.testRuns)} ${sql.insert({name})} RETURNING *;
-        `,
+                INSERT INTO ${sql(tables.testRuns)}
+                ${sql.insert({...input, state: 'Running'})} RETURNING *;
+            `,
         );
         return yield* Effect.fromOption(A.head(inserted)).pipe(
-            Effect.mapError(() => new TestRunNotCreated({testSuiteName: name})),
+            Effect.mapError(
+                () => new TestRunNotCreated({testSuiteName: input.name}),
+            ),
         );
     }, sql.withTransaction);
 
-    const clearOrphans = sql`
-        DELETE FROM ${sql(tables.testResults)}
-        WHERE id NOT IN (SELECT testResult FROM ${sql(tables.testRunResults)});
-    `;
-
-    const clearStale = Effect.fnUntraced(function* ({
-        name,
-        keep = 1,
-    }: {
-        name: string;
-        keep?: number;
-    }) {
-        const stale = yield* decodeRuns(
-            yield* sql`
-            SELECT * FROM ${sql(tables.testRuns)}
-            WHERE hash IS NOT NULL AND name = ${name} ORDER BY id DESC LIMIT -1 OFFSET ${keep};
-        `,
-        );
-        if (stale.length === 0) return;
-        const ids = stale.map(run => run.id);
-        yield* sql`DELETE FROM ${sql(tables.testRunResults)} WHERE testRun IN ${sql.in(ids)};`;
-        yield* sql`DELETE FROM ${sql(tables.testRuns)} WHERE id IN ${sql.in(ids)};`;
-        yield* clearOrphans;
-    }, sql.withTransaction);
-
-    const clearUncommitedTestResults = Effect.fnUntraced(function* ({
-        name,
-    }: {
-        name: string;
-    }) {
-        const current = A.head(
+    const finishTestRun = Effect.fnUntraced(function* (
+        run: TestRun,
+        state: 'Complete' | 'Failed',
+    ) {
+        const updated = A.head(
             yield* decodeRuns(
                 yield* sql`
-            SELECT * FROM ${sql(tables.testRuns)} WHERE name = ${name} AND hash IS NULL;
-        `,
+                    UPDATE ${sql(tables.testRuns)} SET state = ${state}
+                    WHERE id = ${run.id} AND state = 'Running' RETURNING *;
+                `,
             ),
         );
-        if (Option.isNone(current)) return;
-        yield* sql`UPDATE ${sql(tables.testRuns)} SET state = 'Untracked' WHERE id = ${current.value.id};`;
-        yield* sql`DELETE FROM ${sql(tables.testRunResults)} WHERE testRun = ${current.value.id};`;
-        yield* clearOrphans;
+        if (Option.isNone(updated)) {
+            return yield* new TestRunNotFound({testRunId: run.id});
+        }
     }, sql.withTransaction);
 
-    const isComplete = Effect.fnUntraced(function* (run: TestRun) {
-        const current = A.head(
-            yield* decodeRunStates(
-                yield* sql`SELECT * FROM ${sql(tables.testRuns)} WHERE id = ${run.id};`,
-            ),
-        );
-        return Option.isSome(current) && current.value.state === 'Complete';
-    });
-
-    const withTestRun = <A, E, R>(
-        run: TestRun,
-        execute: Effect.Effect<A, E, R>,
+    const withTestRun = <A, E = never, R = never>(
+        input: {name: string; variant: string},
+        execute: (run: TestRun) => Effect.Effect<A, E, R>,
     ) =>
-        Effect.uninterruptibleMask(restore =>
-            sql
-                .withTransaction(
-                    Effect.gen(function* () {
-                        const current = yield* sql`
-                    SELECT id FROM ${sql(tables.testRuns)}
-                    WHERE id = ${run.id} AND name = ${run.name} AND hash IS NULL;
-                `;
-                        if (current.length !== 1) {
-                            return yield* Effect.die(
-                                new Error(
-                                    'withTestRun requires the current uncommitted run.',
-                                ),
-                            );
-                        }
-                        yield* clearUncommitedTestResults({name: run.name});
-                        yield* sql`UPDATE ${sql(tables.testRuns)} SET state = 'Running' WHERE id = ${run.id};`;
-                    }),
-                )
-                .pipe(
-                    Effect.flatMap(() =>
-                        restore(execute).pipe(
-                            Effect.onExit(exit =>
-                                sql`
-                        UPDATE ${sql(tables.testRuns)}
-                        SET state = ${Exit.isSuccess(exit) ? 'Complete' : 'Failed'}
-                        WHERE id = ${run.id};
-                    `.pipe(Effect.asVoid),
-                            ),
-                        ),
-                    ),
+        Effect.acquireUseRelease(
+            createTestRun(input),
+            run =>
+                Effect.suspend(() => execute(run)).pipe(
+                    Effect.map(value => ({run, value})),
                 ),
+            (run, exit) =>
+                finishTestRun(
+                    run,
+                    Exit.isSuccess(exit) ? 'Complete' : 'Failed',
+                ),
+        ).pipe(
+            Effect.map(({run, value}) => ({
+                run: new TestRun({
+                    id: run.id,
+                    name: run.name,
+                    variant: run.variant,
+                    state: 'Complete',
+                }),
+                value,
+            })),
         );
 
-    const commitCurrentTestRun = Effect.fnUntraced(function* ({
+    const commitTestRun = Effect.fnUntraced(function* (id: number) {
+        const found = yield* getTestRun(id);
+        if (Option.isNone(found)) {
+            return yield* new TestRunNotFound({testRunId: id});
+        }
+        const run = found.value;
+        if (run.state !== 'Complete') {
+            return yield* new TestRunIncomplete({
+                testSuiteName: run.name,
+                testRunId: run.id,
+                variant: run.variant,
+            });
+        }
+        yield* sql`
+            INSERT INTO ${sql(tables.testBaselines)}
+            ${sql.insert({name: run.name, variant: run.variant, testRun: run.id})}
+            ON CONFLICT(name, variant) DO UPDATE SET testRun = excluded.testRun;
+        `;
+    }, sql.withTransaction);
+
+    const listTestRuns = Effect.fnUntraced(function* ({
         name,
-        hash,
+        variant,
+        before,
+        limit,
     }: {
         name: string;
-        hash: string;
+        variant?: string;
+        before?: number;
+        limit: number;
     }) {
-        const current = A.head(
-            yield* decodeRunStates(
-                yield* sql`SELECT * FROM ${sql(tables.testRuns)} WHERE name = ${name} AND hash IS NULL;`,
-            ),
+        const parsedLimit = yield* decodeRunLimit(limit);
+        const runs = yield* decodeListedRuns(
+            yield* sql`
+                SELECT run.*, EXISTS(
+                    SELECT 1 FROM ${sql(tables.testBaselines)} baseline
+                    WHERE baseline.name = run.name AND baseline.variant = run.variant
+                        AND baseline.testRun = run.id
+                ) AS isBaseline
+                FROM ${sql(tables.testRuns)} run
+                WHERE run.name = ${name}
+                    AND ${variant === undefined ? sql`1 = 1` : sql`run.variant = ${variant}`}
+                    AND ${before === undefined ? sql`1 = 1` : sql`run.id < ${before}`}
+                ORDER BY run.id DESC LIMIT ${parsedLimit};
+            `,
         );
-        if (
-            Option.isSome(current) &&
-            (current.value.state === 'Running' ||
-                current.value.state === 'Failed')
-        ) {
-            return yield* new TestRunIncomplete({testSuiteName: name});
-        }
-        if (Option.isNone(current) || !(yield* hasResults(current.value)))
-            return 'NothingToCommit' as const;
-        yield* sql`UPDATE ${sql(tables.testRuns)} SET hash = ${hash}, state = 'Complete' WHERE id = ${current.value.id};`;
-        yield* sql`INSERT INTO ${sql(tables.testRuns)} ${sql.insert({name})};`;
-        return 'Committed' as const;
-    }, sql.withTransaction);
+        return runs.map(({isBaseline, ...run}) =>
+            Object.assign(new TestRun(run), {isBaseline: isBaseline === 1}),
+        );
+    });
+
+    const listVariantBaselines = Effect.fnUntraced(function* (name: string) {
+        const variants = yield* decodeVariantBaselines(
+            yield* sql`
+                SELECT variants.variant, run.id, run.name, run.state
+                FROM (
+                    SELECT DISTINCT variant FROM ${sql(tables.testRuns)}
+                    WHERE name = ${name}
+                ) variants
+                LEFT JOIN ${sql(tables.testBaselines)} baseline
+                    ON baseline.name = ${name} AND baseline.variant = variants.variant
+                LEFT JOIN ${sql(tables.testRuns)} run ON run.id = baseline.testRun
+                ORDER BY variants.variant;
+            `,
+        );
+        return variants.map(({variant, id, name, state}) => ({
+            variant,
+            baseline:
+                id === null || name === null || state === null
+                    ? Option.none<TestRun>()
+                    : Option.some(new TestRun({id, name, variant, state})),
+        }));
+    });
 
     return {
-        clearStale,
-        clearUncommitedTestResults,
-        commitCurrentTestRun,
-        getOrCreateCurrentTestRun,
-        getLastTestRunHash,
-        getPreviousTestRun,
+        commitTestRun,
+        getTestRun,
+        getLatestTestRun,
+        getBaselineTestRun,
+        listTestRuns,
+        listVariantBaselines,
         getTestResultsStream,
-        hasResults,
-        isComplete,
         withTestRun,
         withStats: use =>
             withStats(use).pipe(

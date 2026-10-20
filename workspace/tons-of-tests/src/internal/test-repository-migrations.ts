@@ -5,6 +5,7 @@ import {SqlClient} from 'effect/sql';
 export const tables = {
     testResults: 'test-results',
     testRuns: 'test-runs',
+    testBaselines: 'test-baselines',
     testRunResults: 'test-run-results',
 } as const;
 
@@ -17,14 +18,18 @@ export const migrate = SqliteMigrator.run({
                 CREATE TABLE ${sql(tables.testRuns)}(
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
-                    hash TEXT,
-                    state TEXT NOT NULL DEFAULT 'Untracked'
+                    variant TEXT NOT NULL,
+                    state TEXT NOT NULL CHECK (state IN ('Running', 'Complete', 'Failed'))
                 );
             `;
-            yield* sql`CREATE INDEX idx_name_hash ON ${sql(tables.testRuns)}(name, hash);`;
+            yield* sql`CREATE INDEX idx_run_name_variant_id ON ${sql(tables.testRuns)}(name, variant, id);`;
             yield* sql`
-                CREATE UNIQUE INDEX idx_current_per_name
-                ON ${sql(tables.testRuns)}(name) WHERE hash IS NULL;
+                CREATE TABLE ${sql(tables.testBaselines)}(
+                    name TEXT NOT NULL,
+                    variant TEXT NOT NULL,
+                    testRun INTEGER NOT NULL REFERENCES ${sql(tables.testRuns)}(id),
+                    PRIMARY KEY (name, variant)
+                );
             `;
 
             yield* sql`
@@ -32,14 +37,10 @@ export const migrate = SqliteMigrator.run({
                     id TEXT PRIMARY KEY,
                     hashTestCase TEXT NOT NULL,
                     key TEXT NOT NULL,
-                    ordering INTEGER NOT NULL,
-                    resultOrdering INTEGER NOT NULL,
                     input TEXT,
                     result TEXT,
                     expected TEXT,
-                    label TEXT NOT NULL,
-                    tags TEXT NOT NULL,
-                    timeMillis REAL NOT NULL
+                    label TEXT NOT NULL
                 );
             `;
             yield* sql`CREATE INDEX idx_tr_case_key ON ${sql(tables.testResults)}(hashTestCase, key);`;

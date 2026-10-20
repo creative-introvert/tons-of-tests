@@ -1,920 +1,929 @@
-import * as SqlClient from 'effect/sql/SqlClient';
+import {NodeFileSystem} from '@effect/platform-node';
 import * as Sqlite from '@effect/sql-sqlite-node';
-import * as t from '@effect/vitest';
-import {Cause, Effect, Exit, Option, Schema, Stream} from 'effect';
+import {expect, it} from '@effect/vitest';
+import {
+    Cause,
+    Deferred,
+    Effect,
+    Exit,
+    Fiber,
+    FileSystem,
+    Option,
+    Schema,
+    Stream,
+} from 'effect';
+import {SqlClient} from 'effect/sql';
 
-import {SqlError} from 'effect/sql/SqlError';
-import type * as Test from '../Test.js';
+import {Stats} from '../Classify.js';
+import type {TestResult} from '../Test.js';
 import {TestRepository} from '../Test.repository.js';
 import {TestRun} from '../TestRun.js';
-import * as T from './Test.js';
-import * as TR from './Test.repository.sqlite.js';
+import {makeTestRepository, tables} from './Test.repository.sqlite.js';
 import {
-    getAllTestRuns,
     getAllTestResults,
     getAllTestRunResults,
+    getAllTestRuns,
 } from './test-repository-fixtures.js';
 
-type TestCase = Test.TestCase<number, number>;
-const add = (input: number) => Effect.succeed(input + 1);
 const numberSchemas = {
-    testCase: {input: Schema.Finite, expected: Schema.Finite},
+    testCase: {input: Schema.Finite},
     evaluation: {result: Schema.Finite, expected: Schema.Finite},
 };
 
-// Each test uses a unique suite name and scopes queries to its own run via
-// getTestResultsStream, so tests are robust to vitest reordering and the
-// shared in-memory db contents from other tests in the same describe block.
-
-t.describe('Test.repository.sqlite', () => {
-    t.layer(TestRepository.TestLayer, {excludeTestServices: true})(
-        'with shared in-memory db',
-        it => {
-            it.effect(
-                'getOrCreateCurrentTestRun creates, then re-creates after commit',
-                () =>
-                    Effect.gen(function* () {
-                        const name = 'suite-get-or-create';
-                        const repository = yield* TestRepository;
-                        const missing = yield* repository.commitCurrentTestRun({
-                            name,
-                            hash: 'missing',
-                        });
-
-                        const a =
-                            yield* repository.getOrCreateCurrentTestRun(name);
-                        t.expect(a.name).toBe(name);
-                        t.expect(a.hash).toBeNull();
-                        const empty = yield* repository.commitCurrentTestRun({
-                            name,
-                            hash: 'empty',
-                        });
-
-                        // commitCurrentTestRun bails early if the current run has no
-                        // results, so insert one first.
-                        yield* T.all({
-                            schemas: numberSchemas,
-                            testCases: [{input: 0, expected: 1}],
-                            program: add,
-                            name,
-                        }).pipe(
-                            Stream.tap(_ =>
-                                repository.insertTestResult(
-                                    _,
-                                    a,
-                                    numberSchemas,
-                                ),
-                            ),
-                            Stream.runDrain,
-                        );
-                        const saved = yield* repository.commitCurrentTestRun({
-                            name,
-                            hash: `${name}-1`,
-                        });
-
-                        const b =
-                            yield* repository.getOrCreateCurrentTestRun(name);
-                        t.expect(b.name).toBe(name);
-                        t.expect(b.hash).toBeNull();
-                        // A fresh current-run row was created; the original was committed.
-                        t.expect(b.id).not.toBe(a.id);
-
-                        const runs = (yield* getAllTestRuns).filter(
-                            r => r.name === name,
-                        );
-                        const committed = runs.find(r => r.id === a.id);
-                        t.expect(committed?.hash).toBe(`${name}-1`);
-                        t.expect([missing, empty, saved]).toEqual([
-                            'NothingToCommit',
-                            'NothingToCommit',
-                            'Committed',
-                        ]);
-                    }),
-            );
-
-            it.effect(
-                'insertTestResult: round-trip + idempotent on re-insert',
-                () =>
-                    Effect.gen(function* () {
-                        const name = 'suite-insert';
-                        const testCases: TestCase[] = [
-                            {input: 111, expected: 112, tags: ['a', 'b']},
-                            {input: 112, expected: 113, tags: []},
-                            {input: 113, expected: 114},
-                        ];
-                        const repository = yield* TestRepository;
-                        const testRun =
-                            yield* repository.getOrCreateCurrentTestRun(name);
-
-                        yield* T.all({
-                            schemas: numberSchemas,
-                            testCases,
-                            program: add,
-                            name,
-                        }).pipe(
-                            Stream.tap(_ =>
-                                repository.insertTestResult(
-                                    _,
-                                    testRun,
-                                    numberSchemas,
-                                ),
-                            ),
-                            Stream.runDrain,
-                        );
-
-                        const scopeToRun = Effect.gen(function* () {
-                            const junction = yield* getAllTestRunResults;
-                            const all = yield* getAllTestResults;
-                            const idsForRun = new Set(
-                                junction
-                                    .filter(j => j.testRun === testRun.id)
-                                    .map(j => j.testResult),
-                            );
-                            return all.filter(r => idsForRun.has(r.id));
-                        });
-
-                        const scoped = yield* scopeToRun;
-                        t.expect(scoped).toHaveLength(testCases.length);
-                        const first = scoped.find(r => r.ordering === 0);
-                        t.expect(first?.tags).toEqual(['a', 'b']);
-                        const second = scoped.find(r => r.ordering === 1);
-                        t.expect(second?.tags).toEqual([]);
-
-                        const junctionBefore =
-                            (yield* getAllTestRunResults).filter(
-                                j => j.testRun === testRun.id,
-                            );
-
-                        // Re-inserting results keeps one row per result and run.
-                        yield* T.all({
-                            schemas: numberSchemas,
-                            testCases,
-                            program: add,
-                            name,
-                        }).pipe(
-                            Stream.tap(_ =>
-                                repository.insertTestResult(
-                                    _,
-                                    testRun,
-                                    numberSchemas,
-                                ),
-                            ),
-                            Stream.runDrain,
-                        );
-
-                        const junctionAfter =
-                            (yield* getAllTestRunResults).filter(
-                                j => j.testRun === testRun.id,
-                            );
-                        t.expect(junctionAfter).toHaveLength(
-                            junctionBefore.length,
-                        );
-
-                        const scopedAgain = yield* scopeToRun;
-                        t.expect(scopedAgain).toHaveLength(testCases.length);
-
-                        const allResults = yield* getAllTestResults;
-                        const scopedIds = new Set(scoped.map(r => r.id));
-                        const scopedAgainIds = new Set(
-                            scopedAgain.map(r => r.id),
-                        );
-                        t.expect(
-                            [...scopedAgainIds].sort((a, b) =>
-                                String(a).localeCompare(String(b)),
-                            ),
-                        ).toEqual(
-                            [...scopedIds].sort((a, b) =>
-                                String(a).localeCompare(String(b)),
-                            ),
-                        );
-                        t.expect(
-                            allResults.filter(r => scopedIds.has(r.id)),
-                        ).toHaveLength(testCases.length);
-                    }),
-            );
-
-            it.effect(
-                'stores siblings with equal values and decodes projected values with their schemas',
-                () =>
-                    Effect.gen(function* () {
-                        const repository = yield* TestRepository;
-                        const run = yield* repository.getOrCreateCurrentTestRun(
-                            'suite-projected-siblings',
-                        );
-                        const budget: Test.TestResult<
-                            {transcript: string},
-                            {value: number},
-                            number
-                        > = {
-                            id: 'projected-budget',
-                            hashTestCase: 'projected-case',
-                            key: 'budget',
-                            ordering: 0,
-                            resultOrdering: 0,
-                            input: {transcript: 'A call about BANT.'},
-                            result: {value: 50_000},
-                            expected: 50_000,
-                            label: 'TP',
-                            tags: ['bant'],
-                            timeMillis: 12.5,
-                        };
-                        const need = {
-                            ...budget,
-                            id: 'projected-need',
-                            key: 'need',
-                            resultOrdering: 1,
-                        };
-                        const schemas = {
-                            testCase: {
-                                input: Schema.Struct({
-                                    transcript: Schema.String,
-                                }),
-                            },
-                            evaluation: {
-                                result: Schema.Struct({value: Schema.Finite}),
-                                expected: Schema.Finite,
-                            },
-                        };
-                        yield* repository.insertTestResults(
-                            [need, budget],
-                            run,
-                            schemas,
-                        );
-
-                        const actual = yield* repository
-                            .getTestResultsStream(run, schemas)
-                            .pipe(Stream.runCollect);
-
-                        t.expect(actual).toEqual([budget, need]);
-                    }),
-            );
-
-            it.effect(
-                'keeps case order, sibling order and inference timing for each run when result IDs are reused',
-                () =>
-                    Effect.gen(function* () {
-                        const repository = yield* TestRepository;
-                        const name = 'suite-run-metadata';
-                        const schemas = {
-                            testCase: {input: Schema.String},
-                            evaluation: {
-                                result: Schema.String,
-                                expected: Schema.String,
-                            },
-                        };
-                        const firstRun =
-                            yield* repository.getOrCreateCurrentTestRun(name);
-                        const budget: Test.TestResult<string, string, string> =
-                            {
-                                id: 'run-metadata-budget',
-                                hashTestCase: 'run-metadata-first-case',
-                                key: 'budget',
-                                ordering: 0,
-                                resultOrdering: 0,
-                                input: 'First call',
-                                result: 'yes',
-                                expected: 'yes',
-                                label: 'TP',
-                                tags: [],
-                                timeMillis: 10,
-                            };
-                        const need = {
-                            ...budget,
-                            id: 'run-metadata-need',
-                            key: 'need',
-                            resultOrdering: 1,
-                        };
-                        const other = {
-                            ...budget,
-                            id: 'run-metadata-other',
-                            hashTestCase: 'run-metadata-second-case',
-                            ordering: 1,
-                            input: 'Second call',
-                            timeMillis: 20,
-                        };
-                        yield* repository.insertTestResults(
-                            [other, need, budget],
-                            firstRun,
-                            schemas,
-                        );
-                        yield* repository.commitCurrentTestRun({
-                            name,
-                            hash: 'run-metadata-first',
-                        });
-
-                        const secondRun =
-                            yield* repository.getOrCreateCurrentTestRun(name);
-                        const secondBudget = {
-                            ...budget,
-                            ordering: 1,
-                            resultOrdering: 1,
-                            timeMillis: 40,
-                        };
-                        const secondNeed = {
-                            ...need,
-                            ordering: 1,
-                            resultOrdering: 0,
-                            timeMillis: 40,
-                        };
-                        const secondOther = {
-                            ...other,
-                            ordering: 0,
-                            timeMillis: 30,
-                        };
-                        yield* repository.insertTestResults(
-                            [secondBudget, secondNeed, secondOther],
-                            secondRun,
-                            schemas,
-                        );
-
-                        const firstResults = yield* repository
-                            .getTestResultsStream(firstRun, schemas)
-                            .pipe(Stream.runCollect);
-                        const secondResults = yield* repository
-                            .getTestResultsStream(secondRun, schemas)
-                            .pipe(Stream.runCollect);
-
-                        t.expect(firstResults).toEqual([budget, need, other]);
-                        t.expect(secondResults).toEqual([
-                            secondOther,
-                            secondNeed,
-                            secondBudget,
-                        ]);
-                    }),
-            );
-
-            it.effect(
-                'clearStale: keeps `keep` most recent commits, prunes orphans, leaves other suites alone',
-                () =>
-                    Effect.gen(function* () {
-                        const other = 'clearStale-other';
-                        const target = 'clearStale-target';
-                        const repository = yield* TestRepository;
-
-                        // Use inputs unique to this test so pruned results are truly
-                        // orphaned and get cleaned up.
-                        const otherInput = 799;
-                        const targetInputs = [751, 752, 753] as const;
-
-                        const otherRun =
-                            yield* repository.getOrCreateCurrentTestRun(other);
-                        yield* T.all({
-                            schemas: numberSchemas,
-                            testCases: [
-                                {input: otherInput, expected: otherInput + 1},
-                            ],
-                            program: add,
-                            name: other,
-                        }).pipe(
-                            Stream.tap(_ =>
-                                repository.insertTestResult(
-                                    _,
-                                    otherRun,
-                                    numberSchemas,
-                                ),
-                            ),
-                            Stream.runDrain,
-                        );
-                        yield* repository.commitCurrentTestRun({
-                            name: other,
-                            hash: `${other}-1`,
-                        });
-
-                        for (const input of targetInputs) {
-                            const targetRun =
-                                yield* repository.getOrCreateCurrentTestRun(
-                                    target,
-                                );
-                            yield* T.all({
-                                schemas: numberSchemas,
-                                testCases: [{input, expected: input + 1}],
-                                program: add,
-                                name: target,
-                            }).pipe(
-                                Stream.tap(_ =>
-                                    repository.insertTestResult(
-                                        _,
-                                        targetRun,
-                                        numberSchemas,
-                                    ),
-                                ),
-                                Stream.runDrain,
-                            );
-                            yield* repository.commitCurrentTestRun({
-                                name: target,
-                                hash: `${target}-${input}`,
-                            });
-                        }
-
-                        yield* repository.clearStale({name: target, keep: 1});
-
-                        const runs = yield* getAllTestRuns;
-                        const targetHashes = new Set(
-                            runs
-                                .filter(r => r.name === target)
-                                .map(r => r.hash),
-                        );
-                        t.expect(targetHashes).toEqual(
-                            new Set([null, `${target}-${targetInputs[2]}`]),
-                        );
-
-                        const otherHashes = new Set(
-                            runs.filter(r => r.name === other).map(r => r.hash),
-                        );
-                        t.expect(otherHashes).toEqual(
-                            new Set([null, `${other}-1`]),
-                        );
-
-                        // Verify orphan cleanup via the junction table. We check the
-                        // target suite's kept run only has 1 associated result, and
-                        // the pruned inputs (751, 752) are no longer referenced by
-                        // any surviving run.
-                        const allRunResults = yield* getAllTestRunResults;
-                        const keptTargetRun = runs.find(
-                            r =>
-                                r.name === target &&
-                                r.hash === `${target}-${targetInputs[2]}`,
-                        );
-                        t.expect(keptTargetRun).toBeDefined();
-                        const keptAssociations = allRunResults.filter(
-                            rr => rr.testRun === keptTargetRun?.id,
-                        );
-                        t.expect(keptAssociations).toHaveLength(1);
-
-                        // Pruned target run IDs must not appear in the junction table.
-                        const survivingRunIds = new Set(runs.map(r => r.id));
-                        t.expect(
-                            allRunResults.every(rr =>
-                                survivingRunIds.has(rr.testRun),
-                            ),
-                        ).toBe(true);
-
-                        // Verify orphaned test-results rows (inputs 751, 752) were
-                        // pruned by the final DELETE in clearStale. Scope to results
-                        // referenced by the target/other suite runs — the shared
-                        // in-memory DB also holds rows from other tests.
-                        const allResults = yield* getAllTestResults;
-                        const myRunIds = new Set(
-                            runs
-                                .filter(
-                                    r => r.name === target || r.name === other,
-                                )
-                                .map(r => r.id),
-                        );
-                        const myResultIds = new Set(
-                            allRunResults
-                                .filter(rr => myRunIds.has(rr.testRun))
-                                .map(rr => rr.testResult),
-                        );
-                        const inputs = allResults
-                            .filter(r => myResultIds.has(r.id))
-                            .map(r => r.input)
-                            .filter((x): x is number => typeof x === 'number');
-                        t.expect(new Set(inputs)).toEqual(
-                            new Set<number>([otherInput, targetInputs[2]]),
-                        );
-
-                        // The orphaned inputs must not survive anywhere in test-results
-                        // either — the final DELETE prunes rows no run references.
-                        const allInputs = new Set(
-                            allResults
-                                .map(r => r.input)
-                                .filter(
-                                    (x): x is number => typeof x === 'number',
-                                ),
-                        );
-                        t.expect(allInputs.has(targetInputs[0])).toBe(false);
-                        t.expect(allInputs.has(targetInputs[1])).toBe(false);
-                    }),
-            );
-
-            it.effect(
-                'getOrCreateCurrentTestRun returns a decoded TestRun instance and is idempotent for the same name',
-                () =>
-                    Effect.gen(function* () {
-                        const name = 'suite-get-or-create-idempotent';
-                        const repository = yield* TestRepository;
-
-                        const a =
-                            yield* repository.getOrCreateCurrentTestRun(name);
-                        const b =
-                            yield* repository.getOrCreateCurrentTestRun(name);
-
-                        t.expect(a).toBeInstanceOf(TestRun);
-                        t.expect(b.id).toBe(a.id);
-                        t.expect(b.hash).toBeNull();
-
-                        const runs = (yield* getAllTestRuns).filter(
-                            r => r.name === name,
-                        );
-                        const current = runs.filter(r => r.hash === null);
-                        t.expect(current).toHaveLength(1);
-                    }),
-            );
-
-            it.effect(
-                'clearUncommitedTestResults is a no-op when no current run exists for the suite name',
-                () =>
-                    Effect.gen(function* () {
-                        const repository = yield* TestRepository;
-                        const exit = yield* Effect.exit(
-                            repository.clearUncommitedTestResults({
-                                name: 'suite-never-created',
-                            }),
-                        );
-                        t.expect(Exit.isSuccess(exit)).toBe(true);
-                    }),
-            );
-
-            it.effect(
-                'clearStale is a no-op when there are fewer committed runs than `keep`',
-                () =>
-                    Effect.gen(function* () {
-                        const name = 'suite-few-runs';
-                        const repository = yield* TestRepository;
-                        const testRun =
-                            yield* repository.getOrCreateCurrentTestRun(name);
-                        yield* T.all({
-                            schemas: numberSchemas,
-                            testCases: [{input: 601, expected: 602}],
-                            program: add,
-                            name,
-                        }).pipe(
-                            Stream.tap(_ =>
-                                repository.insertTestResult(
-                                    _,
-                                    testRun,
-                                    numberSchemas,
-                                ),
-                            ),
-                            Stream.runDrain,
-                        );
-                        yield* repository.commitCurrentTestRun({
-                            name,
-                            hash: `${name}-1`,
-                        });
-
-                        const before = (yield* getAllTestRuns).filter(
-                            r => r.name === name,
-                        );
-                        yield* repository.clearStale({name, keep: 3});
-                        const after = (yield* getAllTestRuns).filter(
-                            r => r.name === name,
-                        );
-                        t.expect(
-                            after
-                                .map(r => r.hash)
-                                .sort((a, b) =>
-                                    String(a).localeCompare(String(b)),
-                                ),
-                        ).toEqual(
-                            before
-                                .map(r => r.hash)
-                                .sort((a, b) =>
-                                    String(a).localeCompare(String(b)),
-                                ),
-                        );
-                    }),
-            );
-        },
-    );
-
-    t.it.effect(
-        'opening an old database fails without changing its saved runs',
-        () =>
-            Effect.gen(function* () {
-                const sql = yield* SqlClient.SqlClient;
-                yield* sql`
-                CREATE TABLE ${sql(TR.tables.testRuns)}(
-                    id INTEGER PRIMARY KEY, name TEXT NOT NULL, hash TEXT
-                );
-            `;
-                yield* sql`INSERT INTO ${sql(TR.tables.testRuns)} ${sql.insert({id: 1, name: 'old', hash: 'baseline'})};`;
-                const exit = yield* TR.makeTestRepository.pipe(Effect.exit);
-                t.expect({
-                    failed: Exit.isFailure(exit),
-                    saved: yield* sql`SELECT * FROM ${sql(TR.tables.testRuns)};`,
-                }).toEqual({
-                    failed: true,
-                    saved: [{id: 1, name: 'old', hash: 'baseline'}],
-                });
-            }).pipe(
-                Effect.provide(
-                    Sqlite.SqliteClient.layer({filename: ':memory:'}),
-                ),
-            ),
-    );
-
-    t.it.effect(
-        'reopening a current database preserves completed results',
-        () =>
-            Effect.gen(function* () {
-                const repository = yield* TR.makeTestRepository;
-                const run =
-                    yield* repository.getOrCreateCurrentTestRun('reopen');
-                const result: Test.TestResult = {
-                    id: 'saved-result',
-                    hashTestCase: 'saved-case',
-                    key: 'result',
-                    ordering: 7,
-                    resultOrdering: 3,
-                    input: 1,
-                    result: 2,
-                    expected: 2,
-                    label: 'TP',
-                    tags: ['a,b', '', '日本語'],
-                    timeMillis: 42.5,
-                };
-                yield* repository.withTestRun(
-                    run,
-                    repository.insertTestResult(result, run, numberSchemas),
-                );
-                const reopened = yield* TR.makeTestRepository;
-                t.expect({
-                    results: yield* reopened
-                        .getTestResultsStream(run, numberSchemas)
-                        .pipe(Stream.runCollect),
-                    complete: yield* reopened.isComplete(run),
-                }).toEqual({results: [result], complete: true});
-            }).pipe(
-                Effect.provide(
-                    Sqlite.SqliteClient.layer({filename: ':memory:'}),
-                ),
-            ),
-    );
-
-    // Keep the malformed row out of the shared database used by the other tests.
-    t.layer(TestRepository.TestLayer, {excludeTestServices: true})(
-        'with isolated in-memory db (bogus row)',
-        it => {
-            it.effect(
-                'reading saved results surfaces SchemaError on a bogus label row',
-                () =>
-                    Effect.gen(function* () {
-                        const sql = yield* SqlClient.SqlClient;
-                        const repository = yield* TestRepository;
-                        const run =
-                            yield* repository.getOrCreateCurrentTestRun(
-                                'bogus',
-                            );
-
-                        yield* sql`
-                        INSERT INTO ${sql(TR.tables.testResults)}
-                        ${sql.insert({
-                            id: 'bogus',
-                            hashTestCase: 'bogus',
-                            key: 'result',
-                            ordering: 0,
-                            resultOrdering: 0,
-                            input: 'null',
-                            result: 'null',
-                            expected: 'null',
-                            label: 'NOT_A_LABEL',
-                            tags: '[]',
-                            timeMillis: 0,
-                        })};
-                    `;
-                        yield* sql`
-                            INSERT INTO ${sql(TR.tables.testRunResults)}
-                            ${sql.insert({testRun: run.id, testResult: 'bogus', ordering: 0, resultOrdering: 0, timeMillis: 0, tags: '[]'})};
-                        `;
-
-                        const exit = yield* Effect.exit(
-                            repository
-                                .getTestResultsStream(run, numberSchemas)
-                                .pipe(Stream.runDrain),
-                        );
-                        t.expect(Exit.isFailure(exit)).toBe(true);
-                        const err = Exit.isFailure(exit)
-                            ? Cause.findErrorOption(exit.cause).pipe(
-                                  Option.getOrThrow,
-                              )
-                            : null;
-                        t.expect(err).toBeInstanceOf(Schema.SchemaError);
-                    }),
-            );
-        },
-    );
-
-    t.layer(TestRepository.TestLayer, {excludeTestServices: true})(
-        'with isolated in-memory db (write failure)',
-        it => {
-            it.effect(
-                'insertTestResult surfaces SqlError when the table is dropped',
-                () =>
-                    Effect.gen(function* () {
-                        const sql = yield* SqlClient.SqlClient;
-                        const repository = yield* TestRepository;
-                        const name = 'suite-write-failure';
-
-                        const testRun =
-                            yield* repository.getOrCreateCurrentTestRun(name);
-
-                        // Force subsequent writes to fail.
-                        yield* sql`DROP TABLE ${sql(TR.tables.testResults)};`;
-
-                        const sample: Test.TestResult<number, number, number> =
-                            {
-                                id: 'x',
-                                hashTestCase: 'x',
-                                key: 'result',
-                                ordering: 0,
-                                resultOrdering: 0,
-                                input: 1,
-                                result: 1,
-                                expected: 1,
-                                label: 'TP',
-                                tags: [],
-                                timeMillis: 0,
-                            };
-
-                        const exit = yield* Effect.exit(
-                            repository.insertTestResult(
-                                sample,
-                                testRun,
-                                numberSchemas,
-                            ),
-                        );
-                        t.expect(Exit.isFailure(exit)).toBe(true);
-                        const err = Exit.isFailure(exit)
-                            ? Cause.findErrorOption(exit.cause).pipe(
-                                  Option.getOrThrow,
-                              )
-                            : null;
-                        t.expect(err).toBeInstanceOf(SqlError);
-                    }),
-            );
-        },
-    );
+const result = (
+    value: number,
+    overrides: Partial<TestResult<number, number, number>> = {},
+): TestResult<number, number, number> => ({
+    id: `result-${value}`,
+    hashTestCase: `case-${value}`,
+    key: 'result',
+    ordering: value,
+    resultOrdering: 0,
+    input: value,
+    result: value,
+    expected: value,
+    label: 'TP',
+    tags: [],
+    timeMillis: value + 1,
+    ...overrides,
 });
 
-t.it.effect.each([
-    {
-        description: 'commas, empty tags, whitespace and Unicode',
-        tags: ['a,b', '', ' de ', '日本語'],
-    },
-    {description: 'an empty tag list', tags: []},
-])('preserves $description separately for each run', ({tags}) =>
+it.effect('lookups never create missing runs or baselines', () =>
     Effect.gen(function* () {
         const repository = yield* TestRepository;
-        const firstRun = yield* repository.getOrCreateCurrentTestRun('tags');
-        const first: Test.TestResult<number, number, number> = {
-            id: 'same-result',
-            hashTestCase: 'same-case',
-            key: 'result',
-            ordering: 0,
-            resultOrdering: 0,
-            label: 'TP',
-            input: 1,
-            result: 1,
-            expected: 1,
-            tags,
-            timeMillis: 1,
-        };
-        yield* repository.insertTestResult(first, firstRun, numberSchemas);
-        yield* repository.commitCurrentTestRun({
-            name: 'tags',
-            hash: 'baseline',
+        const input = {name: 'missing', variant: 'A'};
+        expect({
+            exact: yield* repository.getTestRun(10),
+            latest: yield* repository.getLatestTestRun(input),
+            baseline: yield* repository.getBaselineTestRun(input),
+            variants: yield* repository.listVariantBaselines(input.name),
+            runs: yield* repository.listTestRuns({...input, limit: 50}),
+            saved: yield* getAllTestRuns,
+        }).toEqual({
+            exact: Option.none(),
+            latest: Option.none(),
+            baseline: Option.none(),
+            variants: [],
+            runs: [],
+            saved: [],
         });
-        const secondRun = yield* repository.getOrCreateCurrentTestRun('tags');
-        const second = {...first, tags: ['new,tag'], timeMillis: 2};
-        yield* repository.insertTestResult(second, secondRun, numberSchemas);
-
-        const firstSaved = yield* repository
-            .getTestResultsStream(firstRun, numberSchemas)
-            .pipe(Stream.runCollect);
-        const secondSaved = yield* repository
-            .getTestResultsStream(secondRun, numberSchemas)
-            .pipe(Stream.runCollect);
-        t.expect([firstSaved, secondSaved]).toEqual([[first], [second]]);
+        expect(
+            yield* repository.commitTestRun(10).pipe(Effect.flip),
+        ).toMatchObject({
+            _tag: 'TestRunNotFound',
+            testRunId: 10,
+        });
     }).pipe(Effect.provide(TestRepository.TestLayer)),
 );
 
-t.it.effect('a failed commit leaves the previous run state intact', () =>
+it.effect.each([false, true])(
+    'finishes and commits a successful run (empty: %s)',
+    empty =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const saved = yield* repository.withTestRun(
+                {name: 'success', variant: 'A'},
+                run =>
+                    Effect.gen(function* () {
+                        expect(run).toBeInstanceOf(TestRun);
+                        expect(run.state).toBe('Running');
+                        expect(yield* repository.getTestRun(run.id)).toEqual(
+                            Option.some(run),
+                        );
+                        if (!empty)
+                            yield* repository.insertTestResult(
+                                result(1),
+                                run,
+                                numberSchemas,
+                            );
+                        return 'callback-value';
+                    }),
+            );
+            yield* repository.commitTestRun(saved.run.id);
+            yield* repository.commitTestRun(saved.run.id);
+            expect({
+                state: saved.run.state,
+                value: saved.value,
+                baseline: yield* repository.getBaselineTestRun(saved.run),
+                rows: yield* repository
+                    .getTestResultsStream(saved.run, numberSchemas)
+                    .pipe(Stream.runCollect),
+                runs: yield* getAllTestRuns,
+            }).toEqual({
+                state: 'Complete',
+                value: 'callback-value',
+                baseline: Option.some(saved.run),
+                rows: empty ? [] : [result(1)],
+                runs: [saved.run],
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect.each(['failure', 'defect'] as const)(
+    'keeps saved batches and marks a callback %s Failed',
+    outcome =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const problem = new Error('program failed');
+            const saved = Array.from({length: 55}, (_, index) => result(index));
+            const exit = yield* repository
+                .withTestRun({name: 'failure', variant: 'A'}, run =>
+                    repository
+                        .insertTestResults(saved, run, numberSchemas)
+                        .pipe(
+                            Effect.andThen(
+                                outcome === 'failure'
+                                    ? Effect.fail(problem)
+                                    : Effect.die(problem),
+                            ),
+                        ),
+                )
+                .pipe(Effect.exit);
+            const run = Option.getOrThrow(
+                yield* repository.getLatestTestRun({
+                    name: 'failure',
+                    variant: 'A',
+                }),
+            );
+            expect(Exit.isFailure(exit)).toBe(true);
+            if (Exit.isFailure(exit)) {
+                expect(exit.cause.reasons).toEqual([
+                    expect.objectContaining(
+                        outcome === 'failure'
+                            ? {_tag: 'Fail', error: problem}
+                            : {_tag: 'Die', defect: problem},
+                    ),
+                ]);
+            }
+            expect({
+                state: run.state,
+                rows: yield* repository
+                    .getTestResultsStream(run, numberSchemas)
+                    .pipe(Stream.runCollect),
+                commit: yield* repository
+                    .commitTestRun(run.id)
+                    .pipe(Effect.flip),
+            }).toEqual({
+                state: 'Failed',
+                rows: saved,
+                commit: expect.objectContaining({
+                    _tag: 'TestRunIncomplete',
+                    testSuiteName: 'failure',
+                    testRunId: run.id,
+                    variant: 'A',
+                }),
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect('marks a synchronous callback throw Failed', () =>
+    Effect.gen(function* () {
+        const repository = yield* TestRepository;
+        const problem = new Error('callback threw');
+        const exit = yield* repository
+            .withTestRun({name: 'throw', variant: 'A'}, () => {
+                throw problem;
+            })
+            .pipe(Effect.exit);
+        const run = Option.getOrThrow(
+            yield* repository.getLatestTestRun({name: 'throw', variant: 'A'}),
+        );
+        expect({
+            state: run.state,
+            reasons: Exit.isFailure(exit) ? exit.cause.reasons : [],
+            commit: (yield* repository.commitTestRun(run.id).pipe(Effect.flip))
+                ._tag,
+        }).toEqual({
+            state: 'Failed',
+            reasons: [expect.objectContaining({_tag: 'Die', defect: problem})],
+            commit: 'TestRunIncomplete',
+        });
+    }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect('interruption keeps saved results and marks the run Failed', () =>
+    Effect.gen(function* () {
+        const repository = yield* TestRepository;
+        const started = yield* Deferred.make<TestRun>();
+        const fiber = yield* Effect.forkChild(
+            repository.withTestRun({name: 'interrupt', variant: 'A'}, run =>
+                repository
+                    .insertTestResult(result(2), run, numberSchemas)
+                    .pipe(
+                        Effect.andThen(Deferred.succeed(started, run)),
+                        Effect.andThen(Effect.never),
+                    ),
+            ),
+        );
+        const running = yield* Deferred.await(started);
+        yield* Fiber.interrupt(fiber);
+        const saved = Option.getOrThrow(
+            yield* repository.getTestRun(running.id),
+        );
+        expect({
+            state: saved.state,
+            rows: yield* repository
+                .getTestResultsStream(saved, numberSchemas)
+                .pipe(Stream.runCollect),
+            commit: (yield* repository
+                .commitTestRun(saved.id)
+                .pipe(Effect.flip))._tag,
+        }).toEqual({
+            state: 'Failed',
+            rows: [result(2)],
+            commit: 'TestRunIncomplete',
+        });
+    }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect('failed creation does not invoke the callback', () =>
     Effect.gen(function* () {
         const repository = yield* TestRepository;
         const sql = yield* SqlClient.SqlClient;
-        const run = yield* repository.getOrCreateCurrentTestRun('atomic');
-        yield* T.all({
-            schemas: numberSchemas,
-            name: 'atomic',
-            testCases: [{input: 1, expected: 2}],
-            program: add,
-        }).pipe(
-            Stream.tap(result =>
-                repository.insertTestResult(result, run, numberSchemas),
-            ),
-            Stream.runDrain,
-        );
-        const before = yield* getAllTestRuns;
         yield* sql`
-            CREATE TRIGGER reject_next_run BEFORE INSERT ON ${sql(TR.tables.testRuns)}
-            WHEN NEW.name = 'atomic'
-            BEGIN SELECT RAISE(ABORT, 'forced insert failure'); END;
+            CREATE TRIGGER reject_creation BEFORE INSERT ON ${sql(tables.testRuns)}
+            BEGIN SELECT RAISE(ABORT, 'forced creation failure'); END;
         `;
-
+        let called = false;
         const error = yield* repository
-            .commitCurrentTestRun({
-                name: 'atomic',
-                hash: 'new-baseline',
+            .withTestRun({name: 'creation', variant: 'A'}, () => {
+                called = true;
+                return Effect.void;
             })
             .pipe(Effect.flip);
-        t.expect({
+        expect({
             error: error._tag,
-            runs: yield* getAllTestRuns,
-            baseline: yield* repository.getLastTestRunHash('atomic'),
+            called,
+            rows: yield* getAllTestRuns,
         }).toEqual({
             error: 'SqlError',
-            runs: before,
-            baseline: Option.none(),
+            called: false,
+            rows: [],
         });
     }).pipe(Effect.provide(TestRepository.TestLayer)),
 );
 
-t.it.effect('a stale run cannot replace the current results', () =>
+it.effect.each(['success', 'failure', 'defect'] as const)(
+    'propagates failed final-state writes after callback %s',
+    outcome =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const sql = yield* SqlClient.SqlClient;
+            yield* sql`
+            CREATE TRIGGER reject_completion BEFORE UPDATE OF state ON ${sql(tables.testRuns)}
+            BEGIN SELECT RAISE(ABORT, 'forced completion failure'); END;
+        `;
+            const problem = new Error('execution failure');
+            let calls = 0;
+            const exit = yield* repository
+                .withTestRun({name: 'finalization', variant: 'A'}, run => {
+                    calls++;
+                    return repository
+                        .insertTestResult(result(3), run, numberSchemas)
+                        .pipe(
+                            Effect.andThen(
+                                outcome === 'success'
+                                    ? Effect.succeed('done')
+                                    : outcome === 'failure'
+                                      ? Effect.fail(problem)
+                                      : Effect.die(problem),
+                            ),
+                        );
+                })
+                .pipe(Effect.exit);
+            const run = Option.getOrThrow(
+                yield* repository.getLatestTestRun({
+                    name: 'finalization',
+                    variant: 'A',
+                }),
+            );
+            expect(Exit.isFailure(exit)).toBe(true);
+            if (Exit.isFailure(exit)) {
+                const reasons = exit.cause.reasons;
+                expect(reasons).toContainEqual(
+                    expect.objectContaining({
+                        _tag: 'Fail',
+                        error: expect.objectContaining({_tag: 'SqlError'}),
+                    }),
+                );
+                expect(reasons).toHaveLength(outcome === 'success' ? 1 : 2);
+                if (outcome !== 'success') {
+                    expect(reasons).toContainEqual(
+                        expect.objectContaining(
+                            outcome === 'failure'
+                                ? {_tag: 'Fail', error: problem}
+                                : {_tag: 'Die', defect: problem},
+                        ),
+                    );
+                }
+            }
+            expect({
+                calls,
+                state: run.state,
+                rows: yield* repository
+                    .getTestResultsStream(run, numberSchemas)
+                    .pipe(Stream.runCollect),
+                commit: (yield* repository
+                    .commitTestRun(run.id)
+                    .pipe(Effect.flip))._tag,
+            }).toEqual({
+                calls: 1,
+                state: 'Running',
+                rows: [result(3)],
+                commit: 'TestRunIncomplete',
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect('overlapping attempts finish independently in reverse order', () =>
     Effect.gen(function* () {
         const repository = yield* TestRepository;
-        const previous = yield* repository.getOrCreateCurrentTestRun('stale');
-        const results = yield* T.all({
-            schemas: numberSchemas,
-            name: 'stale',
-            testCases: [{input: 1, expected: 2}],
-            program: add,
-        }).pipe(Stream.runCollect);
-        yield* repository.insertTestResults(results, previous, numberSchemas);
-        yield* repository.commitCurrentTestRun({
-            name: 'stale',
-            hash: 'baseline',
+        const firstStarted = yield* Deferred.make<TestRun>();
+        const secondStarted = yield* Deferred.make<TestRun>();
+        const finishFirst = yield* Deferred.make<void>();
+        const finishSecond = yield* Deferred.make<void>();
+        const selection = {name: 'overlap', variant: 'A'};
+        const first = yield* Effect.forkChild(
+            repository.withTestRun(selection, run =>
+                repository
+                    .insertTestResult(result(1), run, numberSchemas)
+                    .pipe(
+                        Effect.andThen(Deferred.succeed(firstStarted, run)),
+                        Effect.andThen(Deferred.await(finishFirst)),
+                    ),
+            ),
+        );
+        const firstRunning = yield* Deferred.await(firstStarted);
+        const second = yield* Effect.forkChild(
+            repository.withTestRun(selection, run =>
+                repository
+                    .insertTestResult(result(2), run, numberSchemas)
+                    .pipe(
+                        Effect.andThen(Deferred.succeed(secondStarted, run)),
+                        Effect.andThen(Deferred.await(finishSecond)),
+                    ),
+            ),
+        );
+        const secondRunning = yield* Deferred.await(secondStarted);
+        expect(secondRunning.id).toBeGreaterThan(firstRunning.id);
+        yield* Deferred.succeed(finishSecond, undefined);
+        const secondSaved = yield* Fiber.join(second);
+        expect({
+            first: Option.getOrThrow(
+                yield* repository.getTestRun(firstRunning.id),
+            ).state,
+            second: secondSaved.run.state,
+            latest: yield* repository.getLatestTestRun(selection),
+        }).toEqual({
+            first: 'Running',
+            second: 'Complete',
+            latest: Option.some(secondSaved.run),
         });
-        const current = yield* repository.getOrCreateCurrentTestRun('stale');
-        yield* repository.insertTestResults(results, current, numberSchemas);
-
-        const exit = yield* repository
-            .withTestRun(previous, Effect.void)
-            .pipe(Effect.exit);
-        t.expect({
-            rejected: Exit.isFailure(exit),
-            baselineComplete: yield* repository.isComplete(previous),
-            currentResults: yield* repository
-                .getTestResultsStream(current, numberSchemas)
+        yield* Deferred.succeed(finishFirst, undefined);
+        const firstSaved = yield* Fiber.join(first);
+        yield* repository.commitTestRun(firstSaved.run.id);
+        expect({
+            baseline: yield* repository.getBaselineTestRun(selection),
+            latest: yield* repository.getLatestTestRun(selection),
+            first: yield* repository
+                .getTestResultsStream(firstSaved.run, numberSchemas)
+                .pipe(Stream.runCollect),
+            second: yield* repository
+                .getTestResultsStream(secondSaved.run, numberSchemas)
                 .pipe(Stream.runCollect),
         }).toEqual({
-            rejected: true,
-            baselineComplete: true,
-            currentResults: results,
+            baseline: Option.some(firstSaved.run),
+            latest: Option.some(secondSaved.run),
+            first: [result(1)],
+            second: [result(2)],
         });
     }).pipe(Effect.provide(TestRepository.TestLayer)),
 );
 
-t.it.effect(
-    'pages tied ordering values without losing results and decodes only requested pages',
+it.effect(
+    'keeps independent baselines and all results after reopening the database',
+    () =>
+        Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const directory = yield* fs.makeTempDirectoryScoped();
+            const database = `${directory}/runs.sqlite`;
+            const runs = yield* Effect.gen(function* () {
+                const repository = yield* TestRepository;
+                const saved = yield* Effect.forEach(
+                    ['A', 'B', 'C', 'A', 'B', 'C'],
+                    (variant, index) =>
+                        repository
+                            .withTestRun({name: 'history', variant}, run =>
+                                repository.insertTestResult(
+                                    result(index),
+                                    run,
+                                    numberSchemas,
+                                ),
+                            )
+                            .pipe(Effect.map(({run}) => run)),
+                );
+                yield* repository.commitTestRun(saved[3].id);
+                yield* repository.commitTestRun(saved[4].id);
+                yield* repository.commitTestRun(saved[2].id);
+                yield* repository.commitTestRun(saved[0].id);
+                yield* repository.commitTestRun(saved[0].id);
+                return saved;
+            }).pipe(Effect.provide(TestRepository.layer(database)));
+            yield* Effect.gen(function* () {
+                const repository = yield* TestRepository;
+                expect({
+                    baselines:
+                        yield* repository.listVariantBaselines('history'),
+                    runs: (yield* repository.listTestRuns({
+                        name: 'history',
+                        limit: 100,
+                    })).map(({id, isBaseline}) => ({id, isBaseline})),
+                    results: yield* Effect.forEach(runs, run =>
+                        repository
+                            .getTestResultsStream(run, numberSchemas)
+                            .pipe(Stream.runCollect),
+                    ),
+                }).toEqual({
+                    baselines: [
+                        {variant: 'A', baseline: Option.some(runs[0])},
+                        {variant: 'B', baseline: Option.some(runs[4])},
+                        {variant: 'C', baseline: Option.some(runs[2])},
+                    ],
+                    runs: runs.toReversed().map(run => ({
+                        id: run.id,
+                        isBaseline: [
+                            runs[0].id,
+                            runs[4].id,
+                            runs[2].id,
+                        ].includes(run.id),
+                    })),
+                    results: runs.map((_, index) => [result(index)]),
+                });
+            }).pipe(Effect.provide(TestRepository.layer(database)));
+        }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+);
+
+it.effect.each(['Complete', 'Failed'] as const)(
+    'refuses result writes to %s runs without changing values, tags, or times',
+    state =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const original = result(1, {
+                tags: ['a,b', '', ' de ', '日本語'],
+                timeMillis: 42.5,
+            });
+            yield* repository
+                .withTestRun({name: 'immutable', variant: 'A'}, run =>
+                    repository
+                        .insertTestResult(original, run, numberSchemas)
+                        .pipe(
+                            Effect.andThen(
+                                state === 'Complete'
+                                    ? Effect.void
+                                    : Effect.fail('failed'),
+                            ),
+                        ),
+                )
+                .pipe(Effect.exit);
+            const saved = Option.getOrThrow(
+                yield* repository.getLatestTestRun({
+                    name: 'immutable',
+                    variant: 'A',
+                }),
+            );
+            const before = yield* getAllTestRunResults;
+            const exit = yield* repository
+                .insertTestResults(
+                    [
+                        {
+                            ...original,
+                            tags: ['changed'],
+                            ordering: 10,
+                            timeMillis: 99,
+                        },
+                        result(2),
+                    ],
+                    new TestRun({
+                        id: saved.id,
+                        name: saved.name,
+                        variant: saved.variant,
+                        state: 'Running',
+                    }),
+                    numberSchemas,
+                )
+                .pipe(Effect.exit);
+            const emptyWrite = yield* repository
+                .insertTestResults([], saved, numberSchemas)
+                .pipe(Effect.exit);
+            expect({
+                rejected: Exit.isFailure(exit),
+                emptyRejected: Exit.isFailure(emptyWrite),
+                state: Option.getOrThrow(yield* repository.getTestRun(saved.id))
+                    .state,
+                results: yield* repository
+                    .getTestResultsStream(saved, numberSchemas)
+                    .pipe(Stream.runCollect),
+                links: yield* getAllTestRunResults,
+                contentCount: (yield* getAllTestResults).length,
+            }).toEqual({
+                rejected: true,
+                emptyRejected: true,
+                state,
+                results: [original],
+                links: before,
+                contentCount: 1,
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect(
+    'shares result content while retaining each run’s ordering, tags, and times',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const first = result(1, {
+                tags: ['a,b', '', '日本語'],
+                ordering: 7,
+                resultOrdering: 3,
+                timeMillis: 42.5,
+            });
+            const second = {
+                ...first,
+                tags: [],
+                ordering: 1,
+                resultOrdering: 0,
+                timeMillis: 5,
+            };
+            const saved = yield* Effect.forEach([first, second], (row, index) =>
+                repository.withTestRun(
+                    {name: 'shared', variant: index === 0 ? 'A' : 'B'},
+                    run =>
+                        repository
+                            .insertTestResult(row, run, numberSchemas)
+                            .pipe(
+                                Effect.andThen(
+                                    repository.insertTestResult(
+                                        row,
+                                        run,
+                                        numberSchemas,
+                                    ),
+                                ),
+                            ),
+                ),
+            );
+            expect({
+                contentCount: (yield* getAllTestResults).length,
+                linkCount: (yield* getAllTestRunResults).length,
+                first: yield* repository
+                    .getTestResultsStream(saved[0].run, numberSchemas)
+                    .pipe(Stream.runCollect),
+                second: yield* repository
+                    .getTestResultsStream(saved[1].run, numberSchemas)
+                    .pipe(Stream.runCollect),
+            }).toEqual({
+                contentCount: 1,
+                linkCount: 2,
+                first: [first],
+                second: [second],
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect(
+    'serialization failure keeps earlier batches and fails the attempt',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const rows = Array.from({length: 51}, (_, index) => result(index));
+            rows[50] = result(50, {result: Number.NaN});
+            const error = yield* repository
+                .withTestRun({name: 'encoding', variant: 'A'}, run =>
+                    repository.insertTestResults(rows, run, numberSchemas),
+                )
+                .pipe(Effect.flip);
+            const saved = Option.getOrThrow(
+                yield* repository.getLatestTestRun({
+                    name: 'encoding',
+                    variant: 'A',
+                }),
+            );
+            expect({
+                error,
+                state: saved.state,
+                rows: yield* repository
+                    .getTestResultsStream(saved, numberSchemas)
+                    .pipe(Stream.runCollect),
+            }).toEqual({
+                error: expect.objectContaining({
+                    _tag: 'TestValueError',
+                    suite: 'encoding',
+                    caseNumber: 51,
+                    key: 'result',
+                    field: 'evaluation.result',
+                    operation: 'encode',
+                    cause: expect.objectContaining({_tag: 'SchemaError'}),
+                }),
+                state: 'Failed',
+                rows: rows.slice(0, 50),
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect('a failed batch rolls back its content and links', () =>
+    Effect.gen(function* () {
+        const repository = yield* TestRepository;
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`
+            CREATE TRIGGER reject_link BEFORE INSERT ON ${sql(tables.testRunResults)}
+            WHEN NEW.testResult = 'result-2'
+            BEGIN SELECT RAISE(ABORT, 'forced link failure'); END;
+        `;
+        const error = yield* repository
+            .withTestRun({name: 'atomic-batch', variant: 'A'}, run =>
+                repository.insertTestResults(
+                    [result(1), result(2)],
+                    run,
+                    numberSchemas,
+                ),
+            )
+            .pipe(Effect.flip);
+        expect({
+            error: error._tag,
+            state: Option.getOrThrow(
+                yield* repository.getLatestTestRun({
+                    name: 'atomic-batch',
+                    variant: 'A',
+                }),
+            ).state,
+            contents: yield* getAllTestResults,
+            links: yield* getAllTestRunResults,
+        }).toEqual({
+            error: 'SqlError',
+            state: 'Failed',
+            contents: [],
+            links: [],
+        });
+    }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect(
+    'a failed baseline write preserves the previous pointer and history',
     () =>
         Effect.gen(function* () {
             const repository = yield* TestRepository;
             const sql = yield* SqlClient.SqlClient;
-            const run = yield* repository.getOrCreateCurrentTestRun('pages');
-            const results: Test.TestResult<number, number, number>[] =
-                Array.from({length: 205}, (_, index) => ({
-                    id: String(index).padStart(3, '0'),
-                    hashTestCase: `case-${index}`,
-                    key: 'result',
-                    ordering: Math.floor(index / 110),
-                    resultOrdering: 0,
-                    label: 'TP',
-                    input: index,
-                    result: index,
-                    expected: index,
-                    tags: [],
-                    timeMillis: 1,
-                }));
-            yield* repository.insertTestResults(
-                results.toReversed(),
-                run,
-                numberSchemas,
+            const first = yield* repository.withTestRun(
+                {name: 'atomic-commit', variant: 'A'},
+                () => Effect.void,
             );
-            t.expect(
-                yield* repository
-                    .getTestResultsStream(run, numberSchemas)
-                    .pipe(Stream.runCollect),
-            ).toEqual(results);
-
-            yield* sql`UPDATE ${sql(TR.tables.testResults)} SET result = 'invalid json' WHERE id = '204';`;
-            t.expect(
-                yield* repository
-                    .getTestResultsStream(run, numberSchemas)
-                    .pipe(Stream.take(1), Stream.runCollect),
-            ).toEqual(results.slice(0, 1));
+            const second = yield* repository.withTestRun(
+                {name: 'atomic-commit', variant: 'A'},
+                () => Effect.void,
+            );
+            yield* repository.commitTestRun(first.run.id);
+            yield* sql`
+            CREATE TRIGGER reject_baseline BEFORE UPDATE ON ${sql(tables.testBaselines)}
+            BEGIN SELECT RAISE(ABORT, 'forced baseline failure'); END;
+        `;
             const error = yield* repository
-                .getTestResultsStream(run, numberSchemas)
-                .pipe(Stream.runDrain, Effect.flip);
-            t.expect(error).toMatchObject({
-                _tag: 'TestValueError',
-                suite: 'pages',
-                caseNumber: 2,
-                key: 'result',
-                field: 'evaluation.result',
-                operation: 'decode',
-                cause: {_tag: 'SchemaError'},
+                .commitTestRun(second.run.id)
+                .pipe(Effect.flip);
+            expect({
+                error: error._tag,
+                baseline: yield* repository.getBaselineTestRun(first.run),
+                runs: yield* getAllTestRuns,
+            }).toEqual({
+                error: 'SqlError',
+                baseline: Option.some(first.run),
+                runs: [first.run, second.run],
             });
         }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect(
+    'lists descending pages, variant filters, and optional baseline markers',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const runs = yield* Effect.forEach(
+                Array.from({length: 105}, (_, index) => index),
+                index =>
+                    repository
+                        .withTestRun(
+                            {
+                                name: 'pages',
+                                variant: index % 2 === 0 ? 'A' : 'B',
+                            },
+                            () => Effect.void,
+                        )
+                        .pipe(Effect.map(({run}) => run)),
+            );
+            yield* repository.commitTestRun(runs[0].id);
+            yield* repository.withTestRun(
+                {name: 'other-suite', variant: 'A'},
+                () => Effect.void,
+            );
+            const first = yield* repository.listTestRuns({
+                name: 'pages',
+                limit: 50,
+            });
+            const second = yield* repository.listTestRuns({
+                name: 'pages',
+                limit: 50,
+                before: first[49].id,
+            });
+            const third = yield* repository.listTestRuns({
+                name: 'pages',
+                limit: 50,
+                before: second[49].id,
+            });
+            expect({
+                listed: [...first, ...second, ...third].map(({id}) => id),
+                baselines: [...first, ...second, ...third]
+                    .filter(run => run.isBaseline)
+                    .map(({id}) => id),
+                filtered: (yield* repository.listTestRuns({
+                    name: 'pages',
+                    variant: 'B',
+                    limit: 100,
+                })).map(({id}) => id),
+                variants: yield* repository.listVariantBaselines('pages'),
+            }).toEqual({
+                listed: runs.toReversed().map(({id}) => id),
+                baselines: [runs[0].id],
+                filtered: runs
+                    .toReversed()
+                    .filter(run => run.variant === 'B')
+                    .map(({id}) => id),
+                variants: [
+                    {variant: 'A', baseline: Option.some(runs[0])},
+                    {variant: 'B', baseline: Option.none()},
+                ],
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect.each([0, -1, 101, 1.5, Number.NaN])(
+    'rejects invalid run-list limits: %s',
+    limit =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            expect(
+                (yield* repository
+                    .listTestRuns({name: 'limits', limit})
+                    .pipe(Effect.flip))._tag,
+            ).toBe('SchemaError');
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect('pages tied result ordering and decodes only consumed pages', () =>
+    Effect.gen(function* () {
+        const repository = yield* TestRepository;
+        const sql = yield* SqlClient.SqlClient;
+        const results = Array.from({length: 205}, (_, index) =>
+            result(index, {
+                id: String(index).padStart(3, '0'),
+                ordering: Math.floor(index / 110),
+            }),
+        );
+        const {run} = yield* repository.withTestRun(
+            {name: 'result-pages', variant: 'A'},
+            run =>
+                repository.insertTestResults(
+                    results.toReversed(),
+                    run,
+                    numberSchemas,
+                ),
+        );
+        expect(
+            yield* repository
+                .getTestResultsStream(run, numberSchemas)
+                .pipe(Stream.runCollect),
+        ).toEqual(results);
+        expect(
+            yield* repository
+                .getTestResultsStream(run, numberSchemas, [
+                    results[201],
+                    results[2],
+                ])
+                .pipe(Stream.runCollect),
+        ).toEqual([results[2], results[201]]);
+        expect(
+            yield* repository
+                .getTestResultsStream(run, numberSchemas, [])
+                .pipe(Stream.runCollect),
+        ).toEqual([]);
+        const oversized = yield* repository
+            .getTestResultsStream(run, numberSchemas, results.slice(0, 51))
+            .pipe(Stream.runDrain, Effect.exit);
+        expect(Exit.isFailure(oversized)).toBe(true);
+        yield* sql`UPDATE ${sql(tables.testResults)} SET result = 'invalid json' WHERE id = '204';`;
+        expect(
+            yield* repository
+                .getTestResultsStream(run, numberSchemas)
+                .pipe(Stream.take(1), Stream.runCollect),
+        ).toEqual(results.slice(0, 1));
+        expect(
+            yield* repository
+                .getTestResultsStream(run, numberSchemas)
+                .pipe(Stream.runDrain, Effect.flip),
+        ).toMatchObject({
+            _tag: 'TestValueError',
+            suite: 'result-pages',
+            caseNumber: 2,
+            key: 'result',
+            field: 'evaluation.result',
+            operation: 'decode',
+            cause: {_tag: 'SchemaError'},
+        });
+    }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect('malformed saved labels fail with SchemaError', () =>
+    Effect.gen(function* () {
+        const repository = yield* TestRepository;
+        const sql = yield* SqlClient.SqlClient;
+        const {run} = yield* repository.withTestRun(
+            {name: 'bad-label', variant: 'A'},
+            run => repository.insertTestResult(result(1), run, numberSchemas),
+        );
+        yield* sql`UPDATE ${sql(tables.testResults)} SET label = 'NOT_A_LABEL';`;
+        const exit = yield* repository
+            .getTestResultsStream(run, numberSchemas)
+            .pipe(Stream.runDrain, Effect.exit);
+        expect(
+            Exit.isFailure(exit) &&
+                Option.getOrThrow(Cause.findErrorOption(exit.cause))._tag,
+        ).toBe('SchemaError');
+    }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect(
+    'exact statistics count each case once across batches and release temporary tables',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const sql = yield* SqlClient.SqlClient;
+            const stats = yield* repository.withStats(collector =>
+                Effect.gen(function* () {
+                    const cases = Array.from({length: 102}, (_, index) =>
+                        result(index, {timeMillis: index + 1}),
+                    );
+                    yield* collector.add(cases.slice(0, 50));
+                    yield* collector.add(cases.slice(50));
+                    yield* collector.add(
+                        cases.map(row => ({...row, label: 'FN' as const})),
+                    );
+                    return yield* collector.stats;
+                }),
+            );
+            const empty = yield* repository.withStats(
+                collector => collector.stats,
+            );
+            yield* repository
+                .withStats(collector =>
+                    collector
+                        .add([result(1)])
+                        .pipe(Effect.andThen(Effect.fail('report failed'))),
+                )
+                .pipe(Effect.exit);
+            expect({
+                stats,
+                empty,
+                tables: yield* sql`SELECT name FROM sqlite_temp_master WHERE name LIKE 'tots_stats_%';`,
+            }).toEqual({
+                stats: new Stats({
+                    TP: 102,
+                    TN: 0,
+                    FP: 0,
+                    FN: 102,
+                    total: 204,
+                    testCases: 102,
+                    precision: 1,
+                    recall: 0.5,
+                    timeMin: Option.some(1),
+                    timeMax: Option.some(102),
+                    timeMean: Option.some(51.5),
+                    timeMedian: Option.some(51.5),
+                }),
+                empty: Stats.empty(),
+                tables: [],
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect('opening an old database fails without changing its saved runs', () =>
+    Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`CREATE TABLE ${sql(tables.testRuns)}(id INTEGER PRIMARY KEY, name TEXT NOT NULL, hash TEXT);`;
+        yield* sql`INSERT INTO ${sql(tables.testRuns)} ${sql.insert({id: 1, name: 'old', hash: 'baseline'})};`;
+        const exit = yield* makeTestRepository.pipe(Effect.exit);
+        expect({
+            failed: Exit.isFailure(exit),
+            saved: yield* sql`SELECT * FROM ${sql(tables.testRuns)};`,
+        }).toEqual({
+            failed: true,
+            saved: [{id: 1, name: 'old', hash: 'baseline'}],
+        });
+    }).pipe(Effect.provide(Sqlite.SqliteClient.layer({filename: ':memory:'}))),
 );

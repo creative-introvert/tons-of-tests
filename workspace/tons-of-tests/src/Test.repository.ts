@@ -39,19 +39,12 @@ export type TestResultSchemas<I = unknown, O = unknown, T = unknown> = {
     };
 };
 
+/**
+ * Saves attempts and a baseline for each variant in one database. This storage
+ * format requires a fresh database; older formats are not migrated. Reads never
+ * create runs. Saved history is not pruned automatically.
+ */
 export type TestRepositoryShape = {
-    clearStale: ({
-        name,
-        keep,
-    }: {
-        name: string;
-        keep?: number;
-    }) => Effect.Effect<void, RepositoryError>;
-    clearUncommitedTestResults: ({
-        name,
-    }: {
-        name: string;
-    }) => Effect.Effect<void, RepositoryError>;
     getTestResultsStream: <I = unknown, O = unknown, T = unknown>(
         testRun: TestRun,
         schemas: TestResultSchemas<I, O, T>,
@@ -62,36 +55,64 @@ export type TestRepositoryShape = {
     withStats: <A, E, R>(
         use: (collector: StatsCollector) => Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E | RepositoryError, R>;
-    /** Whether results are marked complete; empty successful executions also count. */
-    isComplete: (testRun: TestRun) => Effect.Effect<boolean, RepositoryError>;
     /**
-     * Replace current results and record success, failure, or interruption.
-     * Passing a committed or stale run is a defect.
+     * Create a new `Running` attempt and call `execute` once. The callback can be
+     * interrupted. Save `Complete` after callback success, including empty runs.
+     * Save `Failed` after a callback failure, synchronous throw, defect, or
+     * interruption. Return success only after saving `Complete`.
+     *
+     * Database errors propagate. If execution and finalization both fail, preserve
+     * both causes. A failed final write or abrupt process exit can leave the attempt
+     * `Running`; it cannot be committed.
      */
-    withTestRun: <A, E, R>(
-        testRun: TestRun,
-        execute: Effect.Effect<A, E, R>,
-    ) => Effect.Effect<A, E | RepositoryError, R>;
-    hasResults: (testRun: TestRun) => Effect.Effect<boolean, RepositoryError>;
-    getLastTestRunHash: (
-        name: string,
-    ) => Effect.Effect<Option.Option<string>, RepositoryError>;
-    getOrCreateCurrentTestRun: (
-        name: string,
-    ) => Effect.Effect<TestRun, RepositoryError>;
-    getPreviousTestRun: (
-        name: string,
+    withTestRun: <A, E = never, R = never>(
+        input: {name: string; variant: string},
+        execute: (testRun: TestRun) => Effect.Effect<A, E, R>,
+    ) => Effect.Effect<{run: TestRun; value: A}, E | RepositoryError, R>;
+    /** Find one saved attempt, including `Running` and `Failed` attempts. */
+    getTestRun: (
+        id: number,
     ) => Effect.Effect<Option.Option<TestRun>, RepositoryError>;
-    /** Save the current baseline atomically. Returns the outcome without printing. */
-    commitCurrentTestRun: (input: {
+    /** Find the run with the greatest saved ID for this suite and variant, in any state. */
+    getLatestTestRun: (input: {
         name: string;
-        hash: string;
-    }) => Effect.Effect<'Committed' | 'NothingToCommit', RepositoryError>;
+        variant: string;
+    }) => Effect.Effect<Option.Option<TestRun>, RepositoryError>;
+    /** A missing baseline is `None`; it differs from a completed empty run. */
+    getBaselineTestRun: (input: {
+        name: string;
+        variant: string;
+    }) => Effect.Effect<Option.Option<TestRun>, RepositoryError>;
+    /**
+     * Set the baseline for this run's suite and variant to its exact run ID.
+     * The run must be `Complete`; empty runs are allowed. Repeating a commit or
+     * choosing an older run is allowed. Past runs and their results stay unchanged.
+     */
+    commitTestRun: (id: number) => Effect.Effect<void, RepositoryError>;
+    /** List runs by descending ID. `limit` must be 1–100; the next page has `id < before`. */
+    listTestRuns: (input: {
+        name: string;
+        variant?: string;
+        before?: number;
+        limit: number;
+    }) => Effect.Effect<
+        ReadonlyArray<TestRun & {readonly isBaseline: boolean}>,
+        RepositoryError
+    >;
+    /** List every stored variant by name, with its saved baseline when one exists. */
+    listVariantBaselines: (
+        name: string,
+    ) => Effect.Effect<
+        ReadonlyArray<{variant: string; baseline: Option.Option<TestRun>}>,
+        RepositoryError
+    >;
+    /** Only `Running` attempts accept writes; completed and failed runs cannot change. */
     insertTestResult: <I, O, T>(
         input: TestResult<I, O, T>,
         testRun: TestRun,
         schemas: TestResultSchemas<I, O, T>,
     ) => Effect.Effect<void, RepositoryError>;
+    /** Check the saved state inside each batch transaction before writing. */
     insertTestResults: <I, O, T>(
         inputs: ReadonlyArray<TestResult<I, O, T>>,
         testRun: TestRun,

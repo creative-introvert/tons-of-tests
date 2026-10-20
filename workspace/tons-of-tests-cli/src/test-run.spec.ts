@@ -20,7 +20,6 @@ const numberSchemas = {
     testCase: {input: Schema.Finite, expected: Schema.Finite},
     evaluation: {result: Schema.Finite, expected: Schema.Finite},
 };
-
 const services = Layer.mergeAll(
     PT.TestRepository.TestRepository.TestLayer,
     NodeServices.layer,
@@ -28,7 +27,7 @@ const services = Layer.mergeAll(
 );
 
 it.effect.each(['summarize', 'diff'] as const)(
-    '%s reruns an incomplete cache and refuses to commit it',
+    '%s creates independent attempts after a failed cache',
     command =>
         Effect.gen(function* () {
             const repository = yield* PT.TestRepository.TestRepository;
@@ -46,58 +45,114 @@ it.effect.each(['summarize', 'diff'] as const)(
                     })),
                     program: Effect.fnUntraced(function* (input: number) {
                         yield* Ref.update(calls, n => n + 1);
-                        if (input === 55 && (yield* Ref.get(shouldFail))) {
+                        if (input === 55 && (yield* Ref.get(shouldFail)))
                             return yield* Effect.fail(failure);
-                        }
                         return input;
                     }),
                 },
             };
-
             const first = yield* effectNoDeps(config, [
                 'node',
                 'suite',
                 command,
             ]).pipe(Effect.result);
             expect(first).toEqual(Result.fail(failure));
-
-            const run =
-                yield* repository.getOrCreateCurrentTestRun('incomplete');
-            const partial = yield* repository
-                .getTestResultsStream(run, config.testSuite.schemas)
-                .pipe(Stream.runCollect);
-            const commitError = yield* repository
-                .commitCurrentTestRun({
+            const failed = Option.getOrThrow(
+                yield* repository.getLatestTestRun({
                     name: 'incomplete',
-                    hash: 'invalid-baseline',
-                })
-                .pipe(Effect.flip);
+                    variant: 'default',
+                }),
+            );
+            const partial = yield* repository
+                .getTestResultsStream(failed, numberSchemas)
+                .pipe(Stream.runCollect);
+            const error = yield* effectNoDeps(config, [
+                'node',
+                'suite',
+                'commit',
+            ]).pipe(Effect.flip);
             expect({
-                complete: yield* repository.isComplete(run),
+                state: failed.state,
                 saved: partial.length,
-                commit: commitError._tag,
-                baseline: yield* repository.getLastTestRunHash('incomplete'),
+                error: error._tag,
             }).toEqual({
-                complete: false,
+                state: 'Failed',
                 saved: 50,
-                commit: 'TestRunIncomplete',
-                baseline: Option.none(),
+                error: 'TestRunIncomplete',
             });
-
             yield* Ref.set(shouldFail, false);
             yield* effectNoDeps(config, ['node', 'suite', command, '--cached']);
-            const complete = yield* repository
-                .getTestResultsStream(run, config.testSuite.schemas)
-                .pipe(Stream.runCollect);
+            const complete = Option.getOrThrow(
+                yield* repository.getLatestTestRun({
+                    name: 'incomplete',
+                    variant: 'default',
+                }),
+            );
             expect({
-                complete: yield* repository.isComplete(run),
-                saved: complete.length,
+                different: complete.id !== failed.id,
+                state: complete.state,
                 calls: yield* Ref.get(calls),
-            }).toEqual({complete: true, saved: 60, calls: 116});
+                previous: yield* repository
+                    .getTestResultsStream(failed, numberSchemas)
+                    .pipe(Stream.runCollect),
+            }).toEqual({
+                different: true,
+                state: 'Complete',
+                calls: 116,
+                previous: partial,
+            });
         }).pipe(Effect.provide(services)),
 );
 
-it.effect('interruption leaves saved batches uncommittable', () =>
+it.effect.each(['summarize', 'diff'] as const)(
+    '%s starts a new run when the latest attempt is Running',
+    command =>
+        Effect.gen(function* () {
+            const repository = yield* PT.TestRepository.TestRepository;
+            const started = yield* Deferred.make<PT.TestRepository.TestRun>();
+            const pending = yield* Effect.forkChild(
+                repository.withTestRun(
+                    {name: 'running', variant: 'default'},
+                    run =>
+                        Deferred.succeed(started, run).pipe(
+                            Effect.andThen(Effect.never),
+                        ),
+                ),
+            );
+            const running = yield* Deferred.await(started);
+            const config = {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'running',
+                    schemas: numberSchemas,
+                    testCases: [{input: 1, expected: 1}],
+                    program: (input: number) => Effect.succeed(input),
+                },
+            };
+            yield* effectNoDeps(config, ['node', 'suite', command, '--cached']);
+            const latest = Option.getOrThrow(
+                yield* repository.getLatestTestRun({
+                    name: 'running',
+                    variant: 'default',
+                }),
+            );
+            expect({
+                different: latest.id !== running.id,
+                state: latest.state,
+                oldState: Option.map(
+                    yield* repository.getTestRun(running.id),
+                    run => run.state,
+                ),
+            }).toEqual({
+                different: true,
+                state: 'Complete',
+                oldState: Option.some('Running'),
+            });
+            yield* Fiber.interrupt(pending);
+        }).pipe(Effect.provide(services)),
+);
+
+it.effect('interruption leaves saved batches in a failed attempt', () =>
     Effect.gen(function* () {
         const repository = yield* PT.TestRepository.TestRepository;
         const started = yield* Deferred.make<void>();
@@ -123,27 +178,26 @@ it.effect('interruption leaves saved batches uncommittable', () =>
         );
         yield* Deferred.await(started);
         yield* Fiber.interrupt(fiber);
-
-        const run = yield* repository.getOrCreateCurrentTestRun('interrupted');
-        const results = yield* repository
-            .getTestResultsStream(run, config.testSuite.schemas)
-            .pipe(Stream.runCollect);
-        const error = yield* repository
-            .commitCurrentTestRun({
+        const run = Option.getOrThrow(
+            yield* repository.getLatestTestRun({
                 name: 'interrupted',
-                hash: 'invalid-baseline',
-            })
-            .pipe(Effect.flip);
+                variant: 'default',
+            }),
+        );
+        const results = yield* repository
+            .getTestResultsStream(run, numberSchemas)
+            .pipe(Stream.runCollect);
+        const error = yield* repository.commitTestRun(run.id).pipe(Effect.flip);
         expect({
-            complete: yield* repository.isComplete(run),
+            state: run.state,
             saved: results.length,
             error: error._tag,
-        }).toEqual({complete: false, saved: 50, error: 'TestRunIncomplete'});
+        }).toEqual({state: 'Failed', saved: 50, error: 'TestRunIncomplete'});
     }).pipe(Effect.provide(services)),
 );
 
 it.effect.each(['summarize', 'diff'] as const)(
-    '%s can reuse a successfully completed empty suite',
+    '%s reuses a completed empty baseline',
     command =>
         Effect.gen(function* () {
             const repository = yield* PT.TestRepository.TestRepository;
@@ -160,44 +214,332 @@ it.effect.each(['summarize', 'diff'] as const)(
                 },
             };
             yield* effectNoDeps(config, ['node', 'suite', command]);
+            yield* effectNoDeps(config, ['node', 'suite', 'commit']);
             yield* effectNoDeps(config, ['node', 'suite', command, '--cached']);
-            const run = yield* repository.getOrCreateCurrentTestRun('empty');
+            const attempts = yield* repository.listTestRuns({
+                name: 'empty',
+                limit: 100,
+            });
             expect({
-                complete: yield* repository.isComplete(run),
+                states: attempts.map(run => [run.state, run.isBaseline]),
                 reads: yield* Ref.get(reads),
-            }).toEqual({complete: true, reads: 1});
+            }).toEqual({states: [['Complete', true]], reads: 1});
         }).pipe(Effect.provide(services)),
 );
 
-it.effect('public CLI calls share the caller-provided repository', () =>
-    Effect.gen(function* () {
-        const repository = yield* PT.TestRepository.TestRepository;
-        const config = {
-            dbPath: ':memory:',
-            testSuite: {
-                name: 'shared',
-                schemas: numberSchemas,
-                testCases: [{input: 1, expected: 1}],
-                program: (input: number) => Effect.succeed(input),
-            },
-        };
-        yield* effectNoDeps(config, ['node', 'suite', 'summarize']);
-        const run = yield* repository.getOrCreateCurrentTestRun('shared');
-        yield* effectNoDeps(config, ['node', 'suite', 'commit']);
-        const previous = yield* repository.getPreviousTestRun('shared');
-        const current = yield* repository.getOrCreateCurrentTestRun('shared');
-        expect({
-            committedRun: Option.map(previous, previous => previous.id),
-            hasHash: Option.isSome(
-                yield* repository.getLastTestRunHash('shared'),
-            ),
-            freshCurrent: current.id !== run.id,
-            currentHasResults: yield* repository.hasResults(current),
-        }).toEqual({
-            committedRun: Option.some(run.id),
-            hasHash: true,
-            freshCurrent: true,
-            currentHasResults: false,
-        });
-    }).pipe(Effect.provide(services)),
+it.effect(
+    'public calls keep variant execution, cache reuse, and baselines separate',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* PT.TestRepository.TestRepository;
+            const calls: string[] = [];
+            const config = {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'variants',
+                    schemas: numberSchemas,
+                    testCases: [{input: 1, expected: 1}],
+                    variants: {
+                        A: {
+                            program: (input: number) =>
+                                Effect.sync(() => {
+                                    calls.push('A');
+                                    return input;
+                                }),
+                        },
+                        B: {
+                            program: (input: number) =>
+                                Effect.sync(() => {
+                                    calls.push('B');
+                                    return input + 1;
+                                }),
+                        },
+                    },
+                },
+            };
+            for (const variant of ['A', 'B']) {
+                yield* effectNoDeps(config, [
+                    'node',
+                    'suite',
+                    'summarize',
+                    '--variant',
+                    variant,
+                ]);
+                yield* effectNoDeps(config, [
+                    'node',
+                    'suite',
+                    'commit',
+                    '--variant',
+                    variant,
+                ]);
+                yield* effectNoDeps(config, [
+                    'node',
+                    'suite',
+                    'summarize',
+                    '--variant',
+                    variant,
+                    '--cached',
+                ]);
+            }
+            const before = yield* repository.listTestRuns({
+                name: 'variants',
+                limit: 100,
+            });
+            yield* effectNoDeps(config, [
+                'node',
+                'suite',
+                'summarize',
+                '--variant',
+                'A',
+            ]);
+            const after = yield* repository.listTestRuns({
+                name: 'variants',
+                limit: 100,
+            });
+            expect({
+                calls,
+                before: before.map(run => [run.variant, run.isBaseline]),
+                after: after.map(run => [run.variant, run.isBaseline]),
+                fresh: after[0].id !== before[1].id,
+            }).toEqual({
+                calls: ['A', 'B', 'A'],
+                before: [
+                    ['B', true],
+                    ['A', true],
+                ],
+                after: [
+                    ['A', false],
+                    ['B', true],
+                    ['A', true],
+                ],
+                fresh: true,
+            });
+        }).pipe(Effect.provide(services)),
+);
+
+it.effect.each([
+    {
+        variants: {A: {program: (input: number) => Effect.succeed(input)}},
+        args: [],
+        tag: 'TestVariantRequired',
+    },
+    {
+        variants: {A: {program: (input: number) => Effect.succeed(input)}},
+        args: ['--variant', 'missing'],
+        tag: 'TestVariantNotFound',
+    },
+    {variants: {}, args: ['--variant', 'A'], tag: 'TestVariantNotFound'},
+])(
+    'rejects invalid execution selection before saving an attempt ($tag)',
+    ({variants, args, tag}) =>
+        Effect.gen(function* () {
+            const repository = yield* PT.TestRepository.TestRepository;
+            const reads = yield* Ref.make(0);
+            const config = {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'selection',
+                    schemas: numberSchemas,
+                    variants,
+                    testCases: Stream.fromEffect(
+                        Ref.update(reads, n => n + 1),
+                    ).pipe(Stream.drain),
+                },
+            };
+            const error = yield* effectNoDeps(config, [
+                'node',
+                'suite',
+                'summarize',
+                ...args,
+            ]).pipe(Effect.flip);
+            expect({
+                tag: error._tag,
+                reads: yield* Ref.get(reads),
+                attempts: yield* repository.listTestRuns({
+                    name: 'selection',
+                    limit: 100,
+                }),
+            }).toEqual({tag, reads: 0, attempts: []});
+        }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+    'saved commands reject Running and Failed references without executing or changing history',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* PT.TestRepository.TestRepository;
+            const started = yield* Deferred.make<PT.TestRepository.TestRun>();
+            const pending = yield* Effect.forkChild(
+                repository.withTestRun(
+                    {name: 'saved-only', variant: 'A'},
+                    run =>
+                        Deferred.succeed(started, run).pipe(
+                            Effect.andThen(Effect.never),
+                        ),
+                ),
+            );
+            const running = yield* Deferred.await(started);
+            yield* repository
+                .withTestRun({name: 'saved-only', variant: 'A'}, () =>
+                    Effect.fail('failed'),
+                )
+                .pipe(Effect.result);
+            const failed = Option.getOrThrow(
+                yield* repository.getLatestTestRun({
+                    name: 'saved-only',
+                    variant: 'A',
+                }),
+            );
+            const complete = (yield* repository.withTestRun(
+                {name: 'saved-only', variant: 'A'},
+                () => Effect.void,
+            )).run;
+            yield* repository.commitTestRun(complete.id);
+            let calls = 0;
+            const config = {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'saved-only',
+                    schemas: numberSchemas,
+                    testCases: [{input: 1, expected: 1}],
+                    variants: {
+                        A: {
+                            program: (input: number) =>
+                                Effect.sync(() => {
+                                    calls++;
+                                    return input;
+                                }),
+                        },
+                    },
+                },
+            };
+            const before = yield* repository.listTestRuns({
+                name: 'saved-only',
+                limit: 100,
+            });
+            for (const run of [running, failed]) {
+                for (const args of [
+                    ['stats', '--runs', `run:${run.id}`],
+                    [
+                        'diff',
+                        '--from',
+                        `run:${run.id}`,
+                        '--to',
+                        `run:${complete.id}`,
+                    ],
+                    [
+                        'diff',
+                        '--from',
+                        `run:${complete.id}`,
+                        '--to',
+                        `run:${run.id}`,
+                    ],
+                    ['commit', '--run', `run:${run.id}`],
+                ]) {
+                    const error = yield* effectNoDeps(config, [
+                        'node',
+                        'suite',
+                        ...args,
+                    ]).pipe(Effect.flip);
+                    expect(error._tag).toBe('TestRunIncomplete');
+                }
+            }
+            expect({
+                calls,
+                saved: yield* repository.listTestRuns({
+                    name: 'saved-only',
+                    limit: 100,
+                }),
+            }).toEqual({calls: 0, saved: before});
+            yield* Fiber.interrupt(pending);
+        }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+    'saved CLI comparisons and summaries preserve codec failures and never rerun a program',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* PT.TestRepository.TestRepository;
+            let calls = 0;
+            const source = {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'original-suite',
+                    schemas: numberSchemas,
+                    testCases: [{input: 1, expected: 1}],
+                    program: (input: number) =>
+                        Effect.sync(() => {
+                            calls++;
+                            return input;
+                        }),
+                },
+            };
+            yield* effectNoDeps(source, ['node', 'suite', 'summarize']);
+            yield* effectNoDeps(source, ['node', 'suite', 'commit']);
+            const run = Option.getOrThrow(
+                yield* repository.getBaselineTestRun({
+                    name: 'original-suite',
+                    variant: 'default',
+                }),
+            );
+            const reader = {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'reader-suite',
+                    schemas: {
+                        testCase: {
+                            input: Schema.String,
+                            expected: Schema.String,
+                        },
+                        evaluation: {
+                            result: Schema.String,
+                            expected: Schema.String,
+                        },
+                    },
+                    testCases: [{input: 'one', expected: 'one'}],
+                    program: (input: string) =>
+                        Effect.sync(() => {
+                            calls++;
+                            return input;
+                        }),
+                },
+            };
+            const before = yield* repository.listTestRuns({
+                name: 'original-suite',
+                limit: 100,
+            });
+            for (const args of [
+                ['stats', '--runs', `run:${run.id}`],
+                ['diff', '--from', `run:${run.id}`, '--to', `run:${run.id}`],
+            ]) {
+                const error = yield* effectNoDeps(reader, [
+                    'node',
+                    'suite',
+                    ...args,
+                ]).pipe(Effect.flip);
+                expect(error._tag).toBe('TestValueError');
+                if (error._tag === 'TestValueError') {
+                    expect({
+                        suite: error.suite,
+                        field: error.field,
+                        operation: error.operation,
+                    }).toEqual({
+                        suite: 'original-suite',
+                        field: 'testCase.input',
+                        operation: 'decode',
+                    });
+                }
+            }
+            expect({
+                calls,
+                saved: yield* repository.listTestRuns({
+                    name: 'original-suite',
+                    limit: 100,
+                }),
+                reader: yield* repository.listTestRuns({
+                    name: 'reader-suite',
+                    limit: 100,
+                }),
+            }).toEqual({calls: 1, saved: before, reader: []});
+        }).pipe(Effect.provide(services)),
 );
