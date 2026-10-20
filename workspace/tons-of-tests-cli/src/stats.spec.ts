@@ -1,7 +1,7 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {NodeServices} from '@effect/platform-node';
 import {expect, it} from '@effect/vitest';
-import {Effect, Layer, Option, Schema, Sink, Stdio} from 'effect';
+import {Effect, FileSystem, Layer, Option, Schema, Sink, Stdio} from 'effect';
 import {SqlClient} from 'effect/sql';
 
 import {effectNoDeps} from './index.js';
@@ -18,7 +18,56 @@ const services = Layer.mergeAll(
 );
 
 it.effect(
-    'shows configured baselines, retired history, and missing or empty baselines',
+    'stats counts unchanged results without preparing a detailed table',
+    () =>
+        Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            let calls = 0;
+            const config = {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'unchanged',
+                    schemas,
+                    testCases: [
+                        {input: 1, expected: 1, tags: ['keep']},
+                        {input: 2, expected: 2},
+                    ],
+                    program: (input: number) =>
+                        Effect.sync(() => {
+                            calls++;
+                            return input;
+                        }),
+                },
+            };
+            yield* effectNoDeps(config, ['node', 'suite', 'summarize']);
+            yield* effectNoDeps(config, ['node', 'suite', 'commit']);
+            yield* effectNoDeps(config, ['node', 'suite', 'stats']).pipe(
+                Effect.provideService(FileSystem.FileSystem, {
+                    ...fs,
+                    makeTempFileScoped: () =>
+                        Effect.die('stats must not prepare a result table'),
+                }),
+            );
+            const [all] = yield* summarizeRuns({config, cached: true});
+            const [filtered] = yield* summarizeRuns({
+                config,
+                cached: true,
+                orTags: Option.some(['keep']),
+            });
+            expect({
+                calls,
+                all: Option.map(all.stats, stats => stats.total),
+                filtered: Option.map(filtered.stats, stats => stats.total),
+            }).toEqual({
+                calls: 4,
+                all: Option.some(2),
+                filtered: Option.some(1),
+            });
+        }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+    'executes only configured variants in order and keeps retired snapshots available',
     () =>
         Effect.gen(function* () {
             const repository = yield* PT.TestRepository.TestRepository;
@@ -57,7 +106,7 @@ it.effect(
                 {name: 'overview', variant: 'empty'},
                 () => Effect.void,
             );
-            yield* repository.commitTestRun(empty.run.id);
+            const [savedEmpty] = yield* repository.commitTestRuns([empty.run]);
             const retired = {
                 ...config,
                 testSuite: {
@@ -76,7 +125,12 @@ it.effect(
             });
             const rows = yield* summarizeRuns({config: retired});
             const output: string[] = [];
-            yield* effectNoDeps(retired, ['node', 'suite', 'stats']).pipe(
+            yield* effectNoDeps(retired, [
+                'node',
+                'suite',
+                'stats',
+                '--cached',
+            ]).pipe(
                 Effect.provide(
                     Stdio.layerTest({
                         stdout: () =>
@@ -92,50 +146,78 @@ it.effect(
                 rows.map(row => ({
                     variant: row.variant,
                     retired: row.retired,
-                    id: Option.map(row.run, run => run.id),
+                    source: row.source,
+                    store: Option.map(row.run, run => run.store),
                     count: Option.map(row.stats, stats => stats.total),
                 })),
             ).toEqual([
                 {
                     variant: 'B',
                     retired: false,
-                    id: Option.some(before[1].id),
+                    source: 'fresh',
+                    store: Option.some('cache'),
                     count: Option.some(1),
                 },
                 {
                     variant: 'A',
                     retired: false,
-                    id: Option.some(before[2].id),
+                    source: 'fresh',
+                    store: Option.some('cache'),
                     count: Option.some(1),
                 },
                 {
                     variant: 'missing',
                     retired: false,
-                    id: Option.none(),
-                    count: Option.none(),
+                    source: 'fresh',
+                    store: Option.some('cache'),
+                    count: Option.some(1),
                 },
                 {
                     variant: 'empty',
                     retired: false,
-                    id: Option.some(empty.run.id),
-                    count: Option.some(0),
-                },
-                {
-                    variant: 'C',
-                    retired: true,
-                    id: Option.some(before[3].id),
+                    source: 'fresh',
+                    store: Option.some('cache'),
                     count: Option.some(1),
                 },
             ]);
-            expect(output.join('')).toContain('retired');
+            expect(output.join('')).not.toContain('retired');
             expect(output.join('')).toContain('missing');
+            expect(output.join('')).not.toContain('run:');
+            const saved = yield* summarizeRuns({
+                config: retired,
+                references: [
+                    {_tag: 'Baseline', variant: 'C'},
+                    {_tag: 'Run', id: savedEmpty.id},
+                ],
+            });
+            expect(
+                saved.map(row => ({
+                    variant: row.variant,
+                    retired: row.retired,
+                    source: row.source,
+                    count: Option.map(row.stats, stats => stats.total),
+                })),
+            ).toEqual([
+                {
+                    variant: 'C',
+                    retired: true,
+                    source: 'snapshot',
+                    count: Option.some(1),
+                },
+                {
+                    variant: 'empty',
+                    retired: false,
+                    source: 'snapshot',
+                    count: Option.some(0),
+                },
+            ]);
             expect({
                 calls,
                 saved: yield* repository.listTestRuns({
                     name: 'overview',
                     limit: 100,
                 }),
-            }).toEqual({calls: 7, saved: before});
+            }).toEqual({calls: 11, saved: before});
         }).pipe(Effect.provide(services)),
 );
 
@@ -182,8 +264,9 @@ it.effect(
                 },
             };
             yield* effectNoDeps(otherConfig, ['node', 'suite', 'summarize']);
+            yield* effectNoDeps(otherConfig, ['node', 'suite', 'commit']);
             const other = Option.getOrThrow(
-                yield* repository.getLatestTestRun({
+                yield* repository.getBaselineTestRun({
                     name: 'other',
                     variant: 'default',
                 }),
@@ -234,6 +317,30 @@ it.effect(
                 tables: yield* sql`SELECT name FROM sqlite_temp_master WHERE type = 'table' AND name LIKE 'tots_stats_%';`,
             }).toEqual({calls: 4, snapshots, tables: []});
         }).pipe(Effect.provide(services)),
+);
+
+it.effect.each([
+    ['--runs', 'default', '--variant', 'default'],
+    ['--runs', 'default', '--cached'],
+])('rejects incompatible saved stats options %j', args =>
+    Effect.gen(function* () {
+        const config = {
+            dbPath: ':memory:',
+            testSuite: {
+                name: 'invalid-options',
+                schemas,
+                testCases: [{input: 1, expected: 1}],
+                program: (_input: number) => Effect.die('must not execute'),
+            },
+        };
+        const error = yield* effectNoDeps(config, [
+            'node',
+            'suite',
+            'stats',
+            ...args,
+        ]).pipe(Effect.flip);
+        expect(error._tag).toBe('InvalidCommandOptions');
+    }).pipe(Effect.provide(services)),
 );
 
 it.effect.each([

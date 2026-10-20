@@ -2,7 +2,6 @@ import * as PT from '@creative-introvert/tons-of-tests';
 import {NodeServices} from '@effect/platform-node';
 import {expect, it} from '@effect/vitest';
 import {
-    Console,
     Effect,
     FileSystem,
     Layer,
@@ -71,7 +70,7 @@ it.effect(
                 cached: false,
             });
             const repository = yield* PT.TestRepository.TestRepository;
-            yield* repository.commitTestRun(first.run.id);
+            yield* repository.commitTestRuns([first.run]);
             const unchanged = yield* prepareReport({
                 mode: 'diff',
                 config,
@@ -190,7 +189,7 @@ it.effect.each([
                         },
                     ),
                 ).flat();
-            const {run: previous} = yield* repository.withTestRun(
+            const {run: previousAttempt} = yield* repository.withTestRun(
                 {name: 'report', variant: 'default'},
                 run =>
                     repository.insertTestResults(
@@ -199,7 +198,9 @@ it.effect.each([
                         config.testSuite.schemas,
                     ),
             );
-            yield* repository.commitTestRun(previous.id);
+            const [previous] = yield* repository.commitTestRuns([
+                previousAttempt,
+            ]);
             const {run: current} = yield* repository.withTestRun(
                 {name: 'report', variant: 'default'},
                 run =>
@@ -263,7 +264,7 @@ it.effect.each([
             expect(output).toContain('日本語');
             if (mode === 'diff') {
                 expect(output).toContain(`run:${previous.id}`);
-                expect(output).toContain(`run:${current.id}`);
+                expect(output).toContain('to: report / default / cache');
             }
         }).pipe(Effect.scoped, Effect.provide(services)),
 );
@@ -307,14 +308,13 @@ it.effect('fresh and cached reports use both directions of custom codecs', () =>
             ),
         );
         const expected = yield* PT.Test.all(config.testSuite).pipe(
-            PT.Test.runCollectRecord(
-                new PT.TestRepository.TestRun({
-                    id: 0,
-                    name: config.testSuite.name,
-                    variant: 'default',
-                    state: 'Complete',
-                }),
-            ),
+            PT.Test.runCollectRecord({
+                id: 0,
+                name: config.testSuite.name,
+                variant: 'default',
+                state: 'Complete',
+                store: 'cache',
+            }),
         );
         expect(output).toBe(
             yield* PT.Show.summarize({
@@ -380,16 +380,6 @@ it.effect(
             const fs = yield* FileSystem.FileSystem;
             const sql = yield* SqlClient.SqlClient;
             const files: string[] = [];
-            const console = yield* Console.Console;
-            const output: string[] = [];
-            const capturedConsole: Console.Console = Object.assign(
-                Object.create(console),
-                {
-                    log: (...args: ReadonlyArray<unknown>) => {
-                        output.push(args.map(String).join(' '));
-                    },
-                },
-            );
             const failure = PlatformError.systemError({
                 _tag: 'Unknown',
                 module: 'FileSystem',
@@ -412,7 +402,6 @@ it.effect(
                 'suite',
                 'summarize',
             ]).pipe(
-                Effect.provideService(Console.Console, capturedConsole),
                 Effect.provideService(FileSystem.FileSystem, {
                     ...fs,
                     makeTempFileScoped: options =>
@@ -443,14 +432,12 @@ it.effect(
                 ),
                 tables: yield* sql`SELECT name FROM sqlite_temp_master WHERE type = 'table' AND name LIKE 'tots_stats_%';`,
                 state: saved.state,
-                output,
             }).toEqual({
                 error: failure,
                 createdFiles: 1,
                 filesStillPresent: [false],
                 tables: [],
                 state: 'Complete',
-                output: [`Created report-cleanup / default / run:${saved.id}.`],
             });
         }).pipe(Effect.provide(services)),
 );

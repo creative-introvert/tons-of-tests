@@ -1,12 +1,39 @@
 import * as PT from '@creative-introvert/tons-of-tests';
-import {Console, Effect, Option, Stream} from 'effect';
+import {Effect, Option, Stream} from 'effect';
 
 import type {AppConfigShape} from './Config.js';
 import {
+    InvalidCommandOptions,
     matchesFilters,
     type ResultFilters,
     type RunReference,
 } from './common.js';
+
+export const selectVariants = Effect.fn('TestRun.variants')(function* <
+    I,
+    O,
+    T,
+    A,
+    B,
+    S,
+>(suite: AppConfigShape<I, O, T, A, B, S>['testSuite'], variant?: string) {
+    const names =
+        variant !== undefined
+            ? [variant]
+            : suite.variants === undefined
+              ? ['default']
+              : Object.keys(suite.variants);
+    if (names.length === 0) {
+        return yield* new InvalidCommandOptions({
+            message: `${suite.name}: define at least one variant.`,
+        });
+    }
+    return yield* Effect.forEach(names, name =>
+        PT.Test.selectVariant(suite, name).pipe(
+            Effect.map(selected => selected.name),
+        ),
+    );
+});
 
 export const resolveRun = Effect.fn('TestRun.resolve')(function* (
     name: string,
@@ -15,7 +42,10 @@ export const resolveRun = Effect.fn('TestRun.resolve')(function* (
     const repository = yield* PT.TestRepository.TestRepository;
     const selected =
         reference._tag === 'Run'
-            ? yield* repository.getTestRun(reference.id)
+            ? yield* repository.getTestRun({
+                  store: 'snapshot',
+                  id: reference.id,
+              })
             : yield* repository.getBaselineTestRun({
                   name,
                   variant: reference.variant,
@@ -36,6 +66,60 @@ export const resolveRun = Effect.fn('TestRun.resolve')(function* (
         });
     }
     return selected.value;
+});
+
+/**
+ * Finish and cache one variant before reporting. With `cached`, reuse only its
+ * latest attempt if complete, including an empty attempt. A missing, running,
+ * or failed attempt reruns; no baseline or older success is used as a fallback.
+ * Report filters never change cached results.
+ */
+export const executeRun = Effect.fn('TestRun.execute')(function* <
+    I,
+    O,
+    T,
+    A,
+    B,
+    S,
+>({
+    config,
+    cached,
+    variant,
+}: {
+    config: AppConfigShape<I, O, T, A, B, S>;
+    cached: boolean;
+    variant?: string | undefined;
+}) {
+    const selected = yield* PT.Test.selectVariant(config.testSuite, variant);
+    const repository = yield* PT.TestRepository.TestRepository;
+    const identity = {name: config.testSuite.name, variant: selected.name};
+    const latest = cached
+        ? yield* repository.getLatestTestRun(identity)
+        : Option.none();
+    const reused = Option.isSome(latest) && latest.value.state === 'Complete';
+    const run =
+        reused && Option.isSome(latest)
+            ? latest.value
+            : (yield* repository.withTestRun(identity, run =>
+                  PT.Test.all<I, O, T, A, B, S>(config.testSuite, {
+                      variant: selected.name,
+                      concurrency: config.concurrency,
+                  }).pipe(
+                      Stream.grouped(50),
+                      Stream.runForEach(results =>
+                          repository.insertTestResults(
+                              results,
+                              run,
+                              config.testSuite.schemas,
+                          ),
+                      ),
+                  ),
+              )).run;
+    return {
+        run,
+        reused,
+        source: reused ? ('cache' as const) : ('fresh' as const),
+    };
 });
 
 const prepareRunReport = Effect.fn('TestRun.savedReport')(function* <
@@ -141,7 +225,7 @@ const prepareRunReport = Effect.fn('TestRun.savedReport')(function* <
     );
 });
 
-/** Read complete saved runs without executing a program or changing a baseline. */
+/** Compare the supplied complete runs without executing programs or changing baselines. */
 export const prepareSavedReport = Effect.fn('TestRun.comparison')(function* <
     I,
     O,
@@ -168,7 +252,10 @@ export const prepareSavedReport = Effect.fn('TestRun.comparison')(function* <
     });
 });
 
-/** Save the full run before reading report rows. Report failures leave the completed run unchanged. */
+/**
+ * Cache the full run before reading report rows. If reporting fails, the complete
+ * attempt remains available for `--cached` or `commit`.
+ */
 export const prepareReport = Effect.fn('TestRun.report')(function* <
     I,
     O,
@@ -188,41 +275,19 @@ export const prepareReport = Effect.fn('TestRun.report')(function* <
     variant?: string | undefined;
     mode: 'summarize' | 'diff';
 }) {
-    const selected = yield* PT.Test.selectVariant(config.testSuite, variant);
+    const selected = yield* executeRun<I, O, T, A, B, S>({
+        config,
+        cached,
+        variant,
+    });
     const repository = yield* PT.TestRepository.TestRepository;
-    const identity = {name: config.testSuite.name, variant: selected.name};
-    const previous = yield* repository.getBaselineTestRun(identity);
-    const latest = cached
-        ? yield* repository.getLatestTestRun(identity)
-        : Option.none();
-    const reused = Option.isSome(latest) && latest.value.state === 'Complete';
-    const run =
-        reused && Option.isSome(latest)
-            ? latest.value
-            : (yield* repository.withTestRun(identity, run =>
-                  PT.Test.all<I, O, T, A, B, S>(config.testSuite, {
-                      variant: selected.name,
-                      concurrency: config.concurrency,
-                  }).pipe(
-                      Stream.grouped(50),
-                      Stream.runForEach(results =>
-                          repository.insertTestResults(
-                              results,
-                              run,
-                              config.testSuite.schemas,
-                          ),
-                      ),
-                  ),
-              )).run;
-    yield* Console.log(
-        `${reused ? 'Reused' : 'Created'} ${run.name} / ${run.variant} / run:${run.id}.`,
-    );
+    const previous = yield* repository.getBaselineTestRun(selected.run);
     const report = yield* prepareRunReport<I, O, T, A, B, S>({
         ...filters,
         config,
         from: previous,
-        to: run,
+        to: selected.run,
         mode,
     });
-    return {...report, reused};
+    return {...report, reused: selected.reused, source: selected.source};
 });

@@ -120,6 +120,26 @@ it.effect.each([
         }).pipe(Effect.scoped, Effect.provide(services)),
 );
 
+it.effect('an empty committed baseline is still a baseline', () =>
+    Effect.gen(function* () {
+        const repository = yield* PT.TestRepository.TestRepository;
+        const {run} = yield* repository.withTestRun(
+            {name: config.testSuite.name, variant: 'default'},
+            () => Effect.void,
+        );
+        yield* repository.commitTestRuns([run]);
+        const report = yield* prepareReport({
+            config,
+            mode: 'diff',
+            cached: false,
+        });
+        expect({
+            count: report.count,
+            previous: Option.map(report.previousStats, stats => stats.total),
+        }).toEqual({count: 2, previous: Option.some(0)});
+    }).pipe(Effect.scoped, Effect.provide(services)),
+);
+
 it.effect.each([
     {
         description: 'unchanged results',
@@ -152,6 +172,79 @@ it.effect.each([
             }),
         ).toEqual(expected);
     }).pipe(Effect.scoped, Effect.provide(services)),
+);
+
+it.effect.each([
+    {changed: ['A'], filters: [], count: 1},
+    {changed: ['B'], filters: [], count: 1},
+    {changed: ['A', 'B'], filters: [], count: 2},
+    {changed: ['A', 'B'], filters: ['--keys', 'missing'], count: 0},
+])(
+    'renders every variant before applying --exit-on-diff ($changed, $count)',
+    ({changed, filters, count}) =>
+        Effect.gen(function* () {
+            const baseline = {
+                ...config,
+                testSuite: {
+                    name: 'multi-diff',
+                    schemas: config.testSuite.schemas,
+                    testCases: [{input: 1, expected: 1}],
+                    variants: {
+                        A: {program: (input: number) => Effect.succeed(input)},
+                        B: {program: (input: number) => Effect.succeed(input)},
+                    },
+                },
+            };
+            yield* effectNoDeps(baseline, ['node', 'suite', 'summarize']);
+            yield* effectNoDeps(baseline, ['node', 'suite', 'commit']);
+            const calls: string[] = [];
+            const program = (variant: string) => (input: number) =>
+                Effect.sync(() => {
+                    calls.push(variant);
+                    return changed.includes(variant) ? input + 1 : input;
+                });
+            const output: string[] = [];
+            const result = yield* effectNoDeps(
+                {
+                    ...baseline,
+                    testSuite: {
+                        ...baseline.testSuite,
+                        variants: {
+                            A: {program: program('A')},
+                            B: {program: program('B')},
+                        },
+                    },
+                },
+                ['node', 'suite', 'diff', '--exit-on-diff', ...filters],
+            ).pipe(
+                Effect.provide(
+                    Stdio.layerTest({
+                        stdout: () =>
+                            Sink.forEach(chunk =>
+                                Effect.sync(() => {
+                                    output.push(String(chunk));
+                                }),
+                            ),
+                    }),
+                ),
+                Effect.result,
+            );
+            expect({
+                calls,
+                outcome: Result.match(result, {
+                    onSuccess: () => 0,
+                    onFailure: error =>
+                        error._tag === 'DiffNonEmpty'
+                            ? error.count
+                            : error._tag,
+                }),
+                rendered: output.join('').match(/to: multi-diff \/ [AB]/g),
+            }).toEqual({
+                calls: ['A', 'B'],
+                outcome: count,
+                rendered: ['to: multi-diff / A', 'to: multi-diff / B'],
+            });
+        }).pipe(Effect.provide(services)),
 );
 
 it.effect(
@@ -371,7 +464,7 @@ it.effect(
                 cached: false,
                 variant: 'A',
             });
-            yield* repository.commitTestRun(old.run.id);
+            const [savedOld] = yield* repository.commitTestRuns([old.run]);
             const current = yield* prepareReport({
                 config: {
                     ...base,
@@ -384,7 +477,9 @@ it.effect(
                 cached: false,
                 variant: 'B',
             });
-            yield* repository.commitTestRun(current.run.id);
+            const [savedCurrent] = yield* repository.commitTestRuns([
+                current.run,
+            ]);
             yield* prepareReport({
                 config: base,
                 mode: 'summarize',
@@ -410,6 +505,9 @@ it.effect(
                 cached: false,
                 variant: 'A',
             });
+            const [savedExternal] = yield* repository.commitTestRuns([
+                external.run,
+            ]);
             const before = yield* repository.listTestRuns({
                 name: config.testSuite.name,
                 limit: 100,
@@ -419,16 +517,16 @@ it.effect(
                 limit: 100,
             });
             for (const references of [
-                {from: 'A', to: 'B', selected: current.run},
+                {from: 'A', to: 'B', selected: savedCurrent},
                 {
-                    from: `run:${old.run.id}`,
-                    to: `run:${current.run.id}`,
-                    selected: current.run,
+                    from: `run:${savedOld.id}`,
+                    to: `run:${savedCurrent.id}`,
+                    selected: savedCurrent,
                 },
                 {
-                    from: `run:${old.run.id}`,
-                    to: `run:${external.run.id}`,
-                    selected: external.run,
+                    from: `run:${savedOld.id}`,
+                    to: `run:${savedExternal.id}`,
+                    selected: savedExternal,
                 },
             ]) {
                 const output: string[] = [];
@@ -458,7 +556,7 @@ it.effect(
                     error._tag === 'DiffNonEmpty' ? error.count : error._tag,
                 ).toBe(1);
                 expect(output.join('')).toContain(
-                    `from: ${old.run.name} / ${old.run.variant} / run:${old.run.id}`,
+                    `from: ${savedOld.name} / ${savedOld.variant} / run:${savedOld.id}`,
                 );
                 expect(output.join('')).toContain(
                     `to: ${references.selected.name} / ${references.selected.variant} / run:${references.selected.id}`,

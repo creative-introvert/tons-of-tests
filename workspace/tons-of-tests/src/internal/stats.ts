@@ -179,6 +179,7 @@ export const showRunSummaries = ({
         run: Option.Option<TestRun>;
         stats: Option.Option<Stats>;
         retired: boolean;
+        source: 'fresh' | 'cache' | 'snapshot';
     }>;
     displayConfig?: Partial<DisplayConfig> | undefined;
 }): string => {
@@ -187,6 +188,7 @@ export const showRunSummaries = ({
         'suite',
         'variant',
         'run',
+        'source',
         'status',
         'cases',
         'results',
@@ -201,8 +203,10 @@ export const showRunSummaries = ({
             summary.variant,
             Option.match(summary.run, {
                 onNone: () => '-',
-                onSome: run => `run:${run.id}`,
+                onSome: run =>
+                    run.store === 'snapshot' ? `run:${run.id}` : '-',
             }),
+            summary.source,
             [
                 ...(summary.retired ? ['retired'] : []),
                 ...(Option.isNone(summary.run) ? ['no baseline'] : []),

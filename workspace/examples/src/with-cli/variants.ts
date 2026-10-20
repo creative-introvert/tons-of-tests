@@ -6,42 +6,77 @@ import {Effect, Schema} from 'effect';
  * Run from the project directory. Use a fresh database; older storage formats
  * are not migrated.
  *
+ * Run all variants, inspect the cached results, then save them as baselines:
+ *
+ * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts summarize
+ * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts summarize --cached --tags small
+ * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts stats --cached
+ * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts diff --cached
+ * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts commit
+ *
+ * summarize, stats, and ordinary diff run fresh tests by default. They select all
+ * configured variants in declaration order. Add --variant A to select only A:
+ *
  * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts summarize --variant A
- * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts summarize --variant A --cached
  * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts commit --variant A
- * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts summarize --variant B
- * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts commit --variant B
- * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts diff --variant A
+ *
+ * --cached reuses each variant's latest attempt if it is Complete, including an
+ * empty attempt. This deliberately reuses results even after program code changes.
+ * A missing, Running, or Failed attempt reruns. It never falls back to an older
+ * success or a committed baseline.
+ *
+ * Results are cached before reporting. Filters affect display only; commit saves
+ * every result from each selected attempt. A report failure leaves complete cached
+ * results available. An execution failure leaves that attempt unusable.
+ *
+ * Only commit writes snapshots. It never runs programs, and every selected attempt
+ * must be complete before anything is saved. It saves the whole selection at once
+ * and updates each variant's baseline. Repeating commit reuses the same snapshots.
+ * Later executions replace cached attempts and leave saved snapshots unchanged.
+ *
+ * The default cache is .cache/tons-of-tests/<hash>.sqlite under the directory where
+ * the command runs. It keeps only the latest attempt per snapshot database, suite,
+ * and variant. Set cachePath to choose another filename, or :memory: to keep the
+ * cache only for the repository layer's lifetime. Deleting this disposable cache
+ * leaves committed snapshots and baselines intact.
+ *
+ * dbPath: ':memory:' still uses the disk cache by default. Separate CLI processes
+ * in the same directory can reuse that cache, but do not share an in-memory baseline.
+ * To keep an in-memory baseline across calls, provide one CLI.buildLayer around
+ * several CLI.effectNoDeps calls.
+ *
+ * Read committed baselines and history without running programs:
+ *
  * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts diff --from A --to B
- * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts stats
+ * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts stats --runs A,B
  * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts runs --limit 50
  *
- * Replace 17 and 23 below with the IDs printed by summarize, diff, or runs.
+ * Replace 17 and 23 below with snapshot IDs printed by commit or runs.
+ * run:<id> always refers to a committed snapshot.
  *
  * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts commit --run run:17
  * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts diff --from run:17 --to run:23
  * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts stats --runs run:23,A,run:17
  * direnv exec . pnpm exec tsx workspace/examples/src/with-cli/variants.ts runs --variant A --limit 50 --before 17
  *
- * A suite may define one program with the permanent variant ID `default`.
- * Running it does not need --variant. Named variants always need a selection.
- * Keep IDs stable: editing A keeps A's history; renaming it starts a new history.
+ * diff --from/--to and stats --runs require saved snapshots. Missing references fail
+ * without running programs. These options cannot be combined with --variant or
+ * --cached. commit --run restores the snapshot as its variant's baseline, requires
+ * a snapshot from this suite, and cannot be combined with --variant.
  *
- * --cached reuses the latest attempt only if it is Complete, even if it is the
- * baseline. If the latest attempt is Running or Failed, execution starts a new run.
- * Reports are prepared after all results are saved. The run ID is printed before
- * report preparation, so it remains available if the report fails. A report failure
- * leaves the run Complete. Every execution gets its own ID. Complete and Failed
- * runs stay unchanged. Commit changes only the selected variant's baseline pointer.
- * Saved history is not pruned automatically.
+ * A single program uses the permanent variant ID `default`. Keep named IDs stable:
+ * editing A keeps A's history; renaming it starts a new history. Default reports
+ * include only configured variants. Saved references and runs can read snapshots
+ * for removed variants. Saved history is not pruned automatically.
  *
- * Saved run references read stored results without running a program. Removed
- * variants remain readable. All selected runs use this suite's shared codecs,
- * which must require no Effect services. You decide whether stored values still
- * mean the same thing. Program settings and versions are not recorded.
- * A missing baseline has no metrics; an empty complete run has zero counts.
- * Diff counts only visible changed, added, and removed rows. Stats counts all
- * selected results. Filters use each run's saved values and tags. In a diff,
+ * All selected runs use this suite's shared codecs, which require no Effect services.
+ * You decide whether stored values still mean the same thing. Program settings and
+ * versions are not recorded.
+ *
+ * Ordinary diff shows results as added when no baseline exists. An empty complete
+ * baseline is still a baseline and has zero counts. Diff statistics count visible
+ * changed, added, and removed rows. Stats counts all filtered results, including
+ * unchanged ones. Filters use each run's stored values and tags. In a diff,
  * filters use the `to` side when present and the `from` side for removed rows.
  *
  * If programs or the case stream need services, use CLI.effect and provide

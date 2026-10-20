@@ -8,7 +8,7 @@ import {TestResultStorage, tables} from './Test.repository.sqlite.js';
 export const getAllTestRuns = Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     return yield* Schema.decodeUnknownEffect(Schema.Array(TestRun))(
-        yield* sql`SELECT * FROM ${sql(tables.testRuns)};`,
+        yield* sql`SELECT *, 'cache' AS store FROM ${sql(tables.testRuns)};`,
     );
 });
 

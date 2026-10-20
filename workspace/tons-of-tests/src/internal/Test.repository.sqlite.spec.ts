@@ -1,4 +1,4 @@
-import {NodeFileSystem} from '@effect/platform-node';
+import {NodeServices} from '@effect/platform-node';
 import * as Sqlite from '@effect/sql-sqlite-node';
 import {expect, it} from '@effect/vitest';
 import {
@@ -18,7 +18,7 @@ import {Stats} from '../Classify.js';
 import type {TestResult} from '../Test.js';
 import {TestRepository} from '../Test.repository.js';
 import {TestRun} from '../TestRun.js';
-import {makeTestRepository, tables} from './Test.repository.sqlite.js';
+import {TestRepositoryStorage, tables} from './Test.repository.sqlite.js';
 import {
     getAllTestResults,
     getAllTestRunResults,
@@ -53,7 +53,7 @@ it.effect('lookups never create missing runs or baselines', () =>
         const repository = yield* TestRepository;
         const input = {name: 'missing', variant: 'A'};
         expect({
-            exact: yield* repository.getTestRun(10),
+            exact: yield* repository.getTestRun({store: 'snapshot', id: 10}),
             latest: yield* repository.getLatestTestRun(input),
             baseline: yield* repository.getBaselineTestRun(input),
             variants: yield* repository.listVariantBaselines(input.name),
@@ -68,7 +68,17 @@ it.effect('lookups never create missing runs or baselines', () =>
             saved: [],
         });
         expect(
-            yield* repository.commitTestRun(10).pipe(Effect.flip),
+            yield* repository
+                .commitTestRuns([
+                    TestRun.make({
+                        store: 'snapshot',
+                        id: 10,
+                        name: 'missing',
+                        variant: 'A',
+                        state: 'Complete',
+                    }),
+                ])
+                .pipe(Effect.flip),
         ).toMatchObject({
             _tag: 'TestRunNotFound',
             testRunId: 10,
@@ -85,9 +95,9 @@ it.effect.each([false, true])(
                 {name: 'success', variant: 'A'},
                 run =>
                     Effect.gen(function* () {
-                        expect(run).toBeInstanceOf(TestRun);
+                        expect(run.store).toBe('cache');
                         expect(run.state).toBe('Running');
-                        expect(yield* repository.getTestRun(run.id)).toEqual(
+                        expect(yield* repository.getTestRun(run)).toEqual(
                             Option.some(run),
                         );
                         if (!empty)
@@ -99,8 +109,10 @@ it.effect.each([false, true])(
                         return 'callback-value';
                     }),
             );
-            yield* repository.commitTestRun(saved.run.id);
-            yield* repository.commitTestRun(saved.run.id);
+            const [snapshot] = yield* repository.commitTestRuns([saved.run]);
+            expect(yield* repository.commitTestRuns([saved.run])).toEqual([
+                snapshot,
+            ]);
             expect({
                 state: saved.run.state,
                 value: saved.value,
@@ -112,7 +124,7 @@ it.effect.each([false, true])(
             }).toEqual({
                 state: 'Complete',
                 value: 'callback-value',
-                baseline: Option.some(saved.run),
+                baseline: Option.some(snapshot),
                 rows: empty ? [] : [result(1)],
                 runs: [saved.run],
             });
@@ -161,7 +173,7 @@ it.effect.each(['failure', 'defect'] as const)(
                     .getTestResultsStream(run, numberSchemas)
                     .pipe(Stream.runCollect),
                 commit: yield* repository
-                    .commitTestRun(run.id)
+                    .commitTestRuns([run])
                     .pipe(Effect.flip),
             }).toEqual({
                 state: 'Failed',
@@ -191,7 +203,7 @@ it.effect('marks a synchronous callback throw Failed', () =>
         expect({
             state: run.state,
             reasons: Exit.isFailure(exit) ? exit.cause.reasons : [],
-            commit: (yield* repository.commitTestRun(run.id).pipe(Effect.flip))
+            commit: (yield* repository.commitTestRuns([run]).pipe(Effect.flip))
                 ._tag,
         }).toEqual({
             state: 'Failed',
@@ -217,16 +229,14 @@ it.effect('interruption keeps saved results and marks the run Failed', () =>
         );
         const running = yield* Deferred.await(started);
         yield* Fiber.interrupt(fiber);
-        const saved = Option.getOrThrow(
-            yield* repository.getTestRun(running.id),
-        );
+        const saved = Option.getOrThrow(yield* repository.getTestRun(running));
         expect({
             state: saved.state,
             rows: yield* repository
                 .getTestResultsStream(saved, numberSchemas)
                 .pipe(Stream.runCollect),
             commit: (yield* repository
-                .commitTestRun(saved.id)
+                .commitTestRuns([saved])
                 .pipe(Effect.flip))._tag,
         }).toEqual({
             state: 'Failed',
@@ -324,7 +334,7 @@ it.effect.each(['success', 'failure', 'defect'] as const)(
                     .getTestResultsStream(run, numberSchemas)
                     .pipe(Stream.runCollect),
                 commit: (yield* repository
-                    .commitTestRun(run.id)
+                    .commitTestRuns([run])
                     .pipe(Effect.flip))._tag,
             }).toEqual({
                 calls: 1,
@@ -335,81 +345,106 @@ it.effect.each(['success', 'failure', 'defect'] as const)(
         }).pipe(Effect.provide(TestRepository.TestLayer)),
 );
 
-it.effect('overlapping attempts finish independently in reverse order', () =>
+it.effect.each(['failure', 'interruption'] as const)(
+    'replacing a successful attempt with %s never restores the older cache',
+    outcome =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const input = {name: 'replace', variant: 'A'};
+            const first = yield* repository.withTestRun(input, run =>
+                repository.insertTestResult(result(1), run, numberSchemas),
+            );
+            const started = yield* Deferred.make<TestRun>();
+            const successor = yield* Effect.forkChild(
+                repository
+                    .withTestRun(input, run =>
+                        repository
+                            .insertTestResult(result(2), run, numberSchemas)
+                            .pipe(
+                                Effect.andThen(Deferred.succeed(started, run)),
+                                Effect.andThen(
+                                    outcome === 'failure'
+                                        ? Effect.fail('failed')
+                                        : Effect.never,
+                                ),
+                            ),
+                    )
+                    .pipe(Effect.exit),
+            );
+            const running = yield* Deferred.await(started);
+            if (outcome === 'interruption') yield* Fiber.interrupt(successor);
+            else yield* Fiber.join(successor);
+            const latest = Option.getOrThrow(
+                yield* repository.getLatestTestRun(input),
+            );
+            expect({
+                old: yield* repository.getTestRun(first.run),
+                latest: {...latest, id: running.id},
+                rows: yield* getAllTestResults,
+                links: (yield* getAllTestRunResults).map(row => row.testRun),
+                commit: (yield* repository
+                    .commitTestRuns([first.run])
+                    .pipe(Effect.flip))._tag,
+            }).toEqual({
+                old: Option.none(),
+                latest: {...running, state: 'Failed'},
+                rows: [expect.objectContaining({id: 'result-2'})],
+                links: [running.id],
+                commit: 'TestRunNotFound',
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect('a replaced running attempt cannot write results or finish', () =>
     Effect.gen(function* () {
         const repository = yield* TestRepository;
-        const firstStarted = yield* Deferred.make<TestRun>();
-        const secondStarted = yield* Deferred.make<TestRun>();
-        const finishFirst = yield* Deferred.make<void>();
-        const finishSecond = yield* Deferred.make<void>();
-        const selection = {name: 'overlap', variant: 'A'};
+        const input = {name: 'overlap', variant: 'A'};
+        const started = yield* Deferred.make<TestRun>();
+        const finish = yield* Deferred.make<void>();
         const first = yield* Effect.forkChild(
-            repository.withTestRun(selection, run =>
-                repository
-                    .insertTestResult(result(1), run, numberSchemas)
-                    .pipe(
-                        Effect.andThen(Deferred.succeed(firstStarted, run)),
-                        Effect.andThen(Deferred.await(finishFirst)),
+            repository
+                .withTestRun(input, run =>
+                    Deferred.succeed(started, run).pipe(
+                        Effect.andThen(Deferred.await(finish)),
                     ),
-            ),
+                )
+                .pipe(Effect.exit),
         );
-        const firstRunning = yield* Deferred.await(firstStarted);
-        const second = yield* Effect.forkChild(
-            repository.withTestRun(selection, run =>
-                repository
-                    .insertTestResult(result(2), run, numberSchemas)
-                    .pipe(
-                        Effect.andThen(Deferred.succeed(secondStarted, run)),
-                        Effect.andThen(Deferred.await(finishSecond)),
-                    ),
-            ),
-        );
-        const secondRunning = yield* Deferred.await(secondStarted);
-        expect(secondRunning.id).toBeGreaterThan(firstRunning.id);
-        yield* Deferred.succeed(finishSecond, undefined);
-        const secondSaved = yield* Fiber.join(second);
+        const old = yield* Deferred.await(started);
+        const current = yield* repository.withTestRun(input, () => Effect.void);
+        expect(
+            (yield* repository
+                .insertTestResult(result(1), old, numberSchemas)
+                .pipe(Effect.flip))._tag,
+        ).toBe('TestRunNotFound');
+        yield* Deferred.succeed(finish, undefined);
+        const exit = yield* Fiber.join(first);
         expect({
-            first: Option.getOrThrow(
-                yield* repository.getTestRun(firstRunning.id),
-            ).state,
-            second: secondSaved.run.state,
-            latest: yield* repository.getLatestTestRun(selection),
+            finishFailed: Exit.isFailure(exit),
+            latest: yield* repository.getLatestTestRun(input),
+            runs: yield* getAllTestRuns,
         }).toEqual({
-            first: 'Running',
-            second: 'Complete',
-            latest: Option.some(secondSaved.run),
-        });
-        yield* Deferred.succeed(finishFirst, undefined);
-        const firstSaved = yield* Fiber.join(first);
-        yield* repository.commitTestRun(firstSaved.run.id);
-        expect({
-            baseline: yield* repository.getBaselineTestRun(selection),
-            latest: yield* repository.getLatestTestRun(selection),
-            first: yield* repository
-                .getTestResultsStream(firstSaved.run, numberSchemas)
-                .pipe(Stream.runCollect),
-            second: yield* repository
-                .getTestResultsStream(secondSaved.run, numberSchemas)
-                .pipe(Stream.runCollect),
-        }).toEqual({
-            baseline: Option.some(firstSaved.run),
-            latest: Option.some(secondSaved.run),
-            first: [result(1)],
-            second: [result(2)],
+            finishFailed: true,
+            latest: Option.some(current.run),
+            runs: [current.run],
         });
     }).pipe(Effect.provide(TestRepository.TestLayer)),
 );
 
 it.effect(
-    'keeps independent baselines and all results after reopening the database',
+    'keeps committed history and baseline selections after reopening',
     () =>
         Effect.gen(function* () {
             const fs = yield* FileSystem.FileSystem;
             const directory = yield* fs.makeTempDirectoryScoped();
-            const database = `${directory}/runs.sqlite`;
-            const runs = yield* Effect.gen(function* () {
+            const options = {
+                dbPath: `${directory}/snapshots.sqlite`,
+                cachePath: `${directory}/cache.sqlite`,
+                snapshotIdentity: 'history',
+            };
+            const snapshots = yield* Effect.gen(function* () {
                 const repository = yield* TestRepository;
-                const saved = yield* Effect.forEach(
+                return yield* Effect.forEach(
                     ['A', 'B', 'C', 'A', 'B', 'C'],
                     (variant, index) =>
                         repository
@@ -420,47 +455,44 @@ it.effect(
                                     numberSchemas,
                                 ),
                             )
-                            .pipe(Effect.map(({run}) => run)),
+                            .pipe(
+                                Effect.flatMap(({run}) =>
+                                    repository.commitTestRuns([run]),
+                                ),
+                                Effect.map(runs => runs[0]),
+                            ),
                 );
-                yield* repository.commitTestRun(saved[3].id);
-                yield* repository.commitTestRun(saved[4].id);
-                yield* repository.commitTestRun(saved[2].id);
-                yield* repository.commitTestRun(saved[0].id);
-                yield* repository.commitTestRun(saved[0].id);
-                return saved;
-            }).pipe(Effect.provide(TestRepository.layer(database)));
+            }).pipe(Effect.provide(TestRepository.layer(options)));
             yield* Effect.gen(function* () {
                 const repository = yield* TestRepository;
+                yield* repository.commitTestRuns([
+                    snapshots[0],
+                    snapshots[4],
+                    snapshots[2],
+                ]);
                 expect({
                     baselines:
                         yield* repository.listVariantBaselines('history'),
-                    runs: (yield* repository.listTestRuns({
+                    history: (yield* repository.listTestRuns({
                         name: 'history',
                         limit: 100,
-                    })).map(({id, isBaseline}) => ({id, isBaseline})),
-                    results: yield* Effect.forEach(runs, run =>
+                    })).map(({isBaseline, ...run}) => run),
+                    results: yield* Effect.forEach(snapshots, run =>
                         repository
                             .getTestResultsStream(run, numberSchemas)
                             .pipe(Stream.runCollect),
                     ),
                 }).toEqual({
                     baselines: [
-                        {variant: 'A', baseline: Option.some(runs[0])},
-                        {variant: 'B', baseline: Option.some(runs[4])},
-                        {variant: 'C', baseline: Option.some(runs[2])},
+                        {variant: 'A', baseline: Option.some(snapshots[0])},
+                        {variant: 'B', baseline: Option.some(snapshots[4])},
+                        {variant: 'C', baseline: Option.some(snapshots[2])},
                     ],
-                    runs: runs.toReversed().map(run => ({
-                        id: run.id,
-                        isBaseline: [
-                            runs[0].id,
-                            runs[4].id,
-                            runs[2].id,
-                        ].includes(run.id),
-                    })),
-                    results: runs.map((_, index) => [result(index)]),
+                    history: snapshots.toReversed(),
+                    results: snapshots.map((_, index) => [result(index)]),
                 });
-            }).pipe(Effect.provide(TestRepository.layer(database)));
-        }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+            }).pipe(Effect.provide(TestRepository.layer(options)));
+        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
 it.effect.each(['Complete', 'Failed'] as const)(
@@ -503,10 +535,11 @@ it.effect.each(['Complete', 'Failed'] as const)(
                         },
                         result(2),
                     ],
-                    new TestRun({
+                    TestRun.make({
                         id: saved.id,
                         name: saved.name,
                         variant: saved.variant,
+                        store: 'cache',
                         state: 'Running',
                     }),
                     numberSchemas,
@@ -518,7 +551,7 @@ it.effect.each(['Complete', 'Failed'] as const)(
             expect({
                 rejected: Exit.isFailure(exit),
                 emptyRejected: Exit.isFailure(emptyWrite),
-                state: Option.getOrThrow(yield* repository.getTestRun(saved.id))
+                state: Option.getOrThrow(yield* repository.getTestRun(saved))
                     .state,
                 results: yield* repository
                     .getTestResultsStream(saved, numberSchemas)
@@ -667,35 +700,52 @@ it.effect('a failed batch rolls back its content and links', () =>
 );
 
 it.effect(
-    'a failed baseline write preserves the previous pointer and history',
+    'a failed multi-variant commit rolls back snapshots and all baselines',
     () =>
         Effect.gen(function* () {
             const repository = yield* TestRepository;
-            const sql = yield* SqlClient.SqlClient;
-            const first = yield* repository.withTestRun(
-                {name: 'atomic-commit', variant: 'A'},
-                () => Effect.void,
+            const {snapshot} = yield* TestRepositoryStorage;
+            const sql = yield* snapshot;
+            const previous = yield* Effect.forEach(['A', 'B'], variant =>
+                repository.withTestRun(
+                    {name: 'atomic-commit', variant},
+                    () => Effect.void,
+                ),
             );
-            const second = yield* repository.withTestRun(
-                {name: 'atomic-commit', variant: 'A'},
-                () => Effect.void,
+            const saved = yield* repository.commitTestRuns(
+                previous.map(({run}) => run),
             );
-            yield* repository.commitTestRun(first.run.id);
-            yield* sql`
-            CREATE TRIGGER reject_baseline BEFORE UPDATE ON ${sql(tables.testBaselines)}
-            BEGIN SELECT RAISE(ABORT, 'forced baseline failure'); END;
-        `;
+            const next = yield* Effect.forEach(['A', 'B'], (variant, index) =>
+                repository.withTestRun({name: 'atomic-commit', variant}, run =>
+                    repository.insertTestResult(
+                        result(index),
+                        run,
+                        numberSchemas,
+                    ),
+                ),
+            );
+            yield* sql`CREATE TRIGGER reject_baseline BEFORE UPDATE ON ${sql(tables.testBaselines)}
+        WHEN NEW.variant = 'B' BEGIN SELECT RAISE(ABORT, 'forced baseline failure'); END;`;
             const error = yield* repository
-                .commitTestRun(second.run.id)
+                .commitTestRuns(next.map(({run}) => run))
                 .pipe(Effect.flip);
             expect({
                 error: error._tag,
-                baseline: yield* repository.getBaselineTestRun(first.run),
-                runs: yield* getAllTestRuns,
+                baselines:
+                    yield* repository.listVariantBaselines('atomic-commit'),
+                history: (yield* repository.listTestRuns({
+                    name: 'atomic-commit',
+                    limit: 100,
+                })).map(({isBaseline, ...run}) => run),
+                rows: yield* sql`SELECT * FROM ${sql(tables.testResults)};`,
             }).toEqual({
                 error: 'SqlError',
-                baseline: Option.some(first.run),
-                runs: [first.run, second.run],
+                baselines: [
+                    {variant: 'A', baseline: Option.some(saved[0])},
+                    {variant: 'B', baseline: Option.some(saved[1])},
+                ],
+                history: saved.toReversed(),
+                rows: [],
             });
         }).pipe(Effect.provide(TestRepository.TestLayer)),
 );
@@ -716,9 +766,14 @@ it.effect(
                             },
                             () => Effect.void,
                         )
-                        .pipe(Effect.map(({run}) => run)),
+                        .pipe(
+                            Effect.flatMap(({run}) =>
+                                repository.commitTestRuns([run]),
+                            ),
+                            Effect.map(saved => saved[0]),
+                        ),
             );
-            yield* repository.commitTestRun(runs[0].id);
+            yield* repository.commitTestRuns([runs[0]]);
             yield* repository.withTestRun(
                 {name: 'other-suite', variant: 'A'},
                 () => Effect.void,
@@ -750,14 +805,14 @@ it.effect(
                 variants: yield* repository.listVariantBaselines('pages'),
             }).toEqual({
                 listed: runs.toReversed().map(({id}) => id),
-                baselines: [runs[0].id],
+                baselines: [runs[103].id, runs[0].id],
                 filtered: runs
                     .toReversed()
                     .filter(run => run.variant === 'B')
                     .map(({id}) => id),
                 variants: [
                     {variant: 'A', baseline: Option.some(runs[0])},
-                    {variant: 'B', baseline: Option.none()},
+                    {variant: 'B', baseline: Option.some(runs[103])},
                 ],
             });
         }).pipe(Effect.provide(TestRepository.TestLayer)),
@@ -912,18 +967,559 @@ it.effect(
         }).pipe(Effect.provide(TestRepository.TestLayer)),
 );
 
-it.effect('opening an old database fails without changing its saved runs', () =>
+it.effect(
+    'routes equal numeric IDs to their own stores and preserves committed values',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const cachedA = yield* repository.withTestRun(
+                {name: 'routing', variant: 'A'},
+                run =>
+                    repository.insertTestResult(result(1), run, numberSchemas),
+            );
+            const cachedB = yield* repository.withTestRun(
+                {name: 'routing', variant: 'B'},
+                run =>
+                    repository.insertTestResult(result(2), run, numberSchemas),
+            );
+            const [snapshotB] = yield* repository.commitTestRuns([cachedB.run]);
+            expect(snapshotB.id).toBe(cachedA.run.id);
+            yield* repository.withTestRun(
+                {name: 'routing', variant: 'B'},
+                run =>
+                    repository.insertTestResult(result(3), run, numberSchemas),
+            );
+            expect({
+                cache: yield* repository.getTestRun(cachedA.run),
+                snapshot: yield* repository.getTestRun(snapshotB),
+                cacheRows: yield* repository
+                    .getTestResultsStream(cachedA.run, numberSchemas)
+                    .pipe(Stream.runCollect),
+                snapshotRows: yield* repository
+                    .getTestResultsStream(snapshotB, numberSchemas)
+                    .pipe(Stream.runCollect),
+            }).toEqual({
+                cache: Option.some(cachedA.run),
+                snapshot: Option.some(snapshotB),
+                cacheRows: [result(1)],
+                snapshotRows: [result(2)],
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect('commit preserves encoded bytes and never invokes value codecs', () =>
     Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient;
-        yield* sql`CREATE TABLE ${sql(tables.testRuns)}(id INTEGER PRIMARY KEY, name TEXT NOT NULL, hash TEXT);`;
-        yield* sql`INSERT INTO ${sql(tables.testRuns)} ${sql.insert({id: 1, name: 'old', hash: 'baseline'})};`;
-        const exit = yield* makeTestRepository.pipe(Effect.exit);
+        const repository = yield* TestRepository;
+        const cache = yield* SqlClient.SqlClient;
+        const {snapshot} = yield* TestRepositoryStorage;
+        const run = yield* repository.withTestRun(
+            {name: 'encoded', variant: 'A'},
+            run =>
+                repository.insertTestResult(
+                    result(1, {
+                        tags: ['a,b', '', '日本語'],
+                        ordering: 5,
+                        resultOrdering: 2,
+                        timeMillis: 4.5,
+                    }),
+                    run,
+                    numberSchemas,
+                ),
+        );
+        yield* cache`UPDATE ${cache(tables.testResults)} SET input = ' 1 ', result = '1.0', expected = '1e0';`;
+        yield* cache`UPDATE ${cache(tables.testRunResults)} SET tags = '[ "a,b", "", "日本語" ]';`;
+        const [saved] = yield* repository.commitTestRuns([run.run]);
+        const sql = yield* snapshot;
         expect({
-            failed: Exit.isFailure(exit),
-            saved: yield* sql`SELECT * FROM ${sql(tables.testRuns)};`,
+            repeated: yield* repository.commitTestRuns([run.run]),
+            cache: yield* repository.getLatestTestRun(run.run),
+            bytes: yield* sql`
+                SELECT input, result, expected, tags, ordering, resultOrdering, timeMillis
+                FROM ${sql(tables.testResults)} JOIN ${sql(tables.testRunResults)} ON id = testResult;
+            `,
         }).toEqual({
-            failed: true,
-            saved: [{id: 1, name: 'old', hash: 'baseline'}],
+            repeated: [saved],
+            cache: Option.some(run.run),
+            bytes: [
+                {
+                    input: ' 1 ',
+                    result: '1.0',
+                    expected: '1e0',
+                    tags: '[ "a,b", "", "日本語" ]',
+                    ordering: 5,
+                    resultOrdering: 2,
+                    timeMillis: 4.5,
+                },
+            ],
         });
-    }).pipe(Effect.provide(Sqlite.SqliteClient.layer({filename: ':memory:'}))),
+    }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect('rejects duplicate selections without changing a baseline', () =>
+    Effect.gen(function* () {
+        const repository = yield* TestRepository;
+        const {run} = yield* repository.withTestRun(
+            {name: 'duplicate', variant: 'A'},
+            () => Effect.void,
+        );
+        expect({
+            error: (yield* repository
+                .commitTestRuns([run, run])
+                .pipe(Effect.flip))._tag,
+            baseline: yield* repository.getBaselineTestRun(run),
+            history: yield* repository.listTestRuns({
+                name: run.name,
+                limit: 10,
+            }),
+        }).toEqual({
+            error: 'TestRunDuplicate',
+            baseline: Option.none(),
+            history: [],
+        });
+    }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect(
+    'missing snapshots stay absent through reads and rejected commits',
+    () =>
+        Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const directory = yield* fs.makeTempDirectoryScoped();
+            const options = {
+                dbPath: `${directory}/missing.sqlite`,
+                cachePath: `${directory}/cache.sqlite`,
+                snapshotIdentity: 'missing',
+            };
+            yield* Effect.gen(function* () {
+                const repository = yield* TestRepository;
+                const complete = yield* repository.withTestRun(
+                    {name: 'missing', variant: 'A'},
+                    () => Effect.void,
+                );
+                yield* repository
+                    .withTestRun({name: 'missing', variant: 'B'}, () =>
+                        Effect.fail('failed'),
+                    )
+                    .pipe(Effect.exit);
+                const failed = Option.getOrThrow(
+                    yield* repository.getLatestTestRun({
+                        name: 'missing',
+                        variant: 'B',
+                    }),
+                );
+                expect({
+                    baseline: yield* repository.getBaselineTestRun(
+                        complete.run,
+                    ),
+                    saved: yield* repository.getTestRun({
+                        store: 'snapshot',
+                        id: 1,
+                    }),
+                    history: yield* repository.listTestRuns({
+                        name: 'missing',
+                        limit: 10,
+                    }),
+                    variants: yield* repository.listVariantBaselines('missing'),
+                    error: (yield* repository
+                        .commitTestRuns([complete.run, failed])
+                        .pipe(Effect.flip))._tag,
+                    files: (yield* fs.readDirectory(directory)).filter(name =>
+                        name.startsWith('missing'),
+                    ),
+                }).toEqual({
+                    baseline: Option.none(),
+                    saved: Option.none(),
+                    history: [],
+                    variants: [],
+                    error: 'TestRunIncomplete',
+                    files: [],
+                });
+            }).pipe(Effect.provide(TestRepository.layer(options)));
+        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+    'direct repository options reject the same file before changing it',
+    () =>
+        Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const directory = yield* fs.makeTempDirectoryScoped();
+            const filename = `${directory}/saved.sqlite`;
+            const options = {
+                dbPath: filename,
+                cachePath: `${directory}/cache.sqlite`,
+                snapshotIdentity: filename,
+            };
+            yield* Effect.gen(function* () {
+                const repository = yield* TestRepository;
+                const {run} = yield* repository.withTestRun(
+                    {name: 'protected', variant: 'A'},
+                    () => Effect.void,
+                );
+                yield* repository.commitTestRuns([run]);
+            }).pipe(Effect.provide(TestRepository.layer(options)));
+            const before = yield* fs.readFile(filename);
+            const error = yield* Effect.void.pipe(
+                Effect.provide(
+                    TestRepository.layer({...options, cachePath: filename}),
+                ),
+                Effect.flip,
+            );
+            expect({
+                error: error._tag,
+                bytes: yield* fs.readFile(filename),
+            }).toEqual({
+                error: 'RepositoryPathConflict',
+                bytes: before,
+            });
+        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+    'reads snapshots from a read-only file without changing any bytes',
+    () =>
+        Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const directory = yield* fs.makeTempDirectoryScoped();
+            const options = {
+                dbPath: `${directory}/snapshot.sqlite`,
+                cachePath: `${directory}/cache.sqlite`,
+                snapshotIdentity: 'readonly',
+            };
+            const [snapshot] = yield* Effect.gen(function* () {
+                const repository = yield* TestRepository;
+                const {run} = yield* repository.withTestRun(
+                    {name: 'readonly', variant: 'A'},
+                    run =>
+                        repository.insertTestResult(
+                            result(7),
+                            run,
+                            numberSchemas,
+                        ),
+                );
+                return yield* repository.commitTestRuns([run]);
+            }).pipe(Effect.provide(TestRepository.layer(options)));
+            yield* fs.chmod(options.dbPath, 0o444);
+            const before = yield* fs.readFile(options.dbPath);
+            yield* Effect.gen(function* () {
+                const repository = yield* TestRepository;
+                expect({
+                    baseline: yield* repository.getBaselineTestRun(snapshot),
+                    rows: yield* repository
+                        .getTestResultsStream(snapshot, numberSchemas)
+                        .pipe(Stream.runCollect),
+                }).toEqual({
+                    baseline: Option.some(snapshot),
+                    rows: [result(7)],
+                });
+                yield* repository.withTestRun(
+                    {name: 'readonly', variant: 'A'},
+                    () => Effect.void,
+                );
+                yield* repository.listTestRuns({name: 'readonly', limit: 10});
+                yield* repository.listVariantBaselines('readonly');
+            }).pipe(Effect.provide(TestRepository.layer(options)));
+            expect({
+                bytes: yield* fs.readFile(options.dbPath),
+                sidecars: (yield* fs.readDirectory(directory)).filter(name =>
+                    name.startsWith('snapshot.sqlite-'),
+                ),
+            }).toEqual({bytes: before, sidecars: []});
+        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+    'rejects an incompatible snapshot without changing it and recreates an old cache',
+    () =>
+        Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const directory = yield* fs.makeTempDirectoryScoped();
+            const options = {
+                dbPath: `${directory}/old.sqlite`,
+                cachePath: `${directory}/cache.sqlite`,
+                snapshotIdentity: 'old',
+            };
+            for (const filename of [options.dbPath, options.cachePath]) {
+                yield* Effect.gen(function* () {
+                    const sql = yield* SqlClient.SqlClient;
+                    yield* sql`CREATE TABLE old_runs (id INTEGER PRIMARY KEY, name TEXT);`;
+                    yield* sql`INSERT INTO old_runs VALUES (1, 'retained');`;
+                }).pipe(
+                    Effect.provide(
+                        Sqlite.SqliteClient.layer({filename, disableWAL: true}),
+                    ),
+                );
+            }
+            const before = yield* fs.readFile(options.dbPath);
+            yield* Effect.gen(function* () {
+                const repository = yield* TestRepository;
+                const {run} = yield* repository.withTestRun(
+                    {name: 'new', variant: 'A'},
+                    () => Effect.void,
+                );
+                expect({
+                    latest: yield* repository.getLatestTestRun(run),
+                    readError: (yield* repository
+                        .getBaselineTestRun(run)
+                        .pipe(Effect.flip))._tag,
+                    commitError: (yield* repository
+                        .commitTestRuns([run])
+                        .pipe(Effect.flip))._tag,
+                }).toEqual({
+                    latest: Option.some(run),
+                    readError: 'RepositoryFormatError',
+                    commitError: 'RepositoryFormatError',
+                });
+            }).pipe(Effect.provide(TestRepository.layer(options)));
+            expect(yield* fs.readFile(options.dbPath)).toEqual(before);
+        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+    'shared cache files isolate snapshot identities and prune only their own attempts',
+    () =>
+        Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const directory = yield* fs.makeTempDirectoryScoped();
+            const cachePath = `${directory}/cache.sqlite`;
+            const run = (snapshotIdentity: string, value: number) =>
+                Effect.gen(function* () {
+                    const repository = yield* TestRepository;
+                    return (yield* repository.withTestRun(
+                        {name: 'same', variant: 'A'},
+                        run =>
+                            repository.insertTestResult(
+                                result(value),
+                                run,
+                                numberSchemas,
+                            ),
+                    )).run;
+                }).pipe(
+                    Effect.provide(
+                        TestRepository.layer({
+                            dbPath: ':memory:',
+                            cachePath,
+                            snapshotIdentity,
+                        }),
+                    ),
+                );
+            yield* run('first', 1);
+            const other = yield* run('second', 2);
+            const replacement = yield* run('first', 3);
+            yield* Effect.gen(function* () {
+                const repository = yield* TestRepository;
+                expect({
+                    own: yield* repository.getLatestTestRun(other),
+                    foreign: yield* repository.getTestRun(replacement),
+                    rows: yield* repository
+                        .getTestResultsStream(other, numberSchemas)
+                        .pipe(Stream.runCollect),
+                }).toEqual({
+                    own: Option.some(other),
+                    foreign: Option.none(),
+                    rows: [result(2)],
+                });
+            }).pipe(
+                Effect.provide(
+                    TestRepository.layer({
+                        dbPath: ':memory:',
+                        cachePath,
+                        snapshotIdentity: 'second',
+                    }),
+                ),
+            );
+        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+    'a file read keeps its selected rows when another repository replaces the cache',
+    () =>
+        Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const directory = yield* fs.makeTempDirectoryScoped();
+            const options = {
+                dbPath: ':memory:',
+                cachePath: `${directory}/cache.sqlite`,
+                snapshotIdentity: 'stable',
+            };
+            yield* Effect.gen(function* () {
+                const repository = yield* TestRepository;
+                const rows = Array.from({length: 205}, (_, index) =>
+                    result(index),
+                );
+                const {run} = yield* repository.withTestRun(
+                    {name: 'stable', variant: 'A'},
+                    run =>
+                        repository.insertTestResults(rows, run, numberSchemas),
+                );
+                let replaced = false;
+                const read = yield* repository
+                    .getTestResultsStream(run, numberSchemas)
+                    .pipe(
+                        Stream.mapEffect(row =>
+                            Effect.gen(function* () {
+                                if (!replaced) {
+                                    replaced = true;
+                                    yield* Effect.gen(function* () {
+                                        const other = yield* TestRepository;
+                                        yield* other.withTestRun(run, current =>
+                                            other.insertTestResult(
+                                                result(500),
+                                                current,
+                                                numberSchemas,
+                                            ),
+                                        );
+                                    }).pipe(
+                                        Effect.provide(
+                                            TestRepository.layer(options),
+                                        ),
+                                    );
+                                }
+                                return row;
+                            }),
+                        ),
+                        Stream.runCollect,
+                    );
+                expect({
+                    read,
+                    old: yield* repository.getTestRun(run),
+                    commit: (yield* repository
+                        .commitTestRuns([run])
+                        .pipe(Effect.flip))._tag,
+                    staleRead: (yield* repository
+                        .getTestResultsStream(run, numberSchemas)
+                        .pipe(Stream.runDrain, Effect.flip))._tag,
+                }).toEqual({
+                    read: rows,
+                    old: Option.none(),
+                    commit: 'TestRunNotFound',
+                    staleRead: 'TestRunNotFound',
+                });
+            }).pipe(Effect.provide(TestRepository.layer(options)));
+        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+    'memory readers allow matching and statistics while delaying replacement',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const rows = Array.from({length: 105}, (_, index) => result(index));
+            const {run} = yield* repository.withTestRun(
+                {name: 'memory-read', variant: 'A'},
+                run => repository.insertTestResults(rows, run, numberSchemas),
+            );
+            const firstRead = yield* Deferred.make<void>();
+            const continueRead = yield* Deferred.make<void>();
+            const reader = yield* Effect.forkChild(
+                repository.withStats(collector =>
+                    repository.getTestResultsStream(run, numberSchemas).pipe(
+                        Stream.mapEffect(row =>
+                            Effect.gen(function* () {
+                                if (row.id === rows[0].id) {
+                                    yield* Deferred.succeed(
+                                        firstRead,
+                                        undefined,
+                                    );
+                                    yield* Deferred.await(continueRead);
+                                }
+                                const matching = yield* repository
+                                    .getTestResultsStream(run, numberSchemas, [
+                                        row,
+                                    ])
+                                    .pipe(Stream.runCollect);
+                                yield* collector.add(matching);
+                                return row;
+                            }),
+                        ),
+                        Stream.runCollect,
+                        Effect.flatMap(read =>
+                            collector.stats.pipe(
+                                Effect.map(stats => ({
+                                    read,
+                                    total: stats.total,
+                                })),
+                            ),
+                        ),
+                    ),
+                ),
+            );
+            yield* Deferred.await(firstRead);
+            const writer = yield* Effect.forkChild(
+                repository.withTestRun(
+                    {name: run.name, variant: run.variant},
+                    next =>
+                        repository.insertTestResult(
+                            result(500),
+                            next,
+                            numberSchemas,
+                        ),
+                ),
+            );
+            yield* Deferred.succeed(continueRead, undefined);
+            expect(yield* Fiber.join(reader)).toEqual({
+                read: rows,
+                total: rows.length,
+            });
+            const replacement = yield* Fiber.join(writer);
+            expect(yield* repository.getLatestTestRun(run)).toEqual(
+                Option.some(replacement.run),
+            );
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect(
+    'a snapshot file created during commit is checked before changing journal mode',
+    () =>
+        Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const directory = yield* fs.makeTempDirectoryScoped();
+            const options = {
+                dbPath: `${directory}/racing.sqlite`,
+                cachePath: ':memory:',
+                snapshotIdentity: 'racing',
+            };
+            let before: Uint8Array = new Uint8Array();
+            const racingFs = {
+                ...fs,
+                exists: (filename: string) =>
+                    filename === options.dbPath
+                        ? Effect.gen(function* () {
+                              yield* Effect.gen(function* () {
+                                  const sql = yield* SqlClient.SqlClient;
+                                  yield* sql`CREATE TABLE unrelated (value TEXT);`;
+                                  yield* sql`INSERT INTO unrelated VALUES ('preserved');`;
+                              }).pipe(
+                                  Effect.provide(
+                                      Sqlite.SqliteClient.layer({
+                                          filename,
+                                          disableWAL: true,
+                                      }),
+                                  ),
+                              );
+                              before = yield* fs.readFile(filename);
+                              return false;
+                          })
+                        : fs.exists(filename),
+            };
+            const error = yield* Effect.gen(function* () {
+                const repository = yield* TestRepository;
+                const {run} = yield* repository.withTestRun(
+                    {name: 'racing', variant: 'A'},
+                    () => Effect.void,
+                );
+                return yield* repository.commitTestRuns([run]);
+            }).pipe(
+                Effect.provide(TestRepository.layer(options)),
+                Effect.provideService(FileSystem.FileSystem, racingFs),
+                Effect.flip,
+            );
+            expect({
+                error: error._tag,
+                bytes: yield* fs.readFile(options.dbPath),
+            }).toEqual({
+                error: 'RepositoryFormatError',
+                bytes: before,
+            });
+        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

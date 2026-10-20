@@ -5,7 +5,7 @@ import {Option, Schema, SchemaTransformation} from 'effect';
 export const cached = Flag.Boolean('cached').pipe(
     Flag.withDefault(false),
     Flag.withDescription(
-        'Reuse the latest attempt only if it is Complete, even if it is the baseline. Otherwise start a new run.',
+        'Reuse each variant’s latest cached attempt if complete, even after code changes. Rerun missing, running, or failed attempts.',
     ),
 );
 
@@ -21,7 +21,7 @@ export const variant = Flag.String('variant').pipe(
     Flag.withSchema(VariantId),
     Flag.optional,
     Flag.withDescription(
-        'Select a variant by ID. Suites defined with program use default.',
+        'Select one variant by ID. By default, select every configured variant in declaration order. A single program uses default.',
     ),
 );
 
@@ -30,7 +30,7 @@ const ExactRunReference = Schema.String.check(
         value =>
             /^run:[1-9]\d*$/.test(value) &&
             Number.isSafeInteger(Number(value.slice(4))),
-        {message: 'Use run:<positive integer> for an exact saved run.'},
+        {message: 'Use run:<positive integer> for a committed snapshot.'},
     ),
 ).pipe(
     Schema.decodeTo(
@@ -64,7 +64,9 @@ export type RunReference = typeof RunReference.Type;
 export const exactRun = Flag.String('run').pipe(
     Flag.withSchema(ExactRunReference),
     Flag.optional,
-    Flag.withDescription('Commit an exact complete run, for example run:17.'),
+    Flag.withDescription(
+        'Restore a committed snapshot from this suite as its variant’s baseline, for example run:17. Cannot be combined with --variant.',
+    ),
 );
 
 export class InvalidCommandOptions extends Schema.TaggedError<

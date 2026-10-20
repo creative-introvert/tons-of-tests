@@ -1,16 +1,27 @@
 import {Schema} from 'effect';
 
-/**
- * One saved execution of a suite variant. Results remain available after its
- * program changes or is removed. `Complete` and `Failed` runs cannot be changed.
- * Committing a complete run changes only its variant's baseline pointer.
- */
-export class TestRun extends Schema.Class<
-    TestRun,
-    {readonly brand: unique symbol}
->('TestRun')({
+const fields = {
     id: Schema.Int,
     name: Schema.String,
     variant: Schema.String,
-    state: Schema.Literals(['Running', 'Complete', 'Failed']),
-}) {}
+};
+
+/**
+ * Identify a run by both `store` and `id`; the two stores can use the same ID.
+ * A new execution replaces the cached attempt for its snapshot identity, suite,
+ * and variant. Complete attempts, including empty ones, can be reused or committed.
+ * Committed snapshots stay unchanged after a program changes or is removed.
+ */
+export const TestRun = Schema.Union([
+    Schema.Struct({
+        ...fields,
+        store: Schema.Literal('cache'),
+        state: Schema.Literals(['Running', 'Complete', 'Failed']),
+    }),
+    Schema.Struct({
+        ...fields,
+        store: Schema.Literal('snapshot'),
+        state: Schema.Literal('Complete'),
+    }),
+]);
+export type TestRun = typeof TestRun.Type;

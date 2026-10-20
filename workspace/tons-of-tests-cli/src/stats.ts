@@ -11,12 +11,14 @@ import {
 
 import type {AppConfigShape} from './Config.js';
 import {
+    InvalidCommandOptions,
     matchesFilters,
     resultFilterFlags,
     RunReference,
+    variant,
     type ResultFilters,
 } from './common.js';
-import {resolveRun} from './test-run.js';
+import {executeRun, resolveRun, selectVariants} from './test-run.js';
 
 const RunReferences = Schema.String.pipe(
     Schema.decodeTo(
@@ -38,69 +40,71 @@ export const summarizeRuns = Effect.fn('Stats.runs')(function* <
 >({
     config,
     references,
+    cached = false,
+    variant,
     ...filters
 }: ResultFilters & {
     config: AppConfigShape<I, O, T, A, B, S>;
     references?: readonly RunReference[] | undefined;
+    cached?: boolean | undefined;
+    variant?: string | undefined;
 }) {
     const {testSuite} = config;
     const configured =
         testSuite.variants === undefined
             ? ['default']
             : Object.keys(testSuite.variants);
-    const repository = yield* PT.TestRepository.TestRepository;
-    const selections =
-        references !== undefined
-            ? yield* Effect.forEach(
-                  references,
-                  reference =>
-                      resolveRun(testSuite.name, reference).pipe(
-                          Effect.map(run => ({
-                              name: run.name,
-                              variant: run.variant,
-                              run: Option.some(run),
-                              retired:
-                                  run.name === testSuite.name &&
-                                  !configured.includes(run.variant),
-                          })),
-                      ),
-                  {concurrency: 1},
-              )
-            : yield* Effect.gen(function* () {
-                  const stored = yield* repository.listVariantBaselines(
-                      testSuite.name,
-                  );
-                  const byVariant = new Map(
-                      stored.map(row => [row.variant, row.baseline]),
-                  );
-                  return [
-                      ...configured,
-                      ...stored
-                          .map(row => row.variant)
-                          .filter(variant => !configured.includes(variant))
-                          .sort(),
-                  ].map(variant => ({
-                      name: testSuite.name,
-                      variant,
-                      run: byVariant.get(variant) ?? Option.none(),
-                      retired: !configured.includes(variant),
-                  }));
-              });
+    if (references !== undefined) {
+        return yield* Effect.forEach(
+            references,
+            reference =>
+                Effect.gen(function* () {
+                    const run = yield* resolveRun(testSuite.name, reference);
+                    const summary = yield* PT.Test.summarizeRun({
+                        run,
+                        schemas: testSuite.schemas,
+                        predicate: result => matchesFilters(result, filters),
+                    });
+                    return {
+                        name: run.name,
+                        variant: run.variant,
+                        run: Option.some(run),
+                        stats: Option.some(summary.stats),
+                        source: 'snapshot' as const,
+                        retired:
+                            run.name === testSuite.name &&
+                            !configured.includes(run.variant),
+                    };
+                }),
+            {concurrency: 1},
+        );
+    }
+    const variants = yield* selectVariants<I, O, T, A, B, S>(
+        testSuite,
+        variant,
+    );
     return yield* Effect.forEach(
-        selections,
-        selection =>
+        variants,
+        variant =>
             Effect.gen(function* () {
-                const summary = Option.isSome(selection.run)
-                    ? Option.some(
-                          (yield* PT.Test.summarizeRun({
-                              run: selection.run.value,
-                              schemas: testSuite.schemas,
-                              predicate: result =>
-                                  matchesFilters(result, filters),
-                          })).stats,
-                      )
-                    : Option.none();
-                return {...selection, stats: summary};
+                const selected = yield* executeRun<I, O, T, A, B, S>({
+                    config,
+                    cached,
+                    variant,
+                });
+                const summary = yield* PT.Test.summarizeRun({
+                    run: selected.run,
+                    schemas: testSuite.schemas,
+                    predicate: result => matchesFilters(result, filters),
+                });
+                return {
+                    name: selected.run.name,
+                    variant,
+                    run: Option.some(selected.run),
+                    stats: Option.some(summary.stats),
+                    source: selected.source,
+                    retired: false,
+                };
             }),
         {concurrency: 1},
     );
@@ -119,20 +123,38 @@ export const stats = <
     Command.make(
         'stats',
         {
+            variant,
+            cached: Flag.Boolean('cached').pipe(
+                Flag.optional,
+                Flag.withDescription(
+                    'Reuse each variant’s latest cached attempt if complete, even after code changes. Rerun missing, running, or failed attempts.',
+                ),
+            ),
             runs: Flag.String('runs').pipe(
                 Flag.withSchema(RunReferences),
                 Flag.optional,
                 Flag.withDescription(
-                    'List variant baselines or run:<id> references in display order, separated by commas.',
+                    'Read saved variant baselines or run:<id> snapshots in display order, separated by commas. Runs no programs; cannot be combined with --variant or --cached.',
                 ),
             ),
             ...resultFilterFlags,
         },
-        ({runs, ...filters}) =>
+        ({runs, variant, cached, ...filters}) =>
             Effect.gen(function* () {
+                if (
+                    Option.isSome(runs) &&
+                    (Option.isSome(variant) || Option.isSome(cached))
+                ) {
+                    return yield* new InvalidCommandOptions({
+                        message:
+                            '--runs cannot be combined with --variant or --cached.',
+                    });
+                }
                 const summaries = yield* summarizeRuns<I, O, T, A, B, S>({
                     config,
                     references: Option.getOrUndefined(runs),
+                    variant: Option.getOrUndefined(variant),
+                    cached: Option.getOrElse(cached, () => false),
                     ...filters,
                 });
                 const stdio = yield* Stdio.Stdio;
@@ -142,6 +164,6 @@ export const stats = <
             }),
     ).pipe(
         Command.withDescription(
-            'Summarize all selected results, including unchanged ones. Without --runs, show baselines for configured and removed variants.',
+            'Run all configured variants and show one statistics row per variant. Count all filtered results, including unchanged ones. Use --cached to reuse results, or --runs to read committed snapshots without running programs.',
         ),
     );

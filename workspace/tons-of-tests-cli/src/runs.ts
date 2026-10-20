@@ -18,7 +18,11 @@ export const runs = <
     Command.make(
         'runs',
         {
-            variant,
+            variant: variant.pipe(
+                Flag.withDescription(
+                    'Limit committed history to one variant, including removed variants.',
+                ),
+            ),
             limit: Flag.Int('limit').pipe(
                 Flag.withSchema(
                     Schema.Int.check(
@@ -27,21 +31,21 @@ export const runs = <
                 ),
                 Flag.withDefault(50),
                 Flag.withDescription(
-                    'Show 1 to 100 saved attempts (default 50).',
+                    'Show 1 to 100 committed snapshots (default 50).',
                 ),
             ),
             before: Flag.Int('before').pipe(
                 Flag.withSchema(Schema.Int.check(Schema.isGreaterThan(0))),
                 Flag.optional,
                 Flag.withDescription(
-                    'Show the next page of attempts with IDs below this value.',
+                    'Show the next page of snapshots with IDs below this value.',
                 ),
             ),
         },
         ({variant, limit, before}) =>
             Effect.gen(function* () {
                 const repository = yield* PT.TestRepository.TestRepository;
-                const attempts = yield* repository.listTestRuns({
+                const snapshots = yield* repository.listTestRuns({
                     name: config.testSuite.name,
                     ...(Option.isSome(variant) ? {variant: variant.value} : {}),
                     ...(Option.isSome(before) ? {before: before.value} : {}),
@@ -52,7 +56,7 @@ export const runs = <
                     [
                         `Saved runs for ${config.testSuite.name}`,
                         'Run\tVariant\tState\tBaseline',
-                        ...attempts.map(
+                        ...snapshots.map(
                             run =>
                                 `run:${run.id}\t${run.variant}\t${run.state}\t${run.isBaseline ? 'yes' : ''}`,
                         ),
@@ -62,6 +66,6 @@ export const runs = <
             }),
     ).pipe(
         Command.withDescription(
-            'List saved attempts in descending ID order, including failed and running attempts.',
+            'List committed snapshots in descending ID order, including removed variants.',
         ),
     );

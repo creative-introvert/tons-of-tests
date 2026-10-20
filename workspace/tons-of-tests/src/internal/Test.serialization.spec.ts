@@ -379,7 +379,7 @@ it.effect(
                 Effect.flip,
             );
             const commitError = yield* repository
-                .commitTestRun(run.id)
+                .commitTestRuns([run])
                 .pipe(Effect.flip);
             expect({
                 errors: [saveError, displayError].map(error =>
@@ -456,10 +456,12 @@ it.effect.each(
                         ),
                     ),
                 );
-            const {run: from} = yield* save('saved-from-suite', 'A', 1);
-            const {run: to} = yield* save('saved-to-suite', 'B', 2);
-            yield* repository.commitTestRun(from.id);
-            yield* repository.commitTestRun(to.id);
+            const {run: cachedFrom} = yield* save('saved-from-suite', 'A', 1);
+            const {run: cachedTo} = yield* save('saved-to-suite', 'B', 2);
+            const [from, to] = yield* repository.commitTestRuns([
+                cachedFrom,
+                cachedTo,
+            ]);
             const snapshot = Effect.gen(function* () {
                 return {
                     runs: yield* getAllTestRuns,

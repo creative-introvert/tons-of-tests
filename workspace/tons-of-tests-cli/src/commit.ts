@@ -9,7 +9,7 @@ import {
     variant,
     type RunReference,
 } from './common.js';
-import {resolveRun} from './test-run.js';
+import {resolveRun, selectVariants} from './test-run.js';
 
 export const _commit = Effect.fnUntraced(function* <
     I = unknown,
@@ -33,33 +33,37 @@ export const _commit = Effect.fnUntraced(function* <
         });
     }
     const repository = yield* PT.TestRepository.TestRepository;
-    const selected =
+    const selections =
         run !== undefined
-            ? yield* resolveRun(testSuite.name, run)
-            : yield* Effect.gen(function* () {
-                  const selected = yield* PT.Test.selectVariant(
-                      testSuite,
-                      variant,
-                  );
-                  const latest = yield* repository.getLatestTestRun({
-                      name: testSuite.name,
-                      variant: selected.name,
-                  });
-                  if (Option.isNone(latest))
-                      return yield* new PT.Error.TestRunNotCreated({
-                          testSuiteName: testSuite.name,
-                      });
-                  return latest.value;
-              });
-    if (selected.name !== testSuite.name) {
-        return yield* new InvalidCommandOptions({
-            message: `Run ${selected.id} belongs to suite ${selected.name}, not ${testSuite.name}.`,
-        });
+            ? [yield* resolveRun(testSuite.name, run)]
+            : yield* Effect.forEach(
+                  yield* selectVariants<I, O, T, A, B, S>(testSuite, variant),
+                  variant =>
+                      Effect.gen(function* () {
+                          const latest = yield* repository.getLatestTestRun({
+                              name: testSuite.name,
+                              variant,
+                          });
+                          if (Option.isNone(latest))
+                              return yield* new PT.Error.TestRunNotCreated({
+                                  testSuiteName: testSuite.name,
+                              });
+                          return latest.value;
+                      }),
+              );
+    for (const selected of selections) {
+        if (selected.name !== testSuite.name) {
+            return yield* new InvalidCommandOptions({
+                message: `Run ${selected.id} belongs to suite ${selected.name}, not ${testSuite.name}.`,
+            });
+        }
     }
-    yield* repository.commitTestRun(selected.id);
-    yield* Console.log(
-        `Committed ${selected.name} / ${selected.variant} / run:${selected.id}.`,
-    );
+    const committed = yield* repository.commitTestRuns(selections);
+    for (const saved of committed) {
+        yield* Console.log(
+            `Committed ${saved.name} / ${saved.variant} / run:${saved.id}.`,
+        );
+    }
 });
 
 export const commit = <
@@ -80,6 +84,6 @@ export const commit = <
         }),
     ).pipe(
         Command.withDescription(
-            'Set a variant baseline to its latest attempt or an exact run ID. The run must be Complete. All history is kept.',
+            'Save the exact cached results for all configured variants and select them as baselines. Every selected attempt must be complete; save all or none. Runs no programs. Use --variant to select one, or --run to restore a saved baseline.',
         ),
     );

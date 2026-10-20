@@ -1,7 +1,8 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {Command} from 'effect/cli';
 import {NodeServices, NodeRuntime} from '@effect/platform-node';
-import {Effect, Layer, Option, References, Schema} from 'effect';
+import {Crypto, Effect, Layer, Option, Path, References, Schema} from 'effect';
+import * as Hex from 'effect/encoding/Hex';
 
 import type {AppConfigShape} from './Config.js';
 import {commit} from './commit.js';
@@ -22,16 +23,61 @@ const makeCli = <I, O, T, A, B, S>(config: AppConfigShape<I, O, T, A, B, S>) =>
         ]),
     );
 
-/** Provide once around several effectNoDeps calls to share their database connection. */
+/**
+ * Provide this layer once around several `effectNoDeps` calls to share their stores.
+ * A `:memory:` snapshot baseline lasts until the layer closes. Separate CLI processes
+ * can reuse its default disk cache, but they do not share its baseline.
+ */
 export const buildLayer = <I, O, T, A, B, S>(
     config: AppConfigShape<I, O, T, A, B, S>,
 ) =>
-    Layer.mergeAll(
+    Layer.provideMerge(
+        Layer.unwrap(
+            Effect.gen(function* () {
+                const path = yield* Path.Path;
+                const crypto = yield* Crypto.Crypto;
+                const workingDirectory = path.resolve('.');
+                const dbPath =
+                    config.dbPath === ':memory:'
+                        ? ':memory:'
+                        : path.resolve(workingDirectory, config.dbPath);
+                const snapshotIdentity =
+                    dbPath === ':memory:'
+                        ? `:memory:${workingDirectory}`
+                        : dbPath;
+                const cachePath =
+                    config.cachePath === ':memory:'
+                        ? ':memory:'
+                        : config.cachePath === undefined
+                          ? path.join(
+                                workingDirectory,
+                                '.cache',
+                                'tons-of-tests',
+                                `${Hex.encode(
+                                    yield* crypto.digest(
+                                        'SHA-256',
+                                        new TextEncoder().encode(
+                                            snapshotIdentity,
+                                        ),
+                                    ),
+                                )}.sqlite`,
+                            )
+                          : path.resolve(workingDirectory, config.cachePath);
+
+                return PT.TestRepository.TestRepository.layer({
+                    dbPath,
+                    cachePath,
+                    snapshotIdentity,
+                });
+            }),
+        ),
         NodeServices.layer,
-        PT.TestRepository.TestRepository.layer(config.dbPath),
     );
 
-/** Runs with platform services, TestRepository, and suite services supplied by the caller. */
+/**
+ * Runs a command with platform services, `TestRepository`, and suite services
+ * supplied by the caller. Use one shared `buildLayer` to keep stores across calls.
+ */
 export const effectNoDeps = <
     I = unknown,
     O = unknown,
@@ -53,9 +99,9 @@ export const effectNoDeps = <
     });
 
 /**
- * Opens a database connection and provides platform services for this call.
+ * Opens the run cache and provides platform services for this call.
  * The caller must provide services required by every program and the case stream.
- * Use `effectNoDeps` to share the database connection across calls.
+ * Use `effectNoDeps` with one `buildLayer` to retain an in-memory baseline across calls.
  */
 export const effect = <
     I = unknown,
@@ -104,9 +150,8 @@ export function run<I, O, T, E, A = O, B = T>(
         config,
         args,
     ).pipe(
-        // Surface DiffNonEmpty as a plain exit code so the user sees "exit 1"
-        // rather than a stack trace. Programmatic consumers using `effect`
-        // still observe DiffNonEmpty in the Effect error channel.
+        // CLI callers get exit code 1 after all variants are shown.
+        // Callers of `effect` receive DiffNonEmpty in the error channel.
         Effect.catchIf(Schema.is(DiffNonEmpty), () =>
             Effect.sync(() => {
                 process.exitCode = 1;
@@ -119,7 +164,8 @@ export function run<I, O, T, E, A = O, B = T>(
 
 /**
  * Return the selected variant's baseline, or `null` if none is saved.
- * This does not execute a program.
+ * Reads snapshots without executing a program or creating a missing snapshot file.
+ * This call opens its own layer, so a `:memory:` snapshot has no saved baseline here.
  */
 export const getBaselineRun = <
     I = unknown,

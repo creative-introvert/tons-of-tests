@@ -18,7 +18,8 @@ import {
     runCollectRecord,
 } from './Test.js';
 
-const run = new TestRun({
+const run = TestRun.make({
+    store: 'cache',
     id: 1,
     name: 'suite',
     variant: 'default',
@@ -720,6 +721,7 @@ t.describe('runCollectRecord', () => {
                 id: run.id,
                 name: run.name,
                 variant: run.variant,
+                store: run.store,
                 state: run.state,
                 stats: Stats.empty(),
                 testCaseHashes: [],
@@ -1134,6 +1136,75 @@ t.describe('saved run comparison', () => {
     );
 });
 
+t.it.effect(
+    'compares and summarizes different stores with the same numeric run ID',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const cachedResult = mkResult({
+                input: 1,
+                result: 1,
+                expected: 1,
+                label: 'TP',
+                timeMillis: 10,
+            });
+            const snapshotResult = mkResult({
+                input: 1,
+                result: 2,
+                expected: 1,
+                label: 'FP',
+                timeMillis: 20,
+            });
+            const cache = yield* saveRun(
+                {name: 'store-routing', variant: 'A'},
+                [cachedResult],
+                numberSchemas,
+            );
+            const otherCache = yield* saveRun(
+                {name: 'store-routing', variant: 'B'},
+                [snapshotResult],
+                numberSchemas,
+            );
+            const [snapshot] = yield* repository.commitTestRuns([otherCache]);
+            t.expect(cache.id).toBe(snapshot.id);
+            const comparisons = yield* Test.compareRuns({
+                from: snapshot,
+                to: cache,
+                schemas: numberSchemas,
+            }).pipe(Stream.runCollect);
+            const summaries = yield* Effect.forEach([cache, snapshot], run =>
+                Test.summarizeRun({run, schemas: numberSchemas}),
+            );
+            t.expect({
+                comparisons,
+                summaries: summaries.map(({run, stats}) => ({
+                    store: run.store,
+                    TP: stats.TP,
+                    FP: stats.FP,
+                    timeMean: stats.timeMean,
+                })),
+            }).toEqual({
+                comparisons: [
+                    {
+                        _tag: 'Matched',
+                        from: snapshotResult,
+                        to: cachedResult,
+                        changed: true,
+                    },
+                ],
+                summaries: [
+                    {store: 'cache', TP: 1, FP: 0, timeMean: Option.some(10)},
+                    {
+                        store: 'snapshot',
+                        TP: 0,
+                        FP: 1,
+                        timeMean: Option.some(20),
+                    },
+                ],
+            });
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
 t.describe('saved run summaries', () => {
     t.it.effect(
         'filters decoded results and counts each represented case time once across batches',
@@ -1256,7 +1327,8 @@ t.describe('saved run summaries', () => {
                 );
                 const check = (saved: TestRun) =>
                     Effect.gen(function* () {
-                        const run = new TestRun({
+                        const run = TestRun.make({
+                            store: saved.store,
                             id: saved.id,
                             name: saved.name,
                             variant: saved.variant,

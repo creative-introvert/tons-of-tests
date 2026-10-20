@@ -26,7 +26,7 @@ const services = Layer.mergeAll(
     Stdio.layerTest({}),
 );
 
-it.effect.each(['summarize', 'diff'] as const)(
+it.effect.each(['summarize', 'diff', 'stats'] as const)(
     '%s creates independent attempts after a failed cache',
     command =>
         Effect.gen(function* () {
@@ -92,19 +92,17 @@ it.effect.each(['summarize', 'diff'] as const)(
                 different: complete.id !== failed.id,
                 state: complete.state,
                 calls: yield* Ref.get(calls),
-                previous: yield* repository
-                    .getTestResultsStream(failed, numberSchemas)
-                    .pipe(Stream.runCollect),
+                previous: yield* repository.getTestRun(failed),
             }).toEqual({
                 different: true,
                 state: 'Complete',
                 calls: 116,
-                previous: partial,
+                previous: Option.none(),
             });
         }).pipe(Effect.provide(services)),
 );
 
-it.effect.each(['summarize', 'diff'] as const)(
+it.effect.each(['summarize', 'diff', 'stats'] as const)(
     '%s starts a new run when the latest attempt is Running',
     command =>
         Effect.gen(function* () {
@@ -140,13 +138,13 @@ it.effect.each(['summarize', 'diff'] as const)(
                 different: latest.id !== running.id,
                 state: latest.state,
                 oldState: Option.map(
-                    yield* repository.getTestRun(running.id),
+                    yield* repository.getTestRun(running),
                     run => run.state,
                 ),
             }).toEqual({
                 different: true,
                 state: 'Complete',
-                oldState: Option.some('Running'),
+                oldState: Option.none(),
             });
             yield* Fiber.interrupt(pending);
         }).pipe(Effect.provide(services)),
@@ -187,7 +185,7 @@ it.effect('interruption leaves saved batches in a failed attempt', () =>
         const results = yield* repository
             .getTestResultsStream(run, numberSchemas)
             .pipe(Stream.runCollect);
-        const error = yield* repository.commitTestRun(run.id).pipe(Effect.flip);
+        const error = yield* repository.commitTestRuns([run]).pipe(Effect.flip);
         expect({
             state: run.state,
             saved: results.length,
@@ -196,8 +194,8 @@ it.effect('interruption leaves saved batches in a failed attempt', () =>
     }).pipe(Effect.provide(services)),
 );
 
-it.effect.each(['summarize', 'diff'] as const)(
-    '%s reuses a completed empty baseline',
+it.effect.each(['summarize', 'diff', 'stats'] as const)(
+    '%s reuses a completed empty cache after commit',
     command =>
         Effect.gen(function* () {
             const repository = yield* PT.TestRepository.TestRepository;
@@ -300,7 +298,13 @@ it.effect(
                 calls,
                 before: before.map(run => [run.variant, run.isBaseline]),
                 after: after.map(run => [run.variant, run.isBaseline]),
-                fresh: after[0].id !== before[1].id,
+                cache: Option.map(
+                    yield* repository.getLatestTestRun({
+                        name: 'variants',
+                        variant: 'A',
+                    }),
+                    run => run.store,
+                ),
             }).toEqual({
                 calls: ['A', 'B', 'A'],
                 before: [
@@ -308,21 +312,84 @@ it.effect(
                     ['A', true],
                 ],
                 after: [
-                    ['A', false],
                     ['B', true],
                     ['A', true],
                 ],
-                fresh: true,
+                cache: Option.some('cache'),
             });
         }).pipe(Effect.provide(services)),
 );
 
+it.effect.each(['summarize', 'diff', 'stats'] as const)(
+    '%s runs variants in declaration order and reopens the case stream',
+    command =>
+        Effect.gen(function* () {
+            const repository = yield* PT.TestRepository.TestRepository;
+            const calls: string[] = [];
+            let reads = 0;
+            const program = (variant: string) => (input: number) =>
+                Effect.sync(() => {
+                    calls.push(`${variant}:${input}`);
+                    return input;
+                });
+            const config = {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'ordered',
+                    schemas: numberSchemas,
+                    variants: {
+                        B: {program: program('B')},
+                        A: {program: program('A')},
+                    },
+                    testCases: Stream.suspend(() => {
+                        reads++;
+                        return Stream.fromIterable([
+                            {input: 1, expected: 1},
+                            {input: 2, expected: 2},
+                        ]);
+                    }),
+                },
+            };
+            yield* effectNoDeps(config, ['node', 'suite', command]);
+            yield* effectNoDeps(config, ['node', 'suite', command, '--cached']);
+            expect({calls, reads}).toEqual({
+                calls: ['B:1', 'B:2', 'A:1', 'A:2'],
+                reads: 2,
+            });
+            yield* repository
+                .withTestRun({name: 'ordered', variant: 'A'}, () =>
+                    Effect.fail('incomplete'),
+                )
+                .pipe(Effect.result);
+            yield* effectNoDeps(config, ['node', 'suite', command, '--cached']);
+            expect({calls, reads}).toEqual({
+                calls: ['B:1', 'B:2', 'A:1', 'A:2', 'A:1', 'A:2'],
+                reads: 3,
+            });
+            yield* effectNoDeps(config, ['node', 'suite', command]);
+            expect({calls, reads}).toEqual({
+                calls: [
+                    'B:1',
+                    'B:2',
+                    'A:1',
+                    'A:2',
+                    'A:1',
+                    'A:2',
+                    'B:1',
+                    'B:2',
+                    'A:1',
+                    'A:2',
+                ],
+                reads: 5,
+            });
+            expect(
+                yield* repository.listTestRuns({name: 'ordered', limit: 100}),
+            ).toEqual([]);
+        }).pipe(Effect.provide(services)),
+);
+
 it.effect.each([
-    {
-        variants: {A: {program: (input: number) => Effect.succeed(input)}},
-        args: [],
-        tag: 'TestVariantRequired',
-    },
+    {variants: {}, args: [], tag: 'InvalidCommandOptions'},
     {
         variants: {A: {program: (input: number) => Effect.succeed(input)}},
         args: ['--variant', 'missing'],
@@ -364,7 +431,7 @@ it.effect.each([
 );
 
 it.effect(
-    'saved commands reject Running and Failed references without executing or changing history',
+    'saved commands cannot select cached Running or Failed attempts',
     () =>
         Effect.gen(function* () {
             const repository = yield* PT.TestRepository.TestRepository;
@@ -390,11 +457,6 @@ it.effect(
                     variant: 'A',
                 }),
             );
-            const complete = (yield* repository.withTestRun(
-                {name: 'saved-only', variant: 'A'},
-                () => Effect.void,
-            )).run;
-            yield* repository.commitTestRun(complete.id);
             let calls = 0;
             const config = {
                 dbPath: ':memory:',
@@ -420,20 +482,8 @@ it.effect(
             for (const run of [running, failed]) {
                 for (const args of [
                     ['stats', '--runs', `run:${run.id}`],
-                    [
-                        'diff',
-                        '--from',
-                        `run:${run.id}`,
-                        '--to',
-                        `run:${complete.id}`,
-                    ],
-                    [
-                        'diff',
-                        '--from',
-                        `run:${complete.id}`,
-                        '--to',
-                        `run:${run.id}`,
-                    ],
+                    ['diff', '--from', `run:${run.id}`, '--to', 'run:999'],
+                    ['diff', '--from', 'run:999', '--to', `run:${run.id}`],
                     ['commit', '--run', `run:${run.id}`],
                 ]) {
                     const error = yield* effectNoDeps(config, [
@@ -441,7 +491,7 @@ it.effect(
                         'suite',
                         ...args,
                     ]).pipe(Effect.flip);
-                    expect(error._tag).toBe('TestRunIncomplete');
+                    expect(error._tag).toBe('TestRunNotFound');
                 }
             }
             expect({

@@ -405,7 +405,7 @@ const appendResult = <I, O, T>(
 };
 
 const finish = <I, O, T>(
-    testRun: Pick<TestRun, 'id' | 'name' | 'variant' | 'state'>,
+    testRun: TestRun,
     acc: FoldAcc<I, O, T>,
 ): TestRunResults<I, O, T> => {
     const times = [...acc.timesByTestCaseHash.values()];
@@ -435,10 +435,7 @@ const finish = <I, O, T>(
         timeMedian: median(times),
     });
     return {
-        id: testRun.id,
-        name: testRun.name,
-        variant: testRun.variant,
-        state: testRun.state,
+        ...testRun,
         testResultsByKey: acc.testResultsByKey,
         testResultKeys: acc.testResultKeys,
         testCaseHashes: [...acc.timesByTestCaseHash.keys()],
@@ -493,7 +490,7 @@ const requireComplete = Effect.fnUntraced(function* (
     repository: TestRepositoryShape,
     run: TestRun,
 ) {
-    const saved = yield* repository.getTestRun(run.id);
+    const saved = yield* repository.getTestRun(run);
     if (Option.isNone(saved)) {
         return yield* new TestRunNotFound({testRunId: run.id});
     }

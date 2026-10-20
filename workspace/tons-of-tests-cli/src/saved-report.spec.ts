@@ -86,7 +86,7 @@ it.effect(
                         };
                     });
                 }).flat();
-            const {run: savedFrom} = yield* repository.withTestRun(
+            const {run: cachedFrom} = yield* repository.withTestRun(
                 {name: 'archive-suite', variant: 'A'},
                 run =>
                     repository.insertTestResults(
@@ -95,7 +95,7 @@ it.effect(
                         schemas,
                     ),
             );
-            const {run: savedTo} = yield* repository.withTestRun(
+            const {run: cachedTo} = yield* repository.withTestRun(
                 {name: 'current-suite', variant: 'B'},
                 run =>
                     repository.insertTestResults(
@@ -104,8 +104,10 @@ it.effect(
                         schemas,
                     ),
             );
-            yield* repository.commitTestRun(savedFrom.id);
-            yield* repository.commitTestRun(savedTo.id);
+            const [savedFrom, savedTo] = yield* repository.commitTestRuns([
+                cachedFrom,
+                cachedTo,
+            ]);
             let calls = 0;
             const config = {
                 dbPath: ':memory:',
@@ -280,14 +282,18 @@ it.effect('renders a saved added row whose input is null', () =>
             tags: [],
             timeMillis: 3,
         };
-        const {run: from} = yield* repository.withTestRun(
+        const {run: cachedFrom} = yield* repository.withTestRun(
             {name: 'empty-source', variant: 'A'},
             () => Effect.void,
         );
-        const {run: to} = yield* repository.withTestRun(
+        const {run: cachedTo} = yield* repository.withTestRun(
             {name: 'null-target', variant: 'B'},
             run => repository.insertTestResult(result, run, schemas),
         );
+        const [from, to] = yield* repository.commitTestRuns([
+            cachedFrom,
+            cachedTo,
+        ]);
         const report = yield* PT.Show.prepareComparison(
             PT.Test.compareRuns({from, to, schemas}),
             {from: Option.some(from), to, schemas},
@@ -334,7 +340,7 @@ it.effect.each(['from', 'to'] as const)(
                     tags: [],
                     timeMillis: 1,
                 }));
-            const {run: from} = yield* repository.withTestRun(
+            const {run: cachedFrom} = yield* repository.withTestRun(
                 {name: 'source-codec-suite', variant: 'A'},
                 run =>
                     repository.insertTestResults(
@@ -343,7 +349,7 @@ it.effect.each(['from', 'to'] as const)(
                         schemas,
                     ),
             );
-            const {run: to} = yield* repository.withTestRun(
+            const {run: cachedTo} = yield* repository.withTestRun(
                 {name: 'target-codec-suite', variant: 'B'},
                 run =>
                     repository.insertTestResults(
@@ -352,8 +358,10 @@ it.effect.each(['from', 'to'] as const)(
                         schemas,
                     ),
             );
-            yield* repository.commitTestRun(from.id);
-            yield* repository.commitTestRun(to.id);
+            const [from, to] = yield* repository.commitTestRuns([
+                cachedFrom,
+                cachedTo,
+            ]);
             const NonNegative = Schema.Finite.check(
                 Schema.makeFilter(value => value >= 0),
             );

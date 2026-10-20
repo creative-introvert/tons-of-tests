@@ -98,10 +98,12 @@ export class TestVariantNotFound extends Schema.TaggedError<
 /**
  * Defines either one `program` or named `variants` that share cases, schemas,
  * and evaluation. A single program has the permanent variant ID `default`.
- * Named variants need an explicit selection, even when there is only one.
+ * `Test.all` needs an explicit selection for named variants, even when there is
+ * only one. CLI reporting commands select all configured variants by default.
  * Variant IDs must be non-empty, contain no commas, and not start with `run:`.
  * Editing a program keeps its history; changing its ID starts another history.
- * An empty `variants` map keeps saved runs readable after all programs are removed.
+ * An empty `variants` map keeps snapshots readable after all programs are removed.
+ * CLI commands that execute tests require at least one configured variant.
  *
  * Runs the selected program once per distinct input/expected-value hash, then
  * evaluates its output. Later duplicates are warned about and skipped; the first
@@ -161,10 +163,7 @@ export type TestResult<I = unknown, O = unknown, T = unknown> = {
     timeMillis: number;
 };
 
-export type TestRunResults<I = unknown, O = unknown, T = unknown> = Pick<
-    TestRun,
-    'id' | 'name' | 'variant' | 'state'
-> & {
+export type TestRunResults<I = unknown, O = unknown, T = unknown> = TestRun & {
     /** Indexed by `resultKey`, which combines the case hash and evaluation key. */
     testResultsByKey: Record<string, TestResult<I, O, T>>;
     /** Keys into `testResultsByKey`, in display order. */
@@ -198,25 +197,28 @@ export type TestResultComparison<I, A, B> =
 export const selectVariant = internal.selectVariant;
 
 /**
- * Runs only the selected program. Its error and service types include every
+ * Runs only the selected program. Named variants require an explicit selection;
+ * a single program uses `default`. Its error and service types include every
  * configured program and the case stream, even when the variant ID is a literal.
  */
 export const all = internal.all;
 /**
- * Compares complete saved runs without evaluating again. The shared codecs must
- * decode both runs and require no Effect services. Callers decide whether comparing
- * different suites or program versions is meaningful.
+ * Compares complete cached runs or committed snapshots without evaluating again.
+ * The shared codecs must decode both runs and require no Effect services.
+ * Callers decide whether comparing different suites or program versions is meaningful.
  *
  * Results match by case hash and evaluation key. A match changes when its label
  * or evaluated values change. Rows follow `to` order, followed by rows found only
  * in `from`, in `from` order. Empty complete runs are valid comparison endpoints.
- * Resolve missing baselines before calling; both endpoints must be saved runs.
- * Incompatible codecs fail with `TestValueError`, which names the saved suite.
+ * Resolve missing baselines before calling. Both runs must still exist in their
+ * stores; a cached attempt replaced by another execution cannot be read.
+ * Incompatible codecs fail with `TestValueError`, which names the stored suite.
  */
 export const compareRuns = internal.compareRuns;
 /**
- * Summarizes all matching results in a complete saved run. Each case contributes
- * its timing once. Empty complete runs have zero counts and no timing values.
+ * Summarizes all matching results in a complete cached run or snapshot, including
+ * unchanged results. Each case contributes its timing once. Empty complete runs
+ * have zero counts and no timing values.
  * The shared codecs must still read that run. The caller decides whether the
  * stored values still have the same meaning. Resolve a missing baseline before
  * calling; it differs from an empty run.

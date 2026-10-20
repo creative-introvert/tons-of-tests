@@ -29,15 +29,20 @@ it.effect('lists descending pages without gaps and marks each baseline', () =>
         const saved = yield* Effect.forEach(
             Array.from({length: 57}, (_, index) => index),
             index =>
-                repository
-                    .withTestRun(
+                Effect.gen(function* () {
+                    const {run} = yield* repository.withTestRun(
                         {name: 'history', variant: index % 2 === 0 ? 'A' : 'B'},
                         () => Effect.void,
-                    )
-                    .pipe(Effect.map(result => result.run)),
+                    );
+                    const [snapshot] = yield* repository.commitTestRuns([run]);
+                    return snapshot;
+                }),
         );
-        yield* repository.commitTestRun(saved[4].id);
-        yield* repository.commitTestRun(saved[55].id);
+        yield* repository.commitTestRuns([saved[4], saved[55]]);
+        yield* repository.withTestRun(
+            {name: 'history', variant: 'A'},
+            () => Effect.void,
+        );
         const lines: string[] = [];
         const capture = Stdio.layerTest({
             stdout: () =>

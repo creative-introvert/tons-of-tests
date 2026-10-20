@@ -1,7 +1,7 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {NodeServices} from '@effect/platform-node';
 import {expect, it} from '@effect/vitest';
-import {Effect, Layer, Option, Schema, Stdio} from 'effect';
+import {Effect, Layer, Option, Schema, Stdio, Stream} from 'effect';
 
 import {effectNoDeps} from './index.js';
 
@@ -28,19 +28,21 @@ it.effect(
     () =>
         Effect.gen(function* () {
             const repository = yield* PT.TestRepository.TestRepository;
-            const first = (yield* repository.withTestRun(
+            const firstAttempt = (yield* repository.withTestRun(
                 {name: 'commits', variant: 'retired'},
                 () => Effect.void,
             )).run;
-            const second = (yield* repository.withTestRun(
+            const [first] = yield* repository.commitTestRuns([firstAttempt]);
+            const secondAttempt = (yield* repository.withTestRun(
                 {name: 'commits', variant: 'retired'},
                 () => Effect.void,
             )).run;
-            const other = (yield* repository.withTestRun(
+            const [second] = yield* repository.commitTestRuns([secondAttempt]);
+            const otherAttempt = (yield* repository.withTestRun(
                 {name: 'other', variant: 'retired'},
                 () => Effect.void,
             )).run;
-            yield* repository.commitTestRun(second.id);
+            const [other] = yield* repository.commitTestRuns([otherAttempt]);
             yield* effectNoDeps(config, [
                 'node',
                 'suite',
@@ -82,11 +84,144 @@ it.effect(
             }).toEqual({
                 error: 'InvalidCommandOptions',
                 own: Option.some(first.id),
-                other: Option.none(),
+                other: Option.some(other),
                 runs: [
                     [second.id, false],
                     [first.id, true],
                 ],
+            });
+        }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+    'commits all complete cached variants without execution or report filters',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* PT.TestRepository.TestRepository;
+            let calls = 0;
+            let mayExecute = true;
+            const program = (input: number) =>
+                Effect.sync(() => {
+                    if (!mayExecute) throw new Error('commit must not execute');
+                    calls++;
+                    return input;
+                });
+            const selected = {
+                ...config,
+                testSuite: {
+                    ...config.testSuite,
+                    testCases: [
+                        {input: 1, expected: 1, tags: ['keep']},
+                        {input: 2, expected: 2},
+                    ],
+                    variants: {B: {program}, A: {program}},
+                },
+            };
+            yield* effectNoDeps(selected, [
+                'node',
+                'suite',
+                'summarize',
+                '--tags',
+                'keep',
+            ]);
+            mayExecute = false;
+            yield* effectNoDeps(selected, ['node', 'suite', 'commit']);
+            yield* effectNoDeps(selected, ['node', 'suite', 'commit']);
+            yield* effectNoDeps(selected, [
+                'node',
+                'suite',
+                'stats',
+                '--cached',
+            ]);
+            const snapshots = yield* repository.listTestRuns({
+                name: 'commits',
+                limit: 100,
+            });
+            const rows = yield* Effect.forEach(snapshots, run =>
+                repository
+                    .getTestResultsStream(run, selected.testSuite.schemas)
+                    .pipe(Stream.runCollect),
+            );
+            expect({
+                calls,
+                variants: snapshots.map(run => [
+                    run.variant,
+                    run.store,
+                    run.isBaseline,
+                ]),
+                inputs: rows.map(results => results.map(row => row.input)),
+            }).toEqual({
+                calls: 4,
+                variants: [
+                    ['A', 'snapshot', true],
+                    ['B', 'snapshot', true],
+                ],
+                inputs: [
+                    [1, 2],
+                    [1, 2],
+                ],
+            });
+        }).pipe(Effect.provide(services)),
+);
+
+it.effect.each(['missing', 'failed'] as const)(
+    'a %s selected variant leaves every baseline unchanged',
+    state =>
+        Effect.gen(function* () {
+            const repository = yield* PT.TestRepository.TestRepository;
+            const selected = {
+                ...config,
+                testSuite: {
+                    ...config.testSuite,
+                    variants: {
+                        A: {program: (input: number) => Effect.succeed(input)},
+                        B: {program: (input: number) => Effect.succeed(input)},
+                    },
+                },
+            };
+            yield* effectNoDeps(selected, ['node', 'suite', 'summarize']);
+            yield* effectNoDeps(selected, ['node', 'suite', 'commit']);
+            const before = yield* repository.listTestRuns({
+                name: 'commits',
+                limit: 100,
+            });
+            yield* effectNoDeps(selected, [
+                'node',
+                'suite',
+                'summarize',
+                '--variant',
+                'A',
+            ]);
+            const variants =
+                state === 'missing'
+                    ? {
+                          ...selected.testSuite.variants,
+                          C: selected.testSuite.variants.B,
+                      }
+                    : selected.testSuite.variants;
+            if (state === 'failed') {
+                yield* repository
+                    .withTestRun({name: 'commits', variant: 'B'}, () =>
+                        Effect.fail('failed'),
+                    )
+                    .pipe(Effect.result);
+            }
+            const error = yield* effectNoDeps(
+                {...selected, testSuite: {...selected.testSuite, variants}},
+                ['node', 'suite', 'commit'],
+            ).pipe(Effect.flip);
+            expect({
+                tag: error._tag,
+                snapshots: yield* repository.listTestRuns({
+                    name: 'commits',
+                    limit: 100,
+                }),
+            }).toEqual({
+                tag:
+                    state === 'missing'
+                        ? 'TestRunNotCreated'
+                        : 'TestRunIncomplete',
+                snapshots: before,
             });
         }).pipe(Effect.provide(services)),
 );

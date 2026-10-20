@@ -3,7 +3,6 @@ import * as PT from '@creative-introvert/tons-of-tests';
 import {expect, it} from '@effect/vitest';
 import {Effect, Layer, Option, Ref, Schema, Stream} from 'effect';
 
-import {getAllTestResults} from '../../tons-of-tests/src/internal/test-repository-fixtures.js';
 import {_commit} from './commit.js';
 import {prepareReport} from './test-run.js';
 
@@ -200,12 +199,27 @@ it.effect('filters grouped results while keeping the full cache', () =>
     }).pipe(Effect.scoped, Effect.provide(services)),
 );
 
-it.effect('running again after a commit reuses unchanged saved results', () =>
-    Effect.gen(function* () {
-        yield* prepareReport({mode: 'summarize', config, cached: false});
-        yield* _commit({config});
-        const before = yield* getAllTestResults;
-        yield* prepareReport({mode: 'summarize', config, cached: false});
-        expect(yield* getAllTestResults).toEqual(before);
-    }).pipe(Effect.scoped, Effect.provide(services)),
+it.effect(
+    'running again after a commit leaves the saved snapshot unchanged',
+    () =>
+        Effect.gen(function* () {
+            const repository = yield* PT.TestRepository.TestRepository;
+            yield* prepareReport({mode: 'summarize', config, cached: false});
+            yield* _commit({config});
+            const snapshot = Option.getOrThrow(
+                yield* repository.getBaselineTestRun({
+                    name: 'summary',
+                    variant: 'default',
+                }),
+            );
+            const before = yield* repository
+                .getTestResultsStream(snapshot, config.testSuite.schemas)
+                .pipe(Stream.runCollect);
+            yield* prepareReport({mode: 'summarize', config, cached: false});
+            expect(
+                yield* repository
+                    .getTestResultsStream(snapshot, config.testSuite.schemas)
+                    .pipe(Stream.runCollect),
+            ).toEqual(before);
+        }).pipe(Effect.scoped, Effect.provide(services)),
 );

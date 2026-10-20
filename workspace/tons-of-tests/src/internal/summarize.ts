@@ -421,7 +421,7 @@ export const prepareComparison = Effect.fnUntraced(function* <I, A, B, E, R>(
         ),
     );
     const identity = (run: TestRun) =>
-        `${run.name} / ${run.variant} / run:${run.id}`;
+        `${run.name} / ${run.variant} / ${run.store === 'snapshot' ? `run:${run.id}` : 'cached attempt'}`;
     const previous = Option.match(from, {
         onNone: () => 'no baseline',
         onSome: identity,
