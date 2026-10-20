@@ -1,5 +1,13 @@
 # @creative-introvert/tons-of-tests
 
+## 3.0.0-rc.0
+
+### Major Changes
+
+- 76843f9: Feat: Variants.
+- 9d53a97: Feat!: Simplify APIs.
+- 679c5b0: Feat: require schemas for test value serialization.
+
 ## 2.1.0
 
 ### Minor Changes
