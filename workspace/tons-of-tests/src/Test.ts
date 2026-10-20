@@ -1,10 +1,15 @@
-import {type Array, Effect, Option, type Stream} from 'effect';
+import {type Array, Effect, Option, type Schema, type Stream} from 'effect';
 
 import type {Label, Stats} from './Classify.js';
 import * as internal from './internal/Test.js';
 import type {TestRun, TestResultSchemas} from './Test.repository.js';
 
-export type TestSuiteSchemas<I, O, T> = TestResultSchemas<I, O, T>;
+/** Codecs must encode deterministically and preserve values through JSON. */
+export type TestSuiteSchemas<I, T, A, B> = TestResultSchemas<I, A, B> & {
+    testCase: {
+        expected: Schema.Codec<T, unknown>;
+    };
+};
 
 export type TestCases<I, T, E = never, R = never> =
     | ReadonlyArray<TestCase<I, T>>
@@ -33,7 +38,8 @@ export type Evaluate<O, T, A = O, B = T> = (
  * output. Later duplicates are warned about and skipped; the first case's tags
  * are kept. `O` and `T` describe the whole output and expected value; `A` and `B`
  * describe the evaluated values.
- * Without `evaluate`, the default comparison returns one result with key `result`.
+ * Without `evaluate`, reuse the same schema for evaluation.result and
+ * evaluation.expected. Schema equality produces one result with key `result`.
  */
 export type TestSuite<
     I = unknown,
@@ -45,15 +51,15 @@ export type TestSuite<
     B = T,
 > = {
     name: string;
-    /** Decode cached input and the result/expected values returned by `evaluate`. */
-    schemas?: TestSuiteSchemas<I, A, B>;
 } & (
     | {
+          schemas: TestSuiteSchemas<I, T, A, B>;
           testCases: TestCases<I, T, E, R>;
           program: Program<I, O, E, R>;
           evaluate: Evaluate<O, T, A, B>;
       }
     | {
+          schemas: TestSuiteSchemas<I, T & NoInfer<B>, A, B>;
           testCases: TestCases<I, T & NoInfer<B>, E, R>;
           program: Program<I, O & NoInfer<A>, E, R>;
           evaluate?: undefined;
@@ -113,7 +119,6 @@ export type TestResultPredicate<I, O, T> = (args: {
 
 export const all = internal.all;
 export const diff = internal.diff;
-export const makeSha256 = internal.makeSha256;
 /** Builds the lookup key for one evaluation within its original test case. */
 export const resultKey = internal.resultKey;
 export const runCollectRecord = internal.runCollectRecord;

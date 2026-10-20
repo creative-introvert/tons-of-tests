@@ -17,6 +17,10 @@ import {
 
 type TestCase = Test.TestCase<number, number>;
 const add = (input: number) => Effect.succeed(input + 1);
+const numberSchemas = {
+    testCase: {input: Schema.Finite, expected: Schema.Finite},
+    evaluation: {result: Schema.Finite, expected: Schema.Finite},
+};
 
 // Each test uses a unique suite name and scopes queries to its own run via
 // getTestResultsStream, so tests are robust to vitest reordering and the
@@ -49,11 +53,18 @@ t.describe('Test.repository.sqlite', () => {
                         // commitCurrentTestRun bails early if the current run has no
                         // results, so insert one first.
                         yield* T.all({
+                            schemas: numberSchemas,
                             testCases: [{input: 0, expected: 1}],
                             program: add,
                             name,
                         }).pipe(
-                            Stream.tap(_ => repository.insertTestResult(_, a)),
+                            Stream.tap(_ =>
+                                repository.insertTestResult(
+                                    _,
+                                    a,
+                                    numberSchemas,
+                                ),
+                            ),
                             Stream.runDrain,
                         );
                         const saved = yield* repository.commitCurrentTestRun({
@@ -95,9 +106,18 @@ t.describe('Test.repository.sqlite', () => {
                         const testRun =
                             yield* repository.getOrCreateCurrentTestRun(name);
 
-                        yield* T.all({testCases, program: add, name}).pipe(
+                        yield* T.all({
+                            schemas: numberSchemas,
+                            testCases,
+                            program: add,
+                            name,
+                        }).pipe(
                             Stream.tap(_ =>
-                                repository.insertTestResult(_, testRun),
+                                repository.insertTestResult(
+                                    _,
+                                    testRun,
+                                    numberSchemas,
+                                ),
                             ),
                             Stream.runDrain,
                         );
@@ -126,9 +146,18 @@ t.describe('Test.repository.sqlite', () => {
                             );
 
                         // Re-inserting results keeps one row per result and run.
-                        yield* T.all({testCases, program: add, name}).pipe(
+                        yield* T.all({
+                            schemas: numberSchemas,
+                            testCases,
+                            program: add,
+                            name,
+                        }).pipe(
                             Stream.tap(_ =>
-                                repository.insertTestResult(_, testRun),
+                                repository.insertTestResult(
+                                    _,
+                                    testRun,
+                                    numberSchemas,
+                                ),
                             ),
                             Stream.runDrain,
                         );
@@ -195,19 +224,25 @@ t.describe('Test.repository.sqlite', () => {
                             key: 'need',
                             resultOrdering: 1,
                         };
-                        yield* repository.insertTestResults(
-                            [need, budget],
-                            run,
-                        );
-
-                        const actual = yield* repository
-                            .getTestResultsStream(run, {
+                        const schemas = {
+                            testCase: {
                                 input: Schema.Struct({
                                     transcript: Schema.String,
                                 }),
+                            },
+                            evaluation: {
                                 result: Schema.Struct({value: Schema.Finite}),
                                 expected: Schema.Finite,
-                            })
+                            },
+                        };
+                        yield* repository.insertTestResults(
+                            [need, budget],
+                            run,
+                            schemas,
+                        );
+
+                        const actual = yield* repository
+                            .getTestResultsStream(run, schemas)
                             .pipe(Stream.runCollect);
 
                         t.expect(actual).toEqual([budget, need]);
@@ -220,6 +255,13 @@ t.describe('Test.repository.sqlite', () => {
                     Effect.gen(function* () {
                         const repository = yield* TestRepository;
                         const name = 'suite-run-metadata';
+                        const schemas = {
+                            testCase: {input: Schema.String},
+                            evaluation: {
+                                result: Schema.String,
+                                expected: Schema.String,
+                            },
+                        };
                         const firstRun =
                             yield* repository.getOrCreateCurrentTestRun(name);
                         const budget: Test.TestResult<string, string, string> =
@@ -253,6 +295,7 @@ t.describe('Test.repository.sqlite', () => {
                         yield* repository.insertTestResults(
                             [other, need, budget],
                             firstRun,
+                            schemas,
                         );
                         yield* repository.commitCurrentTestRun({
                             name,
@@ -281,13 +324,14 @@ t.describe('Test.repository.sqlite', () => {
                         yield* repository.insertTestResults(
                             [secondBudget, secondNeed, secondOther],
                             secondRun,
+                            schemas,
                         );
 
                         const firstResults = yield* repository
-                            .getTestResultsStream(firstRun)
+                            .getTestResultsStream(firstRun, schemas)
                             .pipe(Stream.runCollect);
                         const secondResults = yield* repository
-                            .getTestResultsStream(secondRun)
+                            .getTestResultsStream(secondRun, schemas)
                             .pipe(Stream.runCollect);
 
                         t.expect(firstResults).toEqual([budget, need, other]);
@@ -315,6 +359,7 @@ t.describe('Test.repository.sqlite', () => {
                         const otherRun =
                             yield* repository.getOrCreateCurrentTestRun(other);
                         yield* T.all({
+                            schemas: numberSchemas,
                             testCases: [
                                 {input: otherInput, expected: otherInput + 1},
                             ],
@@ -322,7 +367,11 @@ t.describe('Test.repository.sqlite', () => {
                             name: other,
                         }).pipe(
                             Stream.tap(_ =>
-                                repository.insertTestResult(_, otherRun),
+                                repository.insertTestResult(
+                                    _,
+                                    otherRun,
+                                    numberSchemas,
+                                ),
                             ),
                             Stream.runDrain,
                         );
@@ -337,12 +386,17 @@ t.describe('Test.repository.sqlite', () => {
                                     target,
                                 );
                             yield* T.all({
+                                schemas: numberSchemas,
                                 testCases: [{input, expected: input + 1}],
                                 program: add,
                                 name: target,
                             }).pipe(
                                 Stream.tap(_ =>
-                                    repository.insertTestResult(_, targetRun),
+                                    repository.insertTestResult(
+                                        _,
+                                        targetRun,
+                                        numberSchemas,
+                                    ),
                                 ),
                                 Stream.runDrain,
                             );
@@ -481,12 +535,17 @@ t.describe('Test.repository.sqlite', () => {
                         const testRun =
                             yield* repository.getOrCreateCurrentTestRun(name);
                         yield* T.all({
+                            schemas: numberSchemas,
                             testCases: [{input: 601, expected: 602}],
                             program: add,
                             name,
                         }).pipe(
                             Stream.tap(_ =>
-                                repository.insertTestResult(_, testRun),
+                                repository.insertTestResult(
+                                    _,
+                                    testRun,
+                                    numberSchemas,
+                                ),
                             ),
                             Stream.runDrain,
                         );
@@ -568,12 +627,12 @@ t.describe('Test.repository.sqlite', () => {
                 };
                 yield* repository.withTestRun(
                     run,
-                    repository.insertTestResult(result, run),
+                    repository.insertTestResult(result, run, numberSchemas),
                 );
                 const reopened = yield* TR.makeTestRepository;
                 t.expect({
                     results: yield* reopened
-                        .getTestResultsStream(run)
+                        .getTestResultsStream(run, numberSchemas)
                         .pipe(Stream.runCollect),
                     complete: yield* reopened.isComplete(run),
                 }).toEqual({results: [result], complete: true});
@@ -622,7 +681,7 @@ t.describe('Test.repository.sqlite', () => {
 
                         const exit = yield* Effect.exit(
                             repository
-                                .getTestResultsStream(run)
+                                .getTestResultsStream(run, numberSchemas)
                                 .pipe(Stream.runDrain),
                         );
                         t.expect(Exit.isFailure(exit)).toBe(true);
@@ -670,7 +729,11 @@ t.describe('Test.repository.sqlite', () => {
                             };
 
                         const exit = yield* Effect.exit(
-                            repository.insertTestResult(sample, testRun),
+                            repository.insertTestResult(
+                                sample,
+                                testRun,
+                                numberSchemas,
+                            ),
                         );
                         t.expect(Exit.isFailure(exit)).toBe(true);
                         const err = Exit.isFailure(exit)
@@ -708,20 +771,20 @@ t.it.effect.each([
             tags,
             timeMillis: 1,
         };
-        yield* repository.insertTestResult(first, firstRun);
+        yield* repository.insertTestResult(first, firstRun, numberSchemas);
         yield* repository.commitCurrentTestRun({
             name: 'tags',
             hash: 'baseline',
         });
         const secondRun = yield* repository.getOrCreateCurrentTestRun('tags');
         const second = {...first, tags: ['new,tag'], timeMillis: 2};
-        yield* repository.insertTestResult(second, secondRun);
+        yield* repository.insertTestResult(second, secondRun, numberSchemas);
 
         const firstSaved = yield* repository
-            .getTestResultsStream(firstRun)
+            .getTestResultsStream(firstRun, numberSchemas)
             .pipe(Stream.runCollect);
         const secondSaved = yield* repository
-            .getTestResultsStream(secondRun)
+            .getTestResultsStream(secondRun, numberSchemas)
             .pipe(Stream.runCollect);
         t.expect([firstSaved, secondSaved]).toEqual([[first], [second]]);
     }).pipe(Effect.provide(TestRepository.TestLayer)),
@@ -733,11 +796,14 @@ t.it.effect('a failed commit leaves the previous run state intact', () =>
         const sql = yield* SqlClient.SqlClient;
         const run = yield* repository.getOrCreateCurrentTestRun('atomic');
         yield* T.all({
+            schemas: numberSchemas,
             name: 'atomic',
             testCases: [{input: 1, expected: 2}],
             program: add,
         }).pipe(
-            Stream.tap(result => repository.insertTestResult(result, run)),
+            Stream.tap(result =>
+                repository.insertTestResult(result, run, numberSchemas),
+            ),
             Stream.runDrain,
         );
         const before = yield* getAllTestRuns;
@@ -770,17 +836,18 @@ t.it.effect('a stale run cannot replace the current results', () =>
         const repository = yield* TestRepository;
         const previous = yield* repository.getOrCreateCurrentTestRun('stale');
         const results = yield* T.all({
+            schemas: numberSchemas,
             name: 'stale',
             testCases: [{input: 1, expected: 2}],
             program: add,
         }).pipe(Stream.runCollect);
-        yield* repository.insertTestResults(results, previous);
+        yield* repository.insertTestResults(results, previous, numberSchemas);
         yield* repository.commitCurrentTestRun({
             name: 'stale',
             hash: 'baseline',
         });
         const current = yield* repository.getOrCreateCurrentTestRun('stale');
-        yield* repository.insertTestResults(results, current);
+        yield* repository.insertTestResults(results, current, numberSchemas);
 
         const exit = yield* repository
             .withTestRun(previous, Effect.void)
@@ -789,7 +856,7 @@ t.it.effect('a stale run cannot replace the current results', () =>
             rejected: Exit.isFailure(exit),
             baselineComplete: yield* repository.isComplete(previous),
             currentResults: yield* repository
-                .getTestResultsStream(current)
+                .getTestResultsStream(current, numberSchemas)
                 .pipe(Stream.runCollect),
         }).toEqual({
             rejected: true,
@@ -820,22 +887,34 @@ t.it.effect(
                     tags: [],
                     timeMillis: 1,
                 }));
-            yield* repository.insertTestResults(results.toReversed(), run);
+            yield* repository.insertTestResults(
+                results.toReversed(),
+                run,
+                numberSchemas,
+            );
             t.expect(
                 yield* repository
-                    .getTestResultsStream(run)
+                    .getTestResultsStream(run, numberSchemas)
                     .pipe(Stream.runCollect),
             ).toEqual(results);
 
             yield* sql`UPDATE ${sql(TR.tables.testResults)} SET result = 'invalid json' WHERE id = '204';`;
             t.expect(
                 yield* repository
-                    .getTestResultsStream(run)
+                    .getTestResultsStream(run, numberSchemas)
                     .pipe(Stream.take(1), Stream.runCollect),
             ).toEqual(results.slice(0, 1));
             const error = yield* repository
-                .getTestResultsStream(run)
+                .getTestResultsStream(run, numberSchemas)
                 .pipe(Stream.runDrain, Effect.flip);
-            t.expect(error._tag).toBe('SchemaError');
+            t.expect(error).toMatchObject({
+                _tag: 'TestValueError',
+                suite: 'pages',
+                caseNumber: 2,
+                key: 'result',
+                field: 'evaluation.result',
+                operation: 'decode',
+                cause: {_tag: 'SchemaError'},
+            });
         }).pipe(Effect.provide(TestRepository.TestLayer)),
 );

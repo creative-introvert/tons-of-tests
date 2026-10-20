@@ -2,7 +2,7 @@ import {Command} from 'effect/cli';
 import {NodeServices} from '@effect/platform-node';
 import * as PT from '@creative-introvert/tons-of-tests';
 import {expect, it} from '@effect/vitest';
-import {Effect, Layer, Option, Result, Stdio, Stream} from 'effect';
+import {Effect, Layer, Option, Result, Schema, Stdio, Stream} from 'effect';
 
 import {_commit} from './commit.js';
 import {diff as diffCommand} from './diff.js';
@@ -19,6 +19,10 @@ const config = {
     dbPath: ':memory:',
     testSuite: {
         name: 'diff',
+        schemas: {
+            testCase: {input: Schema.Finite, expected: Schema.Finite},
+            evaluation: {result: Schema.Finite, expected: Schema.Finite},
+        },
         testCases: [
             {input: 1, expected: 2},
             {input: 2, expected: 3},
@@ -70,7 +74,7 @@ it.effect.each([
                 config.testSuite.name,
             );
             const selected = yield* repository
-                .getTestResultsStream(current)
+                .getTestResultsStream(current, config.testSuite.schemas)
                 .pipe(
                     Stream.filter(row =>
                         inputs.some(input => input === row.input),
@@ -84,7 +88,10 @@ it.effect.each([
                 ? Option.none()
                 : Option.some(
                       yield* repository
-                          .getTestResultsStream(previous.value)
+                          .getTestResultsStream(
+                              previous.value,
+                              config.testSuite.schemas,
+                          )
                           .pipe(
                               Stream.filter(row =>
                                   inputs.some(input => input === row.input),
@@ -101,7 +108,8 @@ it.effect.each([
                 count: inputs.length,
                 stats: selected.stats,
                 previous: Option.map(selectedPrevious, run => run.stats),
-                output: PT.Show.summarize({
+                output: yield* PT.Show.summarize({
+                    schemas: config.testSuite.schemas,
                     testRun: selected,
                     previousTestRun: selectedPrevious,
                 }),
@@ -198,12 +206,25 @@ it.effect(
         Effect.gen(function* () {
             const expected = {budget: 100, need: 2};
             const classify = PT.Classify.makeClassify({
-                isEqual: PT.Classify.defaultIsEqual,
+                isEqual: Schema.toEquivalence(Schema.Finite),
             });
             const base = {
                 dbPath: ':memory:',
                 testSuite: {
                     name: 'grouped-diff',
+                    schemas: {
+                        testCase: {
+                            input: Schema.String,
+                            expected: Schema.Struct({
+                                budget: Schema.Finite,
+                                need: Schema.Finite,
+                            }),
+                        },
+                        evaluation: {
+                            result: Schema.Finite,
+                            expected: Schema.Finite,
+                        },
+                    },
                     testCases: [
                         {input: 'call-1', expected, tags: ['enterprise', 'de']},
                     ],

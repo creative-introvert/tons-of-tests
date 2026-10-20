@@ -1,17 +1,10 @@
 import * as t from 'vitest';
-import {Option} from 'effect';
+import {Option, Schema} from 'effect';
 
-import {
-    defaultIsEqual,
-    makeClassify,
-    median,
-    precision,
-    recall,
-    values,
-} from './Classify.js';
+import {makeClassify, median, precision, recall, values} from './Classify.js';
 
 const classify = makeClassify<unknown, unknown>({
-    isEqual: (o, e) => defaultIsEqual(o, e),
+    isEqual: Schema.toEquivalence(Schema.Unknown),
 });
 
 t.describe('makeClassify', () => {
@@ -66,36 +59,6 @@ t.describe('makeClassify', () => {
         },
     ])('$description', ({output, expected, label}) => {
         t.expect(classify(output, expected)).toBe(label);
-    });
-});
-
-t.describe('defaultIsEqual', () => {
-    // Documents the FIXME: JSON round-trip strips `undefined`-valued keys,
-    // so {a: undefined, b: 1} compares equal to {b: 1}. A refactor that
-    // switches to a cheaper deep-equal would flip this silently.
-    t.test.each([
-        {
-            description: 'strips undefined keys from a',
-            a: {a: undefined, b: 1},
-            b: {b: 1},
-            expected: true,
-        },
-        {
-            description: 'strips undefined keys from b',
-            a: {b: 1},
-            b: {a: undefined, b: 1},
-            expected: true,
-        },
-        {description: 'equal primitives', a: 1, b: 1, expected: true},
-        {description: 'different primitives', a: 1, b: 2, expected: false},
-        {
-            description: 'different object shapes',
-            a: {a: 1},
-            b: {a: 2},
-            expected: false,
-        },
-    ])('$description', ({a, b, expected}) => {
-        t.expect(defaultIsEqual(a, b)).toBe(expected);
     });
 });
 

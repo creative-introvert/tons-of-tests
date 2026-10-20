@@ -1,6 +1,6 @@
 import {Classify} from '@creative-introvert/tons-of-tests';
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
-import {Effect} from 'effect';
+import {Effect, Schema} from 'effect';
 
 const myFunction = (input: number) => Promise.resolve(input * 1.7);
 const classify = Classify.makeClassify<number, number>({
@@ -9,6 +9,10 @@ const classify = Classify.makeClassify<number, number>({
 
 CLI.run({
     testSuite: {
+        schemas: {
+            testCase: {input: Schema.Finite, expected: Schema.Finite},
+            evaluation: {result: Schema.Finite, expected: Schema.Finite},
+        },
         name: 'with-cli-simple',
         testCases: [
             {input: 0, expected: 0},

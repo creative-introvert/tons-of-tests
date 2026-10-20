@@ -15,9 +15,118 @@ import {SqlClient} from 'effect/sql';
 import {prepareReport} from './test-run.js';
 import type {ResultFilters} from './common.js';
 
+const numberSchemas = {
+    testCase: {input: Schema.Finite, expected: Schema.Finite},
+    evaluation: {result: Schema.Finite, expected: Schema.Finite},
+};
+const ReportInput = Schema.Struct({id: Schema.Int, note: Schema.String});
+
 const services = Layer.merge(
     PT.TestRepository.TestRepository.TestLayer,
     NodeServices.layer,
+);
+
+it.effect(
+    'fresh and cached reports compare and display bigint and Date values',
+    () =>
+        Effect.gen(function* () {
+            const Value = Schema.Struct({
+                amount: Schema.BigIntFromString,
+                at: Schema.Date,
+                measurements: Schema.Record(Schema.String, Schema.BigInt),
+            });
+            const input = {
+                amount: 9_007_199_254_740_993n,
+                at: new Date('2026-01-01T00:00:00Z'),
+                measurements: {z: 2n, a: 1n},
+            };
+            let offset = 0n;
+            let calls = 0;
+            const config = {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'rich-report',
+                    schemas: {
+                        testCase: {input: Value, expected: Value},
+                        evaluation: {result: Value, expected: Value},
+                    },
+                    testCases: [{input, expected: input}],
+                    program: (value: typeof Value.Type) =>
+                        Effect.sync(() => {
+                            calls++;
+                            return {
+                                ...value,
+                                amount: value.amount + offset,
+                                at: new Date(value.at.getTime()),
+                            };
+                        }),
+                },
+            };
+            const first = yield* prepareReport({
+                mode: 'summarize',
+                config,
+                cached: false,
+            });
+            const repository = yield* PT.TestRepository.TestRepository;
+            yield* repository.commitCurrentTestRun({
+                name: config.testSuite.name,
+                hash: 'baseline',
+            });
+            const unchanged = yield* prepareReport({
+                mode: 'diff',
+                config,
+                cached: false,
+            });
+            offset = 1n;
+            const fresh = yield* prepareReport({
+                mode: 'diff',
+                config,
+                cached: false,
+            });
+            const cached = yield* prepareReport({
+                mode: 'diff',
+                config,
+                cached: true,
+            });
+            expect({
+                calls,
+                passing: first.stats.TP,
+                unchanged: unchanged.count,
+                changed: [fresh.count, fresh.stats.FP],
+                cachedStats: cached.stats,
+                cachedOutput: yield* cached.chunks.pipe(Stream.runCollect),
+            }).toEqual({
+                calls: 3,
+                passing: 1,
+                unchanged: 0,
+                changed: [1, 1],
+                cachedStats: fresh.stats,
+                cachedOutput: yield* fresh.chunks.pipe(Stream.runCollect),
+            });
+            const run = yield* repository.getOrCreateCurrentTestRun(
+                config.testSuite.name,
+            );
+            const testRun = yield* repository
+                .getTestResultsStream(run, config.testSuite.schemas)
+                .pipe(PT.Test.runCollectRecord(run));
+            const result = testRun.testResultsByKey[testRun.testResultKeys[0]];
+            expect({
+                input: result.input,
+                result: result.result,
+                expected: result.expected,
+            }).toEqual({
+                input,
+                result: {...input, amount: input.amount + 1n},
+                expected: input,
+            });
+            const table = yield* PT.Show.summarize({
+                testRun,
+                schemas: config.testSuite.schemas,
+                selectColumns: ['input', 'result', 'expected'],
+            });
+            expect(table).toContain('"9007199254740994"');
+            expect(table).toContain('2026-01-01T00:00:00.000Z');
+        }).pipe(Effect.scoped, Effect.provide(services)),
 );
 
 it.effect.each([
@@ -35,14 +144,28 @@ it.effect.each([
                 displayConfig: {columnPadding: 3},
                 testSuite: {
                     name: 'report',
+                    schemas: {
+                        testCase: {input: ReportInput, expected: Schema.Finite},
+                        evaluation: numberSchemas.evaluation,
+                    },
                     testCases: [],
-                    program: (input: number) => Effect.succeed(input),
+                    program: (input: typeof ReportInput.Type) =>
+                        Effect.succeed(input.id),
                 },
             };
-            const makeResults = (changed: boolean): PT.Test.TestResult[] =>
+            const makeResults = (
+                changed: boolean,
+            ): PT.Test.TestResult<typeof ReportInput.Type, number, number>[] =>
                 Array.from({length: 103}, (_, ordering) =>
                     ['budget', 'need', 'timeline'].map(
-                        (key, resultOrdering): PT.Test.TestResult => {
+                        (
+                            key,
+                            resultOrdering,
+                        ): PT.Test.TestResult<
+                            typeof ReportInput.Type,
+                            number,
+                            number
+                        > => {
                             const isChanged =
                                 changed &&
                                 ordering % 3 === 0 &&
@@ -71,7 +194,11 @@ it.effect.each([
                 ).flat();
             const previous =
                 yield* repository.getOrCreateCurrentTestRun('report');
-            yield* repository.insertTestResults(makeResults(false), previous);
+            yield* repository.insertTestResults(
+                makeResults(false),
+                previous,
+                config.testSuite.schemas,
+            );
             yield* repository.commitCurrentTestRun({
                 name: 'report',
                 hash: 'baseline',
@@ -80,7 +207,11 @@ it.effect.each([
                 yield* repository.getOrCreateCurrentTestRun('report');
             yield* repository.withTestRun(
                 current,
-                repository.insertTestResults(makeResults(true), current),
+                repository.insertTestResults(
+                    makeResults(true),
+                    current,
+                    config.testSuite.schemas,
+                ),
             );
             const filters: ResultFilters = filtered
                 ? {
@@ -126,8 +257,9 @@ it.effect.each([
                 previousStats:
                     mode === 'diff' ? report.previousStats : Option.none(),
             }).toEqual({
-                output: PT.Show.summarize({
+                output: yield* PT.Show.summarize({
                     ...expected,
+                    schemas: config.testSuite.schemas,
                     displayConfig: config.displayConfig,
                 }),
                 count: expected.testRun.testResultKeys.length,
@@ -140,57 +272,68 @@ it.effect.each([
         }).pipe(Effect.scoped, Effect.provide(services)),
 );
 
-it.effect(
-    'fresh output keeps its values without decoding them through cached-value schemas',
-    () =>
-        Effect.gen(function* () {
-            const config = {
-                dbPath: ':memory:',
-                testSuite: {
-                    name: 'fresh-schema',
-                    testCases: [{input: 42, expected: 42}],
-                    program: (input: number) => Effect.succeed(input),
-                    schemas: {
-                        input: Schema.Finite,
-                        result: Schema.Finite.pipe(
-                            Schema.decodeTo(
-                                Schema.Finite,
-                                SchemaTransformation.transform({
-                                    decode: value => value + 1,
-                                    encode: value => value - 1,
-                                }),
-                            ),
-                        ),
-                        expected: Schema.Finite,
-                    },
+it.effect('fresh and cached reports use both directions of custom codecs', () =>
+    Effect.gen(function* () {
+        const Value = Schema.Finite.pipe(
+            Schema.decodeTo(
+                Schema.Finite,
+                SchemaTransformation.transform({
+                    decode: value => value + 1,
+                    encode: value => value - 1,
+                }),
+            ),
+        );
+        const config = {
+            dbPath: ':memory:',
+            testSuite: {
+                name: 'fresh-schema',
+                testCases: [{input: 42, expected: 42}],
+                program: (input: number) => Effect.succeed(input),
+                schemas: {
+                    testCase: {input: Schema.Finite, expected: Value},
+                    evaluation: {result: Value, expected: Value},
                 },
-            };
-            const report = yield* prepareReport({
-                mode: 'summarize',
-                config,
-                cached: false,
-            });
-            expect({count: report.count, passing: report.stats.TP}).toEqual({
-                count: 1,
-                passing: 1,
-            });
-            const output = yield* report.chunks.pipe(
-                Stream.runFold(
-                    () => '',
-                    (text, chunk) => text + chunk,
-                ),
-            );
-            const expected = yield* PT.Test.all(config.testSuite).pipe(
-                PT.Test.runCollectRecord(
-                    new PT.TestRepository.TestRun({
-                        id: 0,
-                        name: config.testSuite.name,
-                        hash: null,
-                    }),
-                ),
-            );
-            expect(output).toBe(PT.Show.summarize({testRun: expected}));
-        }).pipe(Effect.scoped, Effect.provide(services)),
+            },
+        };
+        const report = yield* prepareReport({
+            mode: 'summarize',
+            config,
+            cached: false,
+        });
+        expect({count: report.count, passing: report.stats.TP}).toEqual({
+            count: 1,
+            passing: 1,
+        });
+        const output = yield* report.chunks.pipe(
+            Stream.runFold(
+                () => '',
+                (text, chunk) => text + chunk,
+            ),
+        );
+        const expected = yield* PT.Test.all(config.testSuite).pipe(
+            PT.Test.runCollectRecord(
+                new PT.TestRepository.TestRun({
+                    id: 0,
+                    name: config.testSuite.name,
+                    hash: null,
+                }),
+            ),
+        );
+        expect(output).toBe(
+            yield* PT.Show.summarize({
+                testRun: expected,
+                schemas: config.testSuite.schemas,
+            }),
+        );
+        const cached = yield* prepareReport({
+            mode: 'summarize',
+            config,
+            cached: true,
+        });
+        expect((yield* cached.chunks.pipe(Stream.runCollect)).join('')).toBe(
+            output,
+        );
+    }).pipe(Effect.scoped, Effect.provide(services)),
 );
 
 it.effect(
@@ -206,6 +349,7 @@ it.effect(
                 dbPath: ':memory:',
                 testSuite: {
                     name: 'duplicate-report',
+                    schemas: numberSchemas,
                     testCases: Stream.fromIterable([...cases, ...cases]),
                     program: (input: number) =>
                         Effect.sync(() => {
@@ -244,6 +388,7 @@ it.effect(
                 dbPath: ':memory:',
                 testSuite: {
                     name: 'report-cleanup',
+                    schemas: numberSchemas,
                     testCases: Array.from({length: 60}, (_, input) => ({
                         input,
                         expected: input,

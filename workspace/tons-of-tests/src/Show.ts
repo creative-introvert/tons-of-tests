@@ -52,11 +52,11 @@ export type StatsColumn = {
     make: (ctx: StatsContext) => string[];
 };
 
-export type SummarizeContext = {
+export type SummarizeContext<I = unknown, O = unknown, T = unknown> = {
     i: number;
     resultKeys: string[];
-    testResult: TestResult;
-    previousTestResult: Option.Option<TestResult>;
+    testResult: TestResult<I, O, T>;
+    previousTestResult: Option.Option<TestResult<I, O, T>>;
 };
 
 export type SummarizeColumnNames =

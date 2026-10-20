@@ -1,9 +1,14 @@
 import * as t from '@effect/vitest';
 import * as PT from '@creative-introvert/tons-of-tests';
-import {Context, Effect, Ref, Stream} from 'effect';
+import {Context, Effect, Ref, Schema, Stream} from 'effect';
 
 import {DiffNonEmpty} from './diff.js';
 import {effect as cliEffect} from './index.js';
+
+const numberSchemas = {
+    testCase: {input: Schema.Finite, expected: Schema.Finite},
+    evaluation: {result: Schema.Finite, expected: Schema.Finite},
+};
 
 class Multiplier extends Context.Service<
     Multiplier,
@@ -42,6 +47,7 @@ t.describe('CLI.effect', () => {
                 dbPath: ':memory:',
                 testSuite: {
                     name: 'cli-effect-deps',
+                    schemas: numberSchemas,
                     testCases,
                     program: (input: number) =>
                         Effect.gen(function* () {
@@ -99,12 +105,22 @@ t.describe('CLI.effect', () => {
         Effect.gen(function* () {
             const expected = {budget: 100, need: 2};
             const classify = PT.Classify.makeClassify({
-                isEqual: PT.Classify.defaultIsEqual,
+                isEqual: Schema.toEquivalence(Schema.Finite),
             });
             const config = {
                 dbPath: ':memory:',
                 testSuite: {
                     name: 'cli-result-filters',
+                    schemas: {
+                        testCase: {
+                            input: Schema.String,
+                            expected: Schema.Struct({
+                                budget: Schema.Finite,
+                                need: Schema.Finite,
+                            }),
+                        },
+                        evaluation: numberSchemas.evaluation,
+                    },
                     testCases: [
                         {input: 'call-1', expected, tags: ['enterprise', 'de']},
                         {input: 'call-2', expected, tags: ['smb', 'de']},
@@ -159,6 +175,7 @@ t.describe('CLI.effect', () => {
                 dbPath: ':memory:',
                 testSuite: {
                     name: 'cli-effect-diff-non-empty',
+                    schemas: numberSchemas,
                     testCases: [{input: 1, expected: 2}],
                     program: (input: number) => Effect.succeed(input + 1),
                 },
@@ -180,6 +197,7 @@ t.describe('CLI.effect', () => {
                 dbPath: ':memory:',
                 testSuite: {
                     name: 'invalid-cli-labels',
+                    schemas: numberSchemas,
                     testCases: [{input: 1, expected: 1}],
                     program: (n: number) =>
                         Ref.update(hits, n => n + 1).pipe(Effect.as(n)),

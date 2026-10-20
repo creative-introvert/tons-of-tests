@@ -1,5 +1,8 @@
 import type {SqlError} from 'effect/sql/SqlError';
 import {Schema} from 'effect';
+import type {TestValueError} from './TestValueError.js';
+
+export {TestValueError} from './TestValueError.js';
 
 export class TestRunNotCreated extends Schema.TaggedError<
     TestRunNotCreated,
@@ -15,5 +18,6 @@ export class TestRunIncomplete extends Schema.TaggedError<
 export type RepositoryError =
     | SqlError
     | Schema.SchemaError
+    | TestValueError
     | TestRunNotCreated
     | TestRunIncomplete;

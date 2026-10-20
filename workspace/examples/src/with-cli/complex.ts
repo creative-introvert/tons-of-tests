@@ -1,5 +1,5 @@
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
-import {Effect} from 'effect';
+import {Effect, Schema} from 'effect';
 
 import {createMapToDomain} from '../lib/math.js';
 import {createTestCases} from './create-obesity-tests.js';
@@ -13,6 +13,16 @@ const predictObesity = ({eatBetweenMeals}: {eatBetweenMeals: number}) =>
 CLI.run(
     {
         testSuite: {
+            schemas: {
+                testCase: {
+                    input: Schema.Struct({
+                        eatBetweenMeals: Schema.Int,
+                        i: Schema.Int,
+                    }),
+                    expected: Schema.Finite,
+                },
+                evaluation: {result: Schema.Finite, expected: Schema.Finite},
+            },
             name: 'with-cli-complex',
             testCases: await createTestCases(),
             program: predictObesity,

@@ -1,5 +1,3 @@
-import {isDeepStrictEqual} from 'node:util';
-
 import {Option, Schema} from 'effect';
 
 import type {Classify as TClassify} from '../Classify.js';
@@ -12,16 +10,6 @@ export const values = {
 } as const;
 
 export const LabelSchema = Schema.Literals(['TP', 'TN', 'FP', 'FN']);
-
-export const defaultIsEqual = <A, B>(a: A, b: B): boolean =>
-    // FIXME: Expensive, but don't know how else to cheaply remove
-    // `undefined`, which is a common source of false results.
-    // Parsing the output w/ a schema would be better, or
-    // forbidding `undefined`.
-    isDeepStrictEqual(
-        JSON.parse(JSON.stringify(a)),
-        JSON.parse(JSON.stringify(b)),
-    );
 
 export const defaultIsNil = <I>(x: I): boolean => x === null || x === undefined;
 

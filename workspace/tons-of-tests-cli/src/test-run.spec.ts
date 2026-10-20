@@ -9,11 +9,17 @@ import {
     Option,
     Ref,
     Result,
+    Schema,
     Stdio,
     Stream,
 } from 'effect';
 
 import {effectNoDeps} from './index.js';
+
+const numberSchemas = {
+    testCase: {input: Schema.Finite, expected: Schema.Finite},
+    evaluation: {result: Schema.Finite, expected: Schema.Finite},
+};
 
 const services = Layer.mergeAll(
     PT.TestRepository.TestRepository.TestLayer,
@@ -33,6 +39,7 @@ it.effect.each(['summarize', 'diff'] as const)(
                 dbPath: ':memory:',
                 testSuite: {
                     name: 'incomplete',
+                    schemas: numberSchemas,
                     testCases: Array.from({length: 60}, (_, input) => ({
                         input,
                         expected: input,
@@ -57,7 +64,7 @@ it.effect.each(['summarize', 'diff'] as const)(
             const run =
                 yield* repository.getOrCreateCurrentTestRun('incomplete');
             const partial = yield* repository
-                .getTestResultsStream(run)
+                .getTestResultsStream(run, config.testSuite.schemas)
                 .pipe(Stream.runCollect);
             const commitError = yield* repository
                 .commitCurrentTestRun({
@@ -80,7 +87,7 @@ it.effect.each(['summarize', 'diff'] as const)(
             yield* Ref.set(shouldFail, false);
             yield* effectNoDeps(config, ['node', 'suite', command, '--cached']);
             const complete = yield* repository
-                .getTestResultsStream(run)
+                .getTestResultsStream(run, config.testSuite.schemas)
                 .pipe(Stream.runCollect);
             expect({
                 complete: yield* repository.isComplete(run),
@@ -98,6 +105,7 @@ it.effect('interruption leaves saved batches uncommittable', () =>
             dbPath: ':memory:',
             testSuite: {
                 name: 'interrupted',
+                schemas: numberSchemas,
                 testCases: Array.from({length: 60}, (_, input) => ({
                     input,
                     expected: input,
@@ -118,7 +126,7 @@ it.effect('interruption leaves saved batches uncommittable', () =>
 
         const run = yield* repository.getOrCreateCurrentTestRun('interrupted');
         const results = yield* repository
-            .getTestResultsStream(run)
+            .getTestResultsStream(run, config.testSuite.schemas)
             .pipe(Stream.runCollect);
         const error = yield* repository
             .commitCurrentTestRun({
@@ -144,6 +152,7 @@ it.effect.each(['summarize', 'diff'] as const)(
                 dbPath: ':memory:',
                 testSuite: {
                     name: 'empty',
+                    schemas: numberSchemas,
                     testCases: Stream.fromEffect(
                         Ref.update(reads, n => n + 1),
                     ).pipe(Stream.drain),
@@ -167,6 +176,7 @@ it.effect('public CLI calls share the caller-provided repository', () =>
             dbPath: ':memory:',
             testSuite: {
                 name: 'shared',
+                schemas: numberSchemas,
                 testCases: [{input: 1, expected: 1}],
                 program: (input: number) => Effect.succeed(input),
             },

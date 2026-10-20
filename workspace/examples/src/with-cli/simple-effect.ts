@@ -1,7 +1,7 @@
 import {Classify} from '@creative-introvert/tons-of-tests';
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
 import {NodeRuntime} from '@effect/platform-node';
-import {Context, Effect, Layer} from 'effect';
+import {Context, Effect, Layer, Schema} from 'effect';
 
 // A tiny service the program depends on. The CLI never knows about it —
 // the caller is responsible for providing it before handing the Effect to
@@ -24,6 +24,10 @@ const myFunction = (input: number) =>
 CLI.effect(
     {
         testSuite: {
+            schemas: {
+                testCase: {input: Schema.Finite, expected: Schema.Finite},
+                evaluation: {result: Schema.Finite, expected: Schema.Finite},
+            },
             name: 'with-cli-simple-effect',
             testCases: [
                 {input: 0, expected: 0},

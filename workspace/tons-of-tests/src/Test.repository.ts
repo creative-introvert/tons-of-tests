@@ -25,11 +25,18 @@ type StatsCollector = {
     stats: Effect.Effect<Stats, RepositoryError>;
 };
 
-/** Decode stored input and evaluated values, including values from prior runs. */
+/**
+ * Encode and decode saved input and evaluated values. Pass a suite's schemas
+ * directly; its whole-case expectation is only needed by the runner.
+ * Codecs must be deterministic, preserve equivalent values through JSON, and
+ * require no Effect services.
+ */
 export type TestResultSchemas<I = unknown, O = unknown, T = unknown> = {
-    input: Schema.Codec<I>;
-    result: Schema.Codec<O>;
-    expected: Schema.Codec<T>;
+    testCase: {input: Schema.Codec<I, unknown>};
+    evaluation: {
+        result: Schema.Codec<O, unknown>;
+        expected: Schema.Codec<T, unknown>;
+    };
 };
 
 export type TestRepositoryShape = {
@@ -47,7 +54,7 @@ export type TestRepositoryShape = {
     }) => Effect.Effect<void, RepositoryError>;
     getTestResultsStream: <I = unknown, O = unknown, T = unknown>(
         testRun: TestRun,
-        schemas?: TestResultSchemas<I, O, T>,
+        schemas: TestResultSchemas<I, O, T>,
         /** Match at most 50 case/key pairs per call. Results retain their saved order. */
         matching?: ReadonlyArray<Pick<TestResult, 'hashTestCase' | 'key'>>,
     ) => Stream.Stream<TestResult<I, O, T>, RepositoryError>;
@@ -80,13 +87,15 @@ export type TestRepositoryShape = {
         name: string;
         hash: string;
     }) => Effect.Effect<'Committed' | 'NothingToCommit', RepositoryError>;
-    insertTestResult: (
-        input: TestResult,
+    insertTestResult: <I, O, T>(
+        input: TestResult<I, O, T>,
         testRun: TestRun,
+        schemas: TestResultSchemas<I, O, T>,
     ) => Effect.Effect<void, RepositoryError>;
-    insertTestResults: (
-        inputs: ReadonlyArray<TestResult>,
+    insertTestResults: <I, O, T>(
+        inputs: ReadonlyArray<TestResult<I, O, T>>,
         testRun: TestRun,
+        schemas: TestResultSchemas<I, O, T>,
     ) => Effect.Effect<void, RepositoryError>;
 };
 

@@ -11,6 +11,7 @@ import {TestRunNotCreated, TestRunIncomplete} from '../RepositoryError.js';
 import {LabelSchema} from './Classify.js';
 import {migrate, tables} from './test-repository-migrations.js';
 import {withStats} from './test-result-stats.js';
+import {makeResultCodec, stringifyJson} from './Test.serialization.js';
 
 export {tables} from './test-repository-migrations.js';
 
@@ -20,14 +21,21 @@ export const TestResultStorage = Schema.Struct({
     key: Schema.String,
     ordering: Schema.Int,
     resultOrdering: Schema.Int,
-    input: Schema.fromJsonString(Schema.Unknown),
-    result: Schema.fromJsonString(Schema.Unknown),
-    expected: Schema.fromJsonString(Schema.Unknown),
+    input: Schema.fromJsonString(Schema.Json),
+    result: Schema.fromJsonString(Schema.Json),
+    expected: Schema.fromJsonString(Schema.Json),
     label: LabelSchema,
     tags: Schema.fromJsonString(Schema.Array(Schema.String)),
     timeMillis: Schema.Finite,
 });
-const encodeResult = Schema.encodeEffect(TestResultStorage);
+const StoredResult = Schema.Struct({
+    ...TestResultStorage.fields,
+    input: Schema.String,
+    result: Schema.String,
+    expected: Schema.String,
+});
+const encodeResult = Schema.encodeEffect(StoredResult);
+const decodeRows = Schema.decodeUnknownEffect(Schema.Array(StoredResult));
 const decodeRuns = Schema.decodeUnknownEffect(Schema.Array(TestRun));
 const decodeRunStates = Schema.decodeUnknownEffect(
     Schema.Array(
@@ -51,15 +59,25 @@ export const makeTestRepository = Effect.gen(function* () {
     yield* sql`PRAGMA auto_vacuum = FULL;`;
     yield* migrate;
 
-    const insertTestResults = Effect.fnUntraced(function* (
-        results: ReadonlyArray<TestResult>,
+    const insertTestResults = Effect.fnUntraced(function* <I, O, T>(
+        results: ReadonlyArray<TestResult<I, O, T>>,
         run: TestRun,
+        schemas: TestResultSchemas<I, O, T>,
     ) {
+        const codec = makeResultCodec(schemas, run.name);
         // Each statement stays below SQLite's lowest default limit of 999 parameters.
         for (let offset = 0; offset < results.length; offset += 50) {
             const encoded = yield* Effect.forEach(
                 results.slice(offset, offset + 50),
-                result => encodeResult(result),
+                Effect.fnUntraced(function* (result) {
+                    const encoded = yield* codec.encode(result);
+                    return yield* encodeResult({
+                        ...encoded,
+                        input: stringifyJson(encoded.input),
+                        result: stringifyJson(encoded.result),
+                        expected: stringifyJson(encoded.expected),
+                    });
+                }),
             );
             yield* sql`
                 INSERT INTO ${sql(tables.testResults)} ${sql.insert(encoded)}
@@ -86,7 +104,7 @@ export const makeTestRepository = Effect.gen(function* () {
 
     const getTestResultsStream = <I = unknown, O = unknown, T = unknown>(
         run: TestRun,
-        schemas?: TestResultSchemas<I, O, T>,
+        schemas: TestResultSchemas<I, O, T>,
         matching?: ReadonlyArray<Pick<TestResult, 'hashTestCase' | 'key'>>,
     ) => {
         if (matching !== undefined && matching.length > 50) {
@@ -94,20 +112,7 @@ export const makeTestRepository = Effect.gen(function* () {
                 new Error('Match at most 50 case/key pairs per query.'),
             );
         }
-        const input = (schemas?.input ?? Schema.Unknown) as Schema.Codec<I>;
-        const result = (schemas?.result ?? Schema.Unknown) as Schema.Codec<O>;
-        const expected = (schemas?.expected ??
-            Schema.Unknown) as Schema.Codec<T>;
-        const decodeRows = Schema.decodeUnknownEffect(
-            Schema.Array(
-                Schema.Struct({
-                    ...TestResultStorage.fields,
-                    input: Schema.fromJsonString(input),
-                    result: Schema.fromJsonString(result),
-                    expected: Schema.fromJsonString(expected),
-                }),
-            ),
-        );
+        const codec = makeResultCodec(schemas, run.name);
         const filter =
             matching === undefined
                 ? sql`1 = 1`
@@ -156,8 +161,9 @@ export const makeTestRepository = Effect.gen(function* () {
             `,
                 );
                 const last = rows[rows.length - 1];
+                const decoded = yield* Effect.forEach(rows, codec.decode);
                 return [
-                    rows,
+                    decoded,
                     rows.length < 100
                         ? Option.none()
                         : Option.some({
@@ -349,7 +355,8 @@ export const makeTestRepository = Effect.gen(function* () {
             withStats(use).pipe(
                 Effect.provideService(SqlClient.SqlClient, sql),
             ),
-        insertTestResult: (result, run) => insertTestResults([result], run),
+        insertTestResult: (result, run, schemas) =>
+            insertTestResults([result], run, schemas),
         insertTestResults,
     } satisfies TestRepositoryShape;
 });

@@ -12,41 +12,17 @@ import type {
     TestSuite,
 } from '../Test.js';
 import type {TestRun} from '../Test.repository.js';
+import type {TestValueError} from '../TestValueError.js';
 import {
-    defaultIsEqual,
-    LabelSchema,
-    makeClassify,
-    median,
-    precision,
-    recall,
-} from './Classify.js';
+    makeResultCodec,
+    makeValueCodec,
+    stringifyJson,
+} from './Test.serialization.js';
+import {makeClassify, median, precision, recall} from './Classify.js';
 
-export const makeSha256 = <I>(input: I): string => {
-    // This public synchronous helper keeps result IDs stable across releases.
-    return createHash('sha256').update(JSON.stringify(input)).digest('hex');
-};
-
-const TestResult = {
-    make: <I, O, T>(args: Omit<TestResult<I, O, T>, 'id'>) => {
-        const {hashTestCase, key, label, input, result, expected} = args;
-
-        // Reordering cases or evaluations must not change a result's identity.
-        // Tags and timing also stay out of the ID.
-        const id = makeSha256({
-            hashTestCase,
-            key,
-            label,
-            input,
-            result,
-            expected,
-        });
-
-        return {
-            ...args,
-            id,
-        };
-    },
-};
+/** Hash already encoded JSON. Object key order does not affect identity. */
+export const makeSha256 = (input: Schema.Json): string =>
+    createHash('sha256').update(stringifyJson(input)).digest('hex');
 
 export const resultKey = ({
     hashTestCase,
@@ -54,39 +30,18 @@ export const resultKey = ({
 }: Pick<TestResult, 'hashTestCase' | 'key'>): string =>
     JSON.stringify([hashTestCase, key]);
 
-const defaultClassify = makeClassify({isEqual: defaultIsEqual});
-
-const defaultEvaluate = <O, T>(
-    result: O,
-    expected: T,
-): ReturnType<Evaluate<O, T>> => [
-    {key: 'result', result, expected, label: defaultClassify(result, expected)},
-];
-
-export const TestResultSchema: Schema.Codec<TestResult> = Schema.Struct({
-    id: Schema.String,
-    hashTestCase: Schema.String,
-    key: Schema.String,
-    ordering: Schema.Int,
-    resultOrdering: Schema.Int,
-    input: Schema.Unknown,
-    result: Schema.Unknown,
-    expected: Schema.Unknown,
-    label: LabelSchema,
-    tags: Schema.Array(Schema.String),
-    timeMillis: Schema.Finite,
-});
-
 export const test = Effect.fnUntraced(function* <I, O, T, E, R, A, B>({
     testCase: {input, expected, tags, ordering},
     hashTestCase,
     program,
     evaluate,
+    encodeResult,
 }: {
     testCase: TestCase<I, T> & {ordering: number};
     hashTestCase: string;
     program: Program<I, O, E, R>;
     evaluate: Evaluate<O, T, A, B>;
+    encodeResult: ReturnType<typeof makeResultCodec<I, A, B>>['encode'];
 }) {
     const t0 = yield* Clock.currentTimeNanos;
     const result = yield* program(input);
@@ -108,15 +63,30 @@ export const test = Effect.fnUntraced(function* <I, O, T, E, R, A, B>({
         }
         keys.add(key);
     }
-    return evaluations.map((evaluation, resultOrdering) =>
-        TestResult.make({
-            ...evaluation,
-            hashTestCase,
-            ordering,
-            resultOrdering,
-            input,
-            tags: tags ?? [],
-            timeMillis: Number(t1 - t0) / 1_000_000,
+    return yield* Effect.forEach(evaluations, (evaluation, resultOrdering) =>
+        Effect.gen(function* () {
+            const args = {
+                ...evaluation,
+                hashTestCase,
+                ordering,
+                resultOrdering,
+                input,
+                tags: tags ?? [],
+                timeMillis: Number(t1 - t0) / 1_000_000,
+            };
+            const encoded = yield* encodeResult(args);
+            // Ordering, tags, and timing do not change result identity.
+            return {
+                ...args,
+                id: makeSha256({
+                    hashTestCase,
+                    key: evaluation.key,
+                    label: evaluation.label,
+                    input: encoded.input,
+                    result: encoded.result,
+                    expected: encoded.expected,
+                }),
+            };
         }),
     );
 });
@@ -124,14 +94,47 @@ export const test = Effect.fnUntraced(function* <I, O, T, E, R, A, B>({
 export const all = <I, O, T, E, R, A = O, B = T>(
     suite: TestSuite<I, O, T, E, R, A, B>,
     {concurrency}: {concurrency?: number | undefined} = {concurrency: 1},
-): Stream.Stream<TestResult<I, A, B>, E, R> => {
+): Stream.Stream<TestResult<I, A, B>, E | TestValueError, R> => {
     if (suite.evaluate === undefined) {
+        if (
+            !Object.is(
+                suite.schemas.evaluation.result,
+                suite.schemas.evaluation.expected,
+            )
+        ) {
+            return Stream.die(
+                new Error(
+                    `${suite.name}: without evaluate, evaluation.result and evaluation.expected must reuse the same schema`,
+                ),
+            );
+        }
+        const classify = makeClassify<A | B, A | B>({
+            isEqual: Schema.toEquivalence(
+                Schema.Union([
+                    suite.schemas.evaluation.result,
+                    suite.schemas.evaluation.expected,
+                ]),
+            ),
+        });
         return all<I, A, B, E, R, A, B>(
-            {...suite, evaluate: defaultEvaluate},
+            {
+                ...suite,
+                evaluate: (result, expected) => [
+                    {
+                        key: 'result',
+                        result,
+                        expected,
+                        label: classify(result, expected),
+                    },
+                ],
+            },
             {concurrency},
         );
     }
-    const {testCases, program, evaluate} = suite;
+    const {testCases, program, evaluate, schemas} = suite;
+    const inputCodec = makeValueCodec(schemas.testCase.input);
+    const expectedCodec = makeValueCodec(schemas.testCase.expected);
+    const {encode: encodeResult} = makeResultCodec(schemas, suite.name);
     const total = Stream.isStream(testCases) ? undefined : testCases.length;
     const testCases$ = Stream.isStream(testCases)
         ? testCases
@@ -142,13 +145,29 @@ export const all = <I, O, T, E, R, A = O, B = T>(
         return pipe(
             testCases$,
             Stream.zipWithIndex,
-            Stream.map(([testCase, ordering]) => ({
-                testCase: {...testCase, ordering},
-                hashTestCase: makeSha256({
-                    input: testCase.input,
-                    expected: testCase.expected,
+            Stream.mapEffect(
+                Effect.fnUntraced(function* ([testCase, ordering]) {
+                    const context = {
+                        suite: suite.name,
+                        caseNumber: ordering + 1,
+                    };
+                    const input = yield* inputCodec.encode(testCase.input, {
+                        ...context,
+                        field: 'testCase.input',
+                    });
+                    const expected = yield* expectedCodec.encode(
+                        testCase.expected,
+                        {
+                            ...context,
+                            field: 'testCase.expected',
+                        },
+                    );
+                    return {
+                        testCase: {...testCase, ordering},
+                        hashTestCase: makeSha256({input, expected}),
+                    };
                 }),
-            })),
+            ),
             Stream.filterEffect(({testCase, hashTestCase}) => {
                 if (seen.has(hashTestCase)) {
                     return Effect.logWarning('Skipping duplicate test case.', {
@@ -162,7 +181,13 @@ export const all = <I, O, T, E, R, A = O, B = T>(
             }),
             Stream.mapEffect(
                 ({testCase, hashTestCase}) =>
-                    test({testCase, hashTestCase, program, evaluate}),
+                    test({
+                        testCase,
+                        hashTestCase,
+                        program,
+                        evaluate,
+                        encodeResult,
+                    }),
                 {
                     concurrency,
                     unordered: false,

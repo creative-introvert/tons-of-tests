@@ -6,7 +6,6 @@ export const LabelSchema = internal.LabelSchema;
 export type Label = typeof LabelSchema.Type;
 
 export const values = internal.values;
-export const defaultIsEqual = internal.defaultIsEqual;
 export const defaultIsNil = internal.defaultIsNil;
 export const makeClassify = internal.makeClassify;
 

@@ -1,7 +1,7 @@
 import * as t from '@effect/vitest';
-import {Array as A, Effect, Exit, Option, Result, Stream} from 'effect';
+import {Array as A, Effect, Exit, Option, Result, Schema, Stream} from 'effect';
 
-import {Stats, defaultIsEqual, makeClassify} from '../Classify.js';
+import {Stats, makeClassify} from '../Classify.js';
 import type {Evaluate, EvaluationResult, TestResult} from '../Test.js';
 import {TestRun} from '../Test.repository.js';
 import {
@@ -14,10 +14,17 @@ import {
 } from './Test.js';
 
 const run = new TestRun({id: 1, name: 'suite', hash: null});
+const numberSchemas = {
+    testCase: {input: Schema.Finite, expected: Schema.Finite},
+    evaluation: {result: Schema.Finite, expected: Schema.Finite},
+};
 
 type AnyResult = TestResult<number, number | null, number | null>;
 
-const mkResult = <R = number, E = number>(args: {
+const mkResult = <
+    R extends Schema.Json = number,
+    E extends Schema.Json = number,
+>(args: {
     input: number;
     expected: E;
     result: R;
@@ -27,7 +34,12 @@ const mkResult = <R = number, E = number>(args: {
     key?: string;
     resultOrdering?: number;
 }): TestResult<number, R, E> => ({
-    id: makeSha256(args),
+    id: makeSha256({
+        input: args.input,
+        result: args.result,
+        expected: args.expected,
+        label: args.label,
+    }),
     hashTestCase: makeSha256({input: args.input, expected: args.expected}),
     key: args.key ?? 'result',
     ordering: args.ordering ?? 0,
@@ -79,6 +91,7 @@ t.describe('all', () => {
                 const results = all(
                     {
                         name: 'duplicates',
+                        schemas: numberSchemas,
                         testCases:
                             source === 'array'
                                 ? cases
@@ -142,6 +155,7 @@ t.describe('all', () => {
         Effect.gen(function* () {
             const results = yield* all({
                 name: 'all-source-shapes',
+                schemas: numberSchemas,
                 testCases,
                 program: (input: number) => Effect.succeed(input * 2),
             }).pipe(Stream.runCollect);
@@ -159,6 +173,16 @@ t.describe('all', () => {
             Effect.gen(function* () {
                 const results = yield* all({
                     name: 'inferred-evaluation',
+                    schemas: {
+                        testCase: {
+                            input: Schema.Finite,
+                            expected: Schema.Struct({amount: Schema.Finite}),
+                        },
+                        evaluation: {
+                            result: Schema.String,
+                            expected: Schema.Finite,
+                        },
+                    },
                     testCases: [{input: 1, expected: {amount: 2}}],
                     program: (input: number) =>
                         Effect.succeed({amount: String(input)}),
@@ -201,7 +225,9 @@ t.describe('all', () => {
                     need: 1,
                     timeline: 1,
                 };
-                const classify = makeClassify({isEqual: defaultIsEqual});
+                const classify = makeClassify({
+                    isEqual: Schema.toEquivalence(Schema.Finite),
+                });
                 const evaluate: Evaluate<Bant, Bant, number, number> = (
                     output,
                     expected,
@@ -216,6 +242,18 @@ t.describe('all', () => {
                 const results = yield* all(
                     {
                         name: 'bant',
+                        schemas: {
+                            testCase: {
+                                input: Schema.String,
+                                expected: Schema.Struct({
+                                    budget: Schema.Finite,
+                                    authority: Schema.Finite,
+                                    need: Schema.Finite,
+                                    timeline: Schema.Finite,
+                                }),
+                            },
+                            evaluation: numberSchemas.evaluation,
+                        },
                         testCases: [
                             {input: 'call-1', expected},
                             {input: 'call-2', expected},
@@ -292,6 +330,7 @@ t.describe('all', () => {
                 ];
                 const suite = {
                     name: 'order',
+                    schemas: numberSchemas,
                     testCases: [{input: 1, expected: 1}],
                     program: Effect.succeed,
                     evaluate,
@@ -327,6 +366,7 @@ t.describe('all', () => {
             const emitted: TestResult[] = [];
             const suite = {
                 name: 'invalid-evaluation',
+                schemas: numberSchemas,
                 testCases: [{input: 1, expected: 1}],
                 program: Effect.succeed,
                 evaluate: (): readonly EvaluationResult<number, number>[] =>
@@ -355,6 +395,7 @@ t.describe('all', () => {
             let evaluations = 0;
             const result = yield* all({
                 name: 'failed-inference',
+                schemas: numberSchemas,
                 testCases: [{input: 1, expected: 1}],
                 program: () => Effect.fail(failure),
                 evaluate: (output: number, expected: number) => {

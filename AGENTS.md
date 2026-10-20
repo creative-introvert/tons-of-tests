@@ -1,4 +1,5 @@
-We're building a new major version. Any changes can be breaking. No pre-emptive backwards compatibility, unless expliclitly requested by the user.
+- We're building a new major version. Any changes can be breaking. No pre-emptive backwards compatibility, unless expliclitly requested by the user.
+- Do not update README or MIGRATION_GUIDE unless explicitly asked to.
 
 ## Rules
 

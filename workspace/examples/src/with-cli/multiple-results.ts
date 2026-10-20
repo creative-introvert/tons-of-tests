@@ -2,15 +2,17 @@ import {Classify, type Test} from '@creative-introvert/tons-of-tests';
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
 import {Array, Effect, Schema} from 'effect';
 
-type Bant = {
-    readonly budget: string | null;
-    readonly authority: string | null;
-    readonly need: string | null;
-    readonly timeline: string | null;
-};
+const Field = Schema.NullOr(Schema.String);
+const Bant = Schema.Struct({
+    budget: Field,
+    authority: Field,
+    need: Field,
+    timeline: Field,
+});
+type Bant = typeof Bant.Type;
 
 const fields = ['budget', 'authority', 'need', 'timeline'] as const;
-const classify = Classify.makeClassify({isEqual: Classify.defaultIsEqual});
+const classify = Classify.makeClassify({isEqual: Schema.toEquivalence(Field)});
 
 const evaluate: Test.Evaluate<Bant, Bant, string | null, string | null> = (
     output,
@@ -50,9 +52,8 @@ CLI.run({
         program: inferBant,
         evaluate,
         schemas: {
-            input: Schema.String,
-            result: Schema.NullOr(Schema.String),
-            expected: Schema.NullOr(Schema.String),
+            testCase: {input: Schema.String, expected: Bant},
+            evaluation: {result: Field, expected: Field},
         },
     },
     dbPath: 'with-cli-multiple-results.db',

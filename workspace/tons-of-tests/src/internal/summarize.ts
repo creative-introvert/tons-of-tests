@@ -16,19 +16,17 @@ import type {
     SummarizeContext,
 } from '../Show.js';
 import type {TestRunResults} from '../Test.js';
+import type {TestResultSchemas} from '../Test.repository.js';
+import {makeResultCodec} from './Test.serialization.js';
 import {showBorder, showHeader, showRow, showTitle} from './common.js';
 import {makeDefault} from './DisplayConfig.js';
 import {formatDiff} from './format-diff.js';
 import {diff} from './lib/jsondiffpatch/index.js';
 
-// TODO: new column, "state"?
-// "pass -> fail" [red]
-// "fail -> pass" [green]
-// "fail (new)" [yellow]
-// "pass (new)" [blue]
-// Requires passing in `isEqual`, i.e. can't just use the `defaultIsEqual`.
-// Also solves "diff" having the same issue.
-type ColumnContext = Omit<SummarizeContext, 'resultKeys'> & {
+type ColumnContext = Omit<
+    SummarizeContext<Schema.Json, Schema.Json, Schema.Json>,
+    'resultKeys'
+> & {
     resultCount: number;
 };
 const columns: Array<
@@ -197,17 +195,21 @@ const measureRow = (
         return width;
     });
 
-export const showSummary = ({
+/** Format schema-encoded values; conversion failures stay in the error channel. */
+export const showSummary = Effect.fnUntraced(function* <I, O, T>({
     testRun,
+    schemas,
     displayConfig,
     previousTestRun = Option.none(),
     selectColumns = defaultColumns,
 }: {
-    testRun: TestRunResults;
-    previousTestRun?: Option.Option<TestRunResults>;
+    testRun: TestRunResults<I, O, T>;
+    schemas: TestResultSchemas<I, O, T>;
+    previousTestRun?: Option.Option<TestRunResults<I, O, T>>;
     displayConfig?: Partial<DisplayConfig> | undefined;
     selectColumns?: A.NonEmptyArray<SummarizeColumnNames>;
-}) => {
+}) {
+    const codec = makeResultCodec(schemas, testRun.name);
     const cfg = {...makeDefault(), ...displayConfig};
 
     const resultKeys = testRun.testResultKeys;
@@ -223,10 +225,13 @@ export const showSummary = ({
 
     for (let i = 0; i < resultKeys.length; i++) {
         const key = resultKeys[i];
-        const testResult = testRun.testResultsByKey[key];
-        const previousTestResult = previousTestRun.pipe(
+        const testResult = yield* codec.encode(testRun.testResultsByKey[key]);
+        const previous = previousTestRun.pipe(
             Option.flatMap(_ => Record.get(_.testResultsByKey, key)),
         );
+        const previousTestResult = Option.isSome(previous)
+            ? Option.some(yield* codec.encode(previous.value))
+            : Option.none();
 
         const row = makeRow(_columns, {
             i,
@@ -258,7 +263,7 @@ export const showSummary = ({
     s += showBorder(cfg, columnWidths, 'bottom');
 
     return s;
-};
+});
 
 const decodeRow = Schema.decodeUnknownEffect(
     Schema.fromJsonString(
@@ -271,24 +276,29 @@ const decodeRow = Schema.decodeUnknownEffect(
 /**
  * Format rows once into a temporary file, then read them back with final column widths.
  * Use inside Effect.scoped; the returned chunks remain readable until that scope closes.
- * Each chunk ends in a newline. The existing showSummary string API is unchanged.
+ * Each chunk ends in a newline. Conversion failures fail report preparation.
  */
-export const prepareSummary = Effect.fnUntraced(function* <E, R>(
+export const prepareSummary = Effect.fnUntraced(function* <I, O, T, E, R>(
     results: Stream.Stream<
-        Pick<SummarizeContext, 'testResult' | 'previousTestResult'>,
+        Pick<SummarizeContext<I, O, T>, 'testResult' | 'previousTestResult'>,
         E,
         R
     >,
     {
+        schemas,
+        suite,
         displayConfig,
         hasPrevious = false,
         selectColumns = defaultColumns,
     }: {
+        schemas: TestResultSchemas<I, O, T>;
+        suite: string;
         displayConfig?: Partial<DisplayConfig> | undefined;
         hasPrevious?: boolean;
         selectColumns?: A.NonEmptyArray<SummarizeColumnNames>;
-    } = {},
+    },
 ) {
+    const codec = makeResultCodec(schemas, suite);
     const fs = yield* FileSystem.FileSystem;
     const path = yield* fs.makeTempFileScoped({
         prefix: 'tons-of-tests-summary-',
@@ -301,15 +311,26 @@ export const prepareSummary = Effect.fnUntraced(function* <E, R>(
     let widths = selected.map(column => column.label.length);
     let count = 0;
     yield* results.pipe(
-        Stream.map(context => {
-            const row = makeRow(selected, {
-                ...context,
-                i: count++,
-                resultCount: 0,
-            });
-            widths = measureRow(widths, row);
-            return `${JSON.stringify(row)}\n`;
-        }),
+        Stream.mapEffect(
+            Effect.fnUntraced(function* (context) {
+                const testResult = yield* codec.encode(context.testResult);
+                const previousTestResult = Option.isSome(
+                    context.previousTestResult,
+                )
+                    ? Option.some(
+                          yield* codec.encode(context.previousTestResult.value),
+                      )
+                    : Option.none();
+                const row = makeRow(selected, {
+                    testResult,
+                    previousTestResult,
+                    i: count++,
+                    resultCount: 0,
+                });
+                widths = measureRow(widths, row);
+                return `${JSON.stringify(row)}\n`;
+            }),
+        ),
         Stream.encodeText,
         Stream.run(fs.sink(path)),
     );

@@ -15,6 +15,10 @@ const config = {
     dbPath: ':memory:',
     testSuite: {
         name: 'summary',
+        schemas: {
+            testCase: {input: Schema.Finite, expected: Schema.Finite},
+            evaluation: {result: Schema.Finite, expected: Schema.Finite},
+        },
         testCases: [
             {input: 1, expected: 2},
             {input: 2, expected: 3},
@@ -68,7 +72,7 @@ it.effect('label filters leave stored results intact', () =>
             config.testSuite.name,
         );
         const before = yield* repository
-            .getTestResultsStream(run)
+            .getTestResultsStream(run, config.testSuite.schemas)
             .pipe(Stream.runCollect);
         const filtered = yield* prepareReport({
             mode: 'summarize',
@@ -79,7 +83,7 @@ it.effect('label filters leave stored results intact', () =>
         expect({
             visible: filtered.count,
             saved: yield* repository
-                .getTestResultsStream(run)
+                .getTestResultsStream(run, config.testSuite.schemas)
                 .pipe(Stream.runCollect),
         }).toEqual({visible: 0, saved: before});
     }).pipe(Effect.scoped, Effect.provide(services)),
@@ -91,7 +95,7 @@ it.effect('filters grouped results while keeping the full cache', () =>
         const hits = yield* Ref.make(0);
         const expected = {budget: 100, need: 2};
         const classify = PT.Classify.makeClassify({
-            isEqual: PT.Classify.defaultIsEqual,
+            isEqual: Schema.toEquivalence(Schema.Finite),
         });
         const grouped = {
             dbPath: ':memory:',
@@ -121,9 +125,17 @@ it.effect('filters grouped results while keeping the full cache', () =>
                         },
                     ] as const,
                 schemas: {
-                    input: Schema.String,
-                    result: Schema.Finite,
-                    expected: Schema.Finite,
+                    testCase: {
+                        input: Schema.String,
+                        expected: Schema.Struct({
+                            budget: Schema.Finite,
+                            need: Schema.Finite,
+                        }),
+                    },
+                    evaluation: {
+                        result: Schema.Finite,
+                        expected: Schema.Finite,
+                    },
                 },
             },
         };
@@ -151,7 +163,7 @@ it.effect('filters grouped results while keeping the full cache', () =>
             grouped.testSuite.name,
         );
         const saved = yield* repository
-            .getTestResultsStream(run)
+            .getTestResultsStream(run, grouped.testSuite.schemas)
             .pipe(Stream.runCollect);
         expect({
             calls: yield* Ref.get(hits),

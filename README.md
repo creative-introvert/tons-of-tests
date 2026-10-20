@@ -47,7 +47,7 @@ Define your test suite:
 // my-test-suite.ts
 import {Classify} from '@creative-introvert/tons-of-tests';
 import * as CLI from '@creative-introvert/tons-of-tests-cli';
-import {Effect} from 'effect';
+import {Effect, Schema} from 'effect';
 
 const myFunction = (input: number) => Promise.resolve(input * 1.7);
 const classify = Classify.makeClassify<number, number>({
@@ -58,6 +58,10 @@ const classify = Classify.makeClassify<number, number>({
 CLI.run({
     testSuite: {
         name: 'with-cli-simple',
+        schemas: {
+            testCase: {input: Schema.Finite, expected: Schema.Finite},
+            evaluation: {result: Schema.Finite, expected: Schema.Finite},
+        },
         testCases: [
             {input: 0, expected: 0},
             {input: 1, expected: 2},
@@ -76,9 +80,13 @@ CLI.run({
 ```
 
 Omit `evaluate` to compare the whole output with the expected value using
-`Classify.defaultIsEqual`. The default evaluator returns one result with key
-`result`. `Classify.makeClassify` returns a label for one comparison; use it
-inside `evaluate` when you want to choose how values match.
+`Schema.toEquivalence`. Reuse the same schema instance for
+`schemas.evaluation.result` and `schemas.evaluation.expected`. The default
+evaluator returns one result with key `result`. It treats `null` and `undefined`
+as missing values for classification.
+
+`Classify.makeClassify` returns a label for one comparison. Use it inside
+`evaluate` to choose other matching rules or compare values of different types.
 
 The runner keeps the first case for each input/expected-value hash. It warns
 and skips later duplicates before calling `program`, then continues the suite.
@@ -92,6 +100,10 @@ import {Stream} from 'effect';
 CLI.run({
     testSuite: {
         name: 'with-cli-stream',
+        schemas: {
+            testCase: {input: Schema.Finite, expected: Schema.Finite},
+            evaluation: {result: Schema.Finite, expected: Schema.Finite},
+        },
         testCases: Stream.fromIterable([
             {input: 0, expected: 0},
             {input: 1, expected: 2},
@@ -113,17 +125,19 @@ authority, need, and timeline:
 
 ```ts
 import {Classify, type Test} from '@creative-introvert/tons-of-tests';
-import {Array} from 'effect';
+import {Array, Schema} from 'effect';
 
-type Bant = {
-    readonly budget: string | null;
-    readonly authority: string | null;
-    readonly need: string | null;
-    readonly timeline: string | null;
-};
+const Field = Schema.NullOr(Schema.String);
+const Bant = Schema.Struct({
+    budget: Field,
+    authority: Field,
+    need: Field,
+    timeline: Field,
+});
+type Bant = typeof Bant.Type;
 
 const fields = ['budget', 'authority', 'need', 'timeline'] as const;
-const classify = Classify.makeClassify({isEqual: Classify.defaultIsEqual});
+const classify = Classify.makeClassify({isEqual: Schema.toEquivalence(Field)});
 
 const evaluate: Test.Evaluate<Bant, Bant, string | null, string | null> = (
     output,
@@ -172,29 +186,71 @@ The statistics count cases and results separately. Labels, precision, and recall
 count visible results. Timing statistics count each visible case once, even when
 it has several result rows.
 
-If you supply `testSuite.schemas`, `input` describes the original input.
-`result` and `expected` describe the values returned by `evaluate`. For this
-BANT example, both use `Schema.NullOr(Schema.String)` because each result is one
-field, even though the program returns a full BANT object.
-
-#### Updating Suites That Use `classify`
-
-Replace the suite's `classify` property with an `evaluate` callback. Keep the
-classifier and wrap its label in a result, as shown in the basic example:
+This suite needs a schema for the whole BANT expectation and schemas for the
+individual field values:
 
 ```ts
-evaluate: (result, expected) => [
-    {key: 'result', result, expected, label: classify(result, expected)},
-],
+const schemas = {
+    testCase: {input: Schema.String, expected: Bant},
+    evaluation: {result: Field, expected: Field},
+};
 ```
 
-Suites that use the default comparison and omit `classify` need no changes.
-Cached results keep their saved values and labels. Run the suite again after
-changing `evaluate` to produce new results.
+### Value Schemas
 
-The same `schemas` decode current and previous runs. If you change the stored
-result or expected-value shape and your schemas cannot read older values, use
-a new suite name for the new shape.
+Every suite requires `schemas`. The fields describe the values used at each
+stage:
+
+| Field | Value |
+| --- | --- |
+| `testCase.input` | Original input passed to `program` and saved with each result. |
+| `testCase.expected` | Whole expected value passed to `evaluate` and used in the case hash. |
+| `evaluation.result` | Result returned by `evaluate`. |
+| `evaluation.expected` | Expected value returned by `evaluate`. |
+
+The runner derives JSON codecs with Effect's `Schema.toCodecJson`. Built-in
+schemas such as `Schema.BigInt` and `Schema.Date` provide JSON encodings.
+Custom codecs can choose other encodings. Their encoded and decoded types may
+differ. Schemas must not require Effect services.
+
+`program`, `evaluate`, and fresh results keep the original values. Saved values
+are encoded and loaded values are decoded with the same schemas. The whole
+program output needs no storage schema when `evaluate` selects smaller values.
+
+Encodings must be deterministic. The runner rejects undeclared object fields
+and checks that decoding the JSON text restores an equivalent value according
+to `Schema.toEquivalence`. These checks run before hashing or saving. For
+example, an untagged bigint/string union can encode both `123n` and `"123"` as
+the same JSON string. Use an encoding that records which type it contains.
+
+Case hashes cover the encoded original input and whole expected value.
+Result IDs also cover the evaluation key, label, and encoded result values.
+Object keys are sorted; array order remains significant. Changing an encoding
+can change hashes. Existing data is not migrated.
+
+Tables and visual diffs display encoded JSON. Comparisons between runs use
+schema equality on decoded values. Saved labels are not re-evaluated.
+
+Conversion failures use `Error.TestValueError`. It includes the suite,
+one-based case number, evaluation key when available, field, operation, and
+original `SchemaError` cause. A failed CLI execution stays incomplete and cannot
+be committed or reused with `--cached`.
+
+Direct repository calls also require schemas:
+
+```ts
+yield* repository.withTestRun(
+    run,
+    repository.insertTestResults(results, run, schemas),
+);
+const saved = repository.getTestResultsStream(run, schemas);
+```
+
+`Show.summarize({testRun, schemas})` returns an Effect containing the table text.
+`Show.prepareSummary(results, {schemas, suite})` prepares table chunks inside
+`Effect.scoped`. Both report conversion failures in the Effect error channel.
+The schema-free `Classify.defaultIsEqual` and `Test.makeSha256` exports have
+been removed.
 
 ### CLI Commands
 

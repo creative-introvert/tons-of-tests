@@ -1,5 +1,5 @@
 import * as PT from '@creative-introvert/tons-of-tests';
-import {Effect, Option, Stream} from 'effect';
+import {Effect, Option, Schema, Stream} from 'effect';
 
 import type {AppConfigShape} from './Config.js';
 import {matchesFilters, type ResultFilters} from './common.js';
@@ -40,7 +40,11 @@ const withCurrentTestRunResults = Effect.fn('TestRun.current')(function* <
             PT.Test.all(testSuite, {concurrency}).pipe(
                 Stream.grouped(50),
                 Stream.tap(results =>
-                    repository.insertTestResults(results, run),
+                    repository.insertTestResults(
+                        results,
+                        run,
+                        testSuite.schemas,
+                    ),
                 ),
                 Stream.flattenIterable,
             ),
@@ -67,6 +71,12 @@ export const prepareReport = Effect.fn('TestRun.report')(function* <
     cached: boolean;
     mode: 'summarize' | 'diff';
 }) {
+    const resultEquals = Schema.toEquivalence(
+        config.testSuite.schemas.evaluation.result,
+    );
+    const expectedEquals = Schema.toEquivalence(
+        config.testSuite.schemas.evaluation.expected,
+    );
     const repository = yield* PT.TestRepository.TestRepository;
     const previous = yield* repository.getPreviousTestRun(
         config.testSuite.name,
@@ -119,11 +129,11 @@ export const prepareReport = Effect.fn('TestRun.report')(function* <
                                         const before = previousTestResult.value;
                                         if (
                                             testResult.label === before.label &&
-                                            PT.Classify.defaultIsEqual(
+                                            resultEquals(
                                                 testResult.result,
                                                 before.result,
                                             ) &&
-                                            PT.Classify.defaultIsEqual(
+                                            expectedEquals(
                                                 testResult.expected,
                                                 before.expected,
                                             )
@@ -148,6 +158,8 @@ export const prepareReport = Effect.fn('TestRun.report')(function* <
                         Stream.flattenIterable,
                     );
                     const summary = yield* PT.Show.prepareSummary(rows, {
+                        schemas: config.testSuite.schemas,
+                        suite: config.testSuite.name,
                         displayConfig: config.displayConfig,
                         hasPrevious: Option.isSome(previous),
                     });
