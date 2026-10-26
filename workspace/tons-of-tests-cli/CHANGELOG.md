@@ -1,5 +1,13 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 3.0.0-rc.2
+
+### Patch Changes
+
+- 06f237c: Chore: Update dependencies.
+- Updated dependencies [06f237c]
+  - @creative-introvert/tons-of-tests@3.0.0-rc.2
+
 ## 3.0.0-rc.1
 
 ### Major Changes
