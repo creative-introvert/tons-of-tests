@@ -1,6 +1,7 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {NodeServices} from '@effect/platform-node';
 import {expect, it} from '@effect/vitest';
+import colors from 'ansi-colors';
 import {Effect, FileSystem, Layer, Option, Schema, Sink, Stdio} from 'effect';
 import {SqlClient} from 'effect/sql';
 
@@ -376,5 +377,115 @@ it.effect.each([
                 reference,
             ]).pipe(Effect.flip);
             expect({tag: error._tag, calls}).toEqual({tag: expected, calls: 0});
+        }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+    'CLI overviews share custom columns and current colors across fresh, cached, and committed runs',
+    () =>
+        Effect.gen(function* () {
+            let calls = 0;
+            const config = {
+                dbPath: ':memory:',
+                displayConfig: {
+                    labels: {
+                        'failure-timeout': {color: 'magenta'},
+                        constructor: {color: 'cyan' as const},
+                    },
+                } satisfies Partial<PT.DisplayConfig.DisplayConfig>,
+                testSuite: {
+                    name: 'custom-overview',
+                    schemas,
+                    testCases: [{input: 1, expected: 1}],
+                    variants: {
+                        A: {
+                            program: (_input: number) =>
+                                Effect.sync(() => {
+                                    calls++;
+                                    return 1;
+                                }),
+                        },
+                        B: {
+                            program: (_input: number) =>
+                                Effect.sync(() => {
+                                    calls++;
+                                    return 2;
+                                }),
+                        },
+                    },
+                    evaluate: (result: number, expected: number) =>
+                        [
+                            {
+                                key: 'answer',
+                                result,
+                                expected,
+                                label:
+                                    result === 1
+                                        ? 'failure-timeout'
+                                        : 'constructor',
+                            },
+                        ] as const,
+                },
+            };
+            for (const [index, args] of [
+                [],
+                ['--cached'],
+                ['--runs', 'A,B'],
+            ].entries()) {
+                if (index === 2)
+                    yield* effectNoDeps(config, ['node', 'suite', 'commit']);
+                const output: string[] = [];
+                yield* effectNoDeps(config, [
+                    'node',
+                    'suite',
+                    'stats',
+                    ...args,
+                ]).pipe(
+                    Effect.provide(
+                        Stdio.layerTest({
+                            stdout: () =>
+                                Sink.forEach(chunk =>
+                                    Effect.sync(() => {
+                                        output.push(String(chunk));
+                                    }),
+                                ),
+                        }),
+                    ),
+                );
+                const text = output.join('');
+                const rows = colors
+                    .unstyle(text)
+                    .split('\n')
+                    .filter(line => line.startsWith('│'))
+                    .map(line =>
+                        line
+                            .split('│')
+                            .slice(1, -1)
+                            .map(cell => cell.trim()),
+                    );
+                expect(rows[1].slice(5, 13)).toEqual([
+                    'cases',
+                    'results',
+                    'TP',
+                    'TN',
+                    'FP',
+                    'FN',
+                    'constructor',
+                    'failure-timeout',
+                ]);
+                expect(rows.slice(2).map(row => row.slice(5, 13))).toEqual([
+                    ['1', '1', '0', '0', '0', '0', '0', '1'],
+                    ['1', '1', '0', '0', '0', '0', '1', '0'],
+                ]);
+                expect(rows.slice(2).map(row => row[3])).toEqual(
+                    Array.from(
+                        {length: 2},
+                        () => ['fresh', 'cache', 'snapshot'][index],
+                    ),
+                );
+                expect(text).toContain(colors.magenta('1'));
+                expect(text).toContain(colors.cyan('1'));
+            }
+            expect(calls).toBe(2);
         }).pipe(Effect.provide(services)),
 );

@@ -3,6 +3,7 @@ import {Effect, Schema, SchemaIssue} from 'effect';
 import type {TestResult} from '../Test.js';
 import type {TestResultSchemas} from '../Test.repository.js';
 import {TestValueError} from '../TestValueError.js';
+import {LabelSchema} from './Classify.js';
 
 /** Stable JSON object order, including records; array order remains significant. */
 export const stringifyJson = (value: Schema.Json): string => {
@@ -27,6 +28,7 @@ type ValueContext = Pick<
 const decodeJsonText = Schema.decodeUnknownEffect(
     Schema.fromJsonString(Schema.Json),
 );
+const decodeLabel = Schema.decodeUnknownEffect(LabelSchema);
 
 export const makeValueCodec = <T>(schema: Schema.Codec<T, unknown>) => {
     const json = Schema.toCodecJson(schema);
@@ -111,7 +113,7 @@ export const makeResultCodec = <I, O, T>(
     const encode = Effect.fnUntraced(function* <
         A extends Pick<
             TestResult<I, O, T>,
-            'input' | 'result' | 'expected' | 'key' | 'ordering'
+            'input' | 'result' | 'expected' | 'key' | 'ordering' | 'label'
         >,
     >(value: A) {
         const {
@@ -127,6 +129,17 @@ export const makeResultCodec = <I, O, T>(
         };
         return {
             ...metadata,
+            label: yield* decodeLabel(value.label).pipe(
+                Effect.mapError(
+                    cause =>
+                        new TestValueError({
+                            ...context,
+                            field: 'evaluation.label',
+                            operation: 'encode',
+                            cause,
+                        }),
+                ),
+            ),
             input: yield* input.encode(inputValue, {
                 ...context,
                 field: 'testCase.input',

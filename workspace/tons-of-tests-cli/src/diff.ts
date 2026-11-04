@@ -36,6 +36,7 @@ const exitOnDiff = Flag.Boolean('exit-on-diff').pipe(
 
 const renderDiff = Effect.fn('Diff.render')(function* (
     report: Effect.Success<ReturnType<typeof prepareSavedReport>>,
+    displayConfig: Partial<PT.DisplayConfig.DisplayConfig> | undefined,
 ) {
     if (Option.isNone(report.previousStats)) {
         yield* Console.log(
@@ -49,8 +50,13 @@ const renderDiff = Effect.fn('Diff.render')(function* (
         [
             '',
             'Statistics for visible changed, added, and removed rows:',
-            PT.Show.stats({testRun: report}),
+            PT.Show.stats({
+                testRun: report,
+                previousStats: Option.getOrUndefined(report.previousStats),
+                displayConfig,
+            }),
             PT.Show.diff({
+                displayConfig,
                 diff: PT.Test.diff({
                     testRun: report,
                     previousTestRun: Option.map(
@@ -130,7 +136,7 @@ export const diff = <
                         ...filters,
                     });
                     yield* Console.log('Committed snapshots');
-                    count = yield* renderDiff(report);
+                    count = yield* renderDiff(report, config.displayConfig);
                 } else {
                     const variants = yield* selectVariants<I, O, T, A, B, S>(
                         config.testSuite,
@@ -155,7 +161,10 @@ export const diff = <
                             yield* Console.log(
                                 `${report.run.name} / ${selected} (${report.source})`,
                             );
-                            return yield* renderDiff(report);
+                            return yield* renderDiff(
+                                report,
+                                config.displayConfig,
+                            );
                         }).pipe(Effect.scoped);
                     }
                 }

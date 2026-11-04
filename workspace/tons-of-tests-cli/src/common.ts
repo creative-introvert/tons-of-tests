@@ -108,7 +108,7 @@ export const resultFilterFlags = {
         Flag.withSchema(LabelSchema),
         Flag.optional,
         Flag.withDescription(
-            'Show results with any listed label, separated by commas. Diff uses the to side when present and the from side for removed rows.',
+            'Show results with any listed built-in or custom label, such as TP,failure-timeout. Names are exact and separated by commas. Diff uses the to side when present and the from side for removed rows.',
         ),
     ),
     orTags: Flag.String('tags').pipe(

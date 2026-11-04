@@ -290,8 +290,11 @@ it.effect(
             });
             expect({
                 count: report.count,
-                FP: report.stats.FP,
-                previousFP: Option.map(report.previousStats, stats => stats.FP),
+                FP: report.stats.counts.FP,
+                previousFP: Option.map(
+                    report.previousStats,
+                    stats => stats.counts.FP,
+                ),
             }).toEqual({count: 1, FP: 1, previousFP: Option.some(1)});
         }).pipe(Effect.scoped, Effect.provide(services)),
 );
@@ -396,7 +399,11 @@ it.effect(
                 cachedOutput: yield* cachedDiff.chunks.pipe(Stream.runCollect),
             }).toEqual({
                 visible: 1,
-                delta: {TP: -1, TN: 0, FP: 1, FN: 0, precision: -1, recall: -1},
+                delta: {
+                    counts: {TP: -1, TN: 0, FP: 1, FN: 0},
+                    precision: -1,
+                    recall: -1,
+                },
                 cachedCount: 2,
                 cachedStats: report.stats,
                 cachedOutput: yield* report.chunks.pipe(Stream.runCollect),
@@ -621,4 +628,127 @@ it.effect.each([
             }),
         }).toEqual({tag, calls: 0, runs: []});
     }).pipe(Effect.provide(services)),
+);
+
+it.effect.each([
+    {before: 'failure-timeout', after: 'failure-timeout', count: 0},
+    {before: 'TP', after: 'failure-timeout', count: 1},
+    {before: 'failure-timeout', after: 'failure-unavailable', count: 1},
+])(
+    '--exit-on-diff handles $before to $after regardless of valence',
+    ({before, after, count}) =>
+        Effect.gen(function* () {
+            let label = before;
+            const custom = {
+                ...config,
+                displayConfig: {
+                    colorize: false,
+                    labels: {
+                        'failure-timeout': {valence: 'negative'},
+                        'failure-unavailable': {valence: 'negative'},
+                    },
+                } satisfies Partial<PT.DisplayConfig.DisplayConfig>,
+                testSuite: {
+                    ...config.testSuite,
+                    testCases: [{input: 1, expected: 2}],
+                    evaluate: (result: number, expected: number) =>
+                        [{key: 'answer', result, expected, label}] as const,
+                },
+            };
+            yield* prepareReport({
+                config: custom,
+                mode: 'summarize',
+                cached: false,
+            });
+            yield* _commit({config: custom});
+            label = after;
+            const outcome = yield* effectNoDeps(custom, [
+                'node',
+                'suite',
+                'diff',
+                '--exit-on-diff',
+                '--labels',
+                after,
+            ]).pipe(Effect.result);
+            expect(
+                Result.match(outcome, {
+                    onSuccess: () => 0,
+                    onFailure: error =>
+                        error._tag === 'DiffNonEmpty'
+                            ? error.count
+                            : error._tag,
+                }),
+            ).toBe(count);
+        }).pipe(Effect.scoped, Effect.provide(services)),
+);
+
+it.effect(
+    'custom label filters use the to-side label and the from-side label for removed results',
+    () =>
+        Effect.gen(function* () {
+            let stage: 'before' | 'after' = 'before';
+            const custom = {
+                ...config,
+                testSuite: {
+                    ...config.testSuite,
+                    evaluate: (result: number, expected: number) =>
+                        [
+                            {
+                                key: 'answer',
+                                result,
+                                expected,
+                                label:
+                                    result === 3
+                                        ? 'removed-category'
+                                        : stage === 'before'
+                                          ? 'old-category'
+                                          : 'new-category',
+                            },
+                        ] as const,
+                },
+            };
+            yield* prepareReport({
+                config: custom,
+                mode: 'summarize',
+                cached: false,
+            });
+            yield* _commit({config: custom});
+            stage = 'after';
+            const changed = {
+                ...custom,
+                testSuite: {
+                    ...custom.testSuite,
+                    testCases: [{input: 1, expected: 2}],
+                },
+            };
+            yield* prepareReport({
+                config: changed,
+                mode: 'diff',
+                cached: false,
+            });
+            const reports = yield* Effect.forEach(
+                ['old-category', 'new-category', 'removed-category'],
+                label =>
+                    prepareReport({
+                        config: changed,
+                        mode: 'diff',
+                        cached: true,
+                        labels: Option.some([label]),
+                    }),
+            );
+            expect(
+                reports.map(report => ({
+                    count: report.count,
+                    after: report.stats.total,
+                    before: Option.map(
+                        report.previousStats,
+                        stats => stats.total,
+                    ),
+                })),
+            ).toEqual([
+                {count: 0, after: 0, before: Option.some(0)},
+                {count: 1, after: 1, before: Option.some(1)},
+                {count: 1, after: 0, before: Option.some(1)},
+            ]);
+        }).pipe(Effect.scoped, Effect.provide(services)),
 );

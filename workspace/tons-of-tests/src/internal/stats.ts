@@ -6,15 +6,14 @@ import type {DisplayConfig} from '../DisplayConfig.js';
 import type {StatsColumn, StatsColumnNames, StatsContext} from '../Show.js';
 import type {TestRunResults} from '../Test.js';
 import type {TestRun} from '../Test.repository.js';
+import {showBorder, showHeader, showRow, showTitle} from './common.js';
+import {count} from './Classify.js';
 import {
-    colorNegative,
-    colorPositive,
-    showBorder,
-    showHeader,
-    showRow,
-    showTitle,
-} from './common.js';
-import {makeDefault} from './DisplayConfig.js';
+    countHeader,
+    countLabels,
+    makeDefault,
+    showCount,
+} from './DisplayConfig.js';
 
 const columns: StatsColumn[] = [
     {
@@ -26,34 +25,6 @@ const columns: StatsColumn[] = [
         name: 'total',
         label: 'results',
         make: ({stats}: StatsContext) => [stats.total.toString()],
-    },
-    {
-        name: 'TP',
-        label: 'TP',
-        make: ({stats}: StatsContext) => [
-            colorPositive(stats.TP)(stats.TP.toString()),
-        ],
-    },
-    {
-        name: 'TN',
-        label: 'TN',
-        make: ({stats}: StatsContext) => [
-            colorPositive(stats.TN)(stats.TN.toString()),
-        ],
-    },
-    {
-        name: 'FP',
-        label: 'FP',
-        make: ({stats}: StatsContext) => [
-            colorNegative(stats.FP)(stats.FP.toString()),
-        ],
-    },
-    {
-        name: 'FN',
-        label: 'FN',
-        make: ({stats}: StatsContext) => [
-            colorNegative(stats.FN)(stats.FN.toString()),
-        ],
     },
     {
         name: 'precision',
@@ -117,27 +88,49 @@ const columns: StatsColumn[] = [
 
 export const showStats = <I, O, T>({
     testRun,
+    previousStats,
     displayConfig,
-    selectColumns = [
-        'testCases',
-        'total',
-        'TP',
-        'TN',
-        'FP',
-        'FN',
-        'precision',
-        'recall',
-        'timeMean',
-        'timeMedian',
-    ],
+    selectColumns,
 }: {
     testRun: Pick<TestRunResults<I, O, T>, 'stats'>;
-    displayConfig?: Partial<DisplayConfig>;
+    /** Include labels from the other side of a comparison, showing absent counts as zero. */
+    previousStats?: Stats | undefined;
+    displayConfig?: Partial<DisplayConfig> | undefined;
     selectColumns?: StatsColumnNames[];
 }): string => {
     const cfg = {...makeDefault(), ...displayConfig};
 
-    const _columns = columns.filter(c => selectColumns.includes(c.name));
+    const selected: StatsColumnNames[] = selectColumns ?? [
+        'testCases',
+        'total',
+        ...countLabels([
+            testRun.stats.counts,
+            ...(previousStats === undefined ? [] : [previousStats.counts]),
+        ]).map((label): StatsColumnNames => `count:${label}`),
+        'precision',
+        'recall',
+        'timeMean',
+        'timeMedian',
+    ];
+    const metricHeaders = columns
+        .filter(column => selected.includes(column.name))
+        .map(column => column.label);
+    const _columns = selected.flatMap((name): StatsColumn[] => {
+        if (name.startsWith('count:')) {
+            const label = name.slice(6);
+            return [
+                {
+                    name,
+                    label: countHeader(label, metricHeaders),
+                    make: ({stats}) => [
+                        showCount(cfg, label, count(stats.counts, label)),
+                    ],
+                },
+            ];
+        }
+        return columns.filter(column => column.name === name);
+    });
+    if (_columns.length === 0) return '';
 
     const row: [string, string[]][] = _columns.map(({label, make}) => [
         label,
@@ -184,6 +177,23 @@ export const showRunSummaries = ({
     displayConfig?: Partial<DisplayConfig> | undefined;
 }): string => {
     const cfg = {...makeDefault(), ...displayConfig};
+    const categories = countLabels(
+        summaries.flatMap(summary =>
+            Option.isSome(summary.stats) ? [summary.stats.value.counts] : [],
+        ),
+    );
+    const metricHeaders = [
+        'suite',
+        'variant',
+        'run',
+        'source',
+        'status',
+        'cases',
+        'results',
+        'precision',
+        'recall',
+        'mean time',
+    ];
     const labels = [
         'suite',
         'variant',
@@ -192,6 +202,7 @@ export const showRunSummaries = ({
         'status',
         'cases',
         'results',
+        ...categories.map(label => countHeader(label, metricHeaders)),
         'precision',
         'recall',
         'mean time',
@@ -213,6 +224,11 @@ export const showRunSummaries = ({
             ].join(', '),
             stats === undefined ? '-' : String(stats.testCases),
             stats === undefined ? '-' : String(stats.total),
+            ...categories.map(label =>
+                stats === undefined
+                    ? '-'
+                    : showCount(cfg, label, count(stats.counts, label)),
+            ),
             stats === undefined ? '-' : stats.precision.toFixed(2),
             stats === undefined ? '-' : stats.recall.toFixed(2),
             stats === undefined

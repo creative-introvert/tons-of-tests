@@ -19,7 +19,7 @@ import type {TestResultComparison, TestRunResults} from '../Test.js';
 import type {TestResultSchemas, TestRun} from '../Test.repository.js';
 import {makeResultCodec} from './Test.serialization.js';
 import {showBorder, showHeader, showRow, showTitle} from './common.js';
-import {makeDefault} from './DisplayConfig.js';
+import {makeDefault, showLabel} from './DisplayConfig.js';
 import {formatDiff} from './format-diff.js';
 import {diff} from './lib/jsondiffpatch/index.js';
 
@@ -28,6 +28,7 @@ type ColumnContext = Omit<
     'resultKeys'
 > & {
     resultCount: number;
+    displayConfig: DisplayConfig;
 };
 const columns: Array<
     Omit<SummarizeColumn, 'make'> & {make: (context: ColumnContext) => string[]}
@@ -86,20 +87,17 @@ const columns: Array<
     {
         name: 'label',
         label: 'label',
-        make: ({testResult, previousTestResult}: ColumnContext) => {
-            const hasPrevious = Option.isSome(previousTestResult);
-            const label = testResult.label;
-            const color =
-                label === 'TP' || label === 'TN'
-                    ? hasPrevious
-                        ? colors.green
-                        : colors.blue
-                    : hasPrevious
-                      ? colors.red
-                      : colors.yellow;
-
-            return [color(label)];
-        },
+        make: ({
+            testResult,
+            previousTestResult,
+            displayConfig,
+        }: ColumnContext) => [
+            showLabel(
+                displayConfig,
+                testResult.label,
+                Option.isNone(previousTestResult),
+            ),
+        ],
     },
     {
         name: 'result',
@@ -118,13 +116,10 @@ const columns: Array<
     {
         name: 'prev_label',
         label: 'label₋₁',
-        make: ({previousTestResult}: ColumnContext) => {
+        make: ({previousTestResult, displayConfig}: ColumnContext) => {
             const label = Option.match(previousTestResult, {
                 onNone: () => '',
-                onSome: _ =>
-                    _.label === 'TP' || _.label === 'TN'
-                        ? colors.green(_.label)
-                        : colors.red(_.label),
+                onSome: result => showLabel(displayConfig, result.label),
             });
 
             return [label];
@@ -236,6 +231,7 @@ export const showSummary = Effect.fnUntraced(function* <I, O, T>({
         const row = makeRow(_columns, {
             i,
             resultCount: resultKeys.length,
+            displayConfig: cfg,
             testResult,
             previousTestResult,
         });
@@ -299,6 +295,7 @@ export const prepareSummary = Effect.fnUntraced(function* <I, O, T, E, R>(
     },
 ) {
     const codec = makeResultCodec(schemas, suite);
+    const cfg = {...makeDefault(), ...displayConfig};
     const selected = columns
         .filter(column => selectColumns.includes(column.name))
         .filter(column => !column.name.startsWith('prev_') || hasPrevious);
@@ -319,6 +316,7 @@ export const prepareSummary = Effect.fnUntraced(function* <I, O, T, E, R>(
                     previousTestResult,
                     i,
                     resultCount: 0,
+                    displayConfig: cfg,
                 });
             }),
         ),
@@ -350,6 +348,7 @@ export const prepareComparison = Effect.fnUntraced(function* <I, A, B, E, R>(
         displayConfig?: Partial<DisplayConfig> | undefined;
     },
 ) {
+    const cfg = {...makeDefault(), ...displayConfig};
     const fromCodec = Option.map(from, run =>
         makeResultCodec(schemas, run.name),
     );
@@ -398,14 +397,14 @@ export const prepareComparison = Effect.fnUntraced(function* <I, A, B, E, R>(
                         null,
                         2,
                     ),
-                    before?.label ?? '-',
+                    before === undefined ? '-' : showLabel(cfg, before.label),
                     before === undefined
                         ? '-'
                         : JSON.stringify(before.expected, null, 2),
                     before === undefined
                         ? '-'
                         : JSON.stringify(before.result, null, 2),
-                    after?.label ?? '-',
+                    after === undefined ? '-' : showLabel(cfg, after.label),
                     after === undefined
                         ? '-'
                         : JSON.stringify(after.expected, null, 2),

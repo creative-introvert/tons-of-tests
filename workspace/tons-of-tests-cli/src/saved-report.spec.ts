@@ -3,17 +3,21 @@ import {NodeServices} from '@effect/platform-node';
 import {expect, it} from '@effect/vitest';
 import colors from 'ansi-colors';
 import {
+    Console,
     Effect,
     FileSystem,
     Layer,
     Option,
     Schema,
     SchemaTransformation,
+    Sink,
+    Stdio,
     Stream,
 } from 'effect';
 
 import {RunReference} from './common.js';
 import {prepareSavedReport, resolveRun} from './test-run.js';
+import {effectNoDeps} from './index.js';
 
 const services = Layer.merge(
     PT.TestRepository.TestRepository.TestLayer,
@@ -172,10 +176,7 @@ it.effect(
             }).toEqual({
                 count: 63,
                 current: new PT.Classify.Stats({
-                    TP: 2,
-                    TN: 0,
-                    FP: 59,
-                    FN: 0,
+                    counts: {TP: 2, TN: 0, FP: 59, FN: 0},
                     total: 61,
                     testCases: 60,
                     precision: 2 / 61,
@@ -186,10 +187,7 @@ it.effect(
                     timeMedian: Option.some(131.5),
                 }),
                 previous: new PT.Classify.Stats({
-                    TP: 59,
-                    TN: 0,
-                    FP: 2,
-                    FN: 0,
+                    counts: {TP: 59, TN: 0, FP: 2, FN: 0},
                     total: 61,
                     testCases: 60,
                     precision: 59 / 61,
@@ -424,4 +422,220 @@ it.effect.each(['from', 'to'] as const)(
                 results: [makeResults('from'), makeResults('to')],
             });
         }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+    'current label settings change saved CLI reports without changing snapshot bytes, labels, IDs, or comparisons',
+    () =>
+        Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const directory = yield* fs.makeTempDirectoryScoped();
+            const options = {
+                dbPath: `${directory}/snapshots.sqlite`,
+                cachePath: `${directory}/cache.sqlite`,
+                snapshotIdentity: 'label-settings',
+            };
+            const schemas = {
+                testCase: {input: Schema.Finite, expected: Schema.Finite},
+                evaluation: {result: Schema.Finite, expected: Schema.Finite},
+            };
+            let calls = 0;
+            const program = (input: number) =>
+                Effect.sync(() => {
+                    calls++;
+                    return input;
+                });
+            const [from, to] = yield* Effect.gen(function* () {
+                const repository = yield* PT.TestRepository.TestRepository;
+                const save = (
+                    variant: string,
+                    labels: Record<number, string>,
+                ) =>
+                    repository.withTestRun(
+                        {name: 'saved-label-settings', variant},
+                        run =>
+                            PT.Test.all({
+                                name: 'saved-label-settings',
+                                schemas,
+                                program,
+                                testCases: Object.keys(labels).map(key => ({
+                                    input: Number(key),
+                                    expected: Number(key),
+                                })),
+                                evaluate: (result, expected) => [
+                                    {
+                                        key: 'answer',
+                                        result,
+                                        expected,
+                                        label: labels[result],
+                                    },
+                                ],
+                            }).pipe(
+                                Stream.runCollect,
+                                Effect.flatMap(results =>
+                                    repository.insertTestResults(
+                                        results,
+                                        run,
+                                        schemas,
+                                    ),
+                                ),
+                            ),
+                    );
+                const before = yield* save('before', {
+                    1: 'failure-timeout',
+                    2: 'inconclusive',
+                    3: 'removed',
+                });
+                const after = yield* save('after', {
+                    1: 'failure-unavailable',
+                    2: 'inconclusive',
+                    4: 'added',
+                });
+                return yield* repository.commitTestRuns([
+                    before.run,
+                    after.run,
+                ]);
+            }).pipe(
+                Effect.provide(PT.TestRepository.TestRepository.layer(options)),
+            );
+            const bytes = yield* fs.readFile(options.dbPath);
+            yield* Effect.gen(function* () {
+                const repository = yield* PT.TestRepository.TestRepository;
+                const stored = Effect.gen(function* () {
+                    return {
+                        from: yield* repository
+                            .getTestResultsStream(from, schemas)
+                            .pipe(Stream.runCollect),
+                        to: yield* repository
+                            .getTestResultsStream(to, schemas)
+                            .pipe(Stream.runCollect),
+                        comparisons: yield* PT.Test.compareRuns({
+                            from,
+                            to,
+                            schemas,
+                        }).pipe(Stream.runCollect),
+                    };
+                });
+                const before = yield* stored;
+                const console = yield* Console.Console;
+                const reports: string[] = [];
+                const settings: PT.DisplayConfig.DisplayConfig['labels'][] = [
+                    {
+                        'failure-timeout': {
+                            color: 'magenta',
+                            valence: 'negative',
+                        },
+                        'failure-unavailable': {
+                            color: 'cyan',
+                            valence: 'negative',
+                        },
+                    },
+                    {
+                        'failure-timeout': {
+                            color: 'yellow',
+                            valence: 'neutral',
+                        },
+                        'failure-unavailable': {
+                            color: 'blue',
+                            valence: 'positive',
+                        },
+                    },
+                ];
+                for (const labels of settings) {
+                    const output: string[] = [];
+                    const config = {
+                        dbPath: options.dbPath,
+                        displayConfig: {labels},
+                        testSuite: {
+                            name: 'saved-label-settings',
+                            schemas,
+                            program,
+                            testCases: [],
+                        },
+                    };
+                    yield* effectNoDeps(config, [
+                        'node',
+                        'suite',
+                        'diff',
+                        '--from',
+                        `run:${from.id}`,
+                        '--to',
+                        `run:${to.id}`,
+                    ]).pipe(
+                        Effect.provideService(
+                            Console.Console,
+                            new Proxy(console, {
+                                get: (target, key, receiver) =>
+                                    key === 'log'
+                                        ? (...args: readonly unknown[]) => {
+                                              output.push(
+                                                  args.map(String).join(' '),
+                                              );
+                                          }
+                                        : Reflect.get(target, key, receiver),
+                            }),
+                        ),
+                        Effect.provide(
+                            Stdio.layerTest({
+                                stdout: () =>
+                                    Sink.forEach(chunk =>
+                                        Effect.sync(() => {
+                                            output.push(String(chunk));
+                                        }),
+                                    ),
+                            }),
+                        ),
+                    );
+                    reports.push(output.join('\n'));
+                }
+                expect(reports[0]).toContain(colors.magenta('failure-timeout'));
+                expect(reports[0]).toContain(
+                    colors.cyan('failure-unavailable'),
+                );
+                expect(reports[1]).toContain(colors.yellow('failure-timeout'));
+                expect(reports[1]).toContain(
+                    colors.blue('failure-unavailable'),
+                );
+                expect(reports[0]).toContain(colors.cyan('1'));
+                expect(reports[1]).toContain(colors.blue('1'));
+                expect(reports[0]).toContain(colors.green('-1'));
+                expect(reports[1]).toContain(colors.yellow('-1'));
+                expect(reports.map(text => colors.unstyle(text))).toEqual([
+                    colors.unstyle(reports[0]),
+                    colors.unstyle(reports[0]),
+                ]);
+                const table = colors
+                    .unstyle(reports[0])
+                    .split('STATS')[1]
+                    .split('\n')
+                    .filter(line => line.startsWith('│'))
+                    .map(line =>
+                        line
+                            .split('│')
+                            .slice(1, -1)
+                            .map(cell => cell.trim()),
+                    );
+                expect(
+                    Object.fromEntries(
+                        table[0].map((label, index) => [
+                            label,
+                            table[1][index],
+                        ]),
+                    ),
+                ).toMatchObject({
+                    results: '2',
+                    added: '1',
+                    removed: '0',
+                    'failure-timeout': '0',
+                    'failure-unavailable': '1',
+                });
+                expect({calls, stored: yield* stored}).toEqual({
+                    calls: 6,
+                    stored: before,
+                });
+            }).pipe(
+                Effect.provide(PT.TestRepository.TestRepository.layer(options)),
+            );
+            expect(yield* fs.readFile(options.dbPath)).toEqual(bytes);
+        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

@@ -1,5 +1,13 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 3.0.0-rc.3
+
+### Patch Changes
+
+- Feat: Custom labels.
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@3.0.0-rc.3
+
 ## 3.0.0-rc.2
 
 ### Patch Changes

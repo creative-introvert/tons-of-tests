@@ -168,8 +168,8 @@ it.effect('filters grouped results while keeping the full cache', () =>
             visible: {
                 count: filtered.count,
                 cases: filtered.stats.testCases,
-                TP: filtered.stats.TP,
-                FP: filtered.stats.FP,
+                TP: filtered.stats.counts.TP,
+                FP: filtered.stats.counts.FP,
             },
             saved: saved.map(row => [
                 row.input,

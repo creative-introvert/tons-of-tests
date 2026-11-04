@@ -18,6 +18,104 @@ import {
     getAllTestRuns,
 } from './test-repository-fixtures.js';
 
+it.effect.each(['Failure timeout 日本語', 'total', 'constructor', '__proto__'])(
+    'preserves custom label %s through execution and storage',
+    label =>
+        Effect.gen(function* () {
+            const schemas = {
+                testCase: {input: Schema.Finite, expected: Schema.Finite},
+                evaluation: {result: Schema.Finite, expected: Schema.Finite},
+            };
+            const results = yield* Test.all({
+                name: 'custom-label',
+                schemas,
+                testCases: [{input: 1, expected: 1}],
+                program: (input: number) => Effect.succeed(input),
+                evaluate: (result, expected) => [
+                    {key: 'answer', result, expected, label},
+                ],
+            }).pipe(Stream.runCollect);
+            const repository = yield* TestRepository;
+            const {run} = yield* repository.withTestRun(
+                {name: 'custom-label', variant: 'default'},
+                run => repository.insertTestResults(results, run, schemas),
+            );
+            expect(results.map(result => result.label)).toEqual([label]);
+            expect(
+                yield* repository
+                    .getTestResultsStream(run, schemas)
+                    .pipe(Stream.runCollect),
+            ).toEqual(results);
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+it.effect.each([
+    '',
+    ' padded',
+    'padded ',
+    'a,b',
+    'a\u0000b',
+    'a\tb',
+    'a\nb',
+    'a\u001fb',
+    'a\u007fb',
+])(
+    'rejects invalid label %j at execution and repository write boundaries',
+    label =>
+        Effect.gen(function* () {
+            const schemas = {
+                testCase: {input: Schema.Finite, expected: Schema.Finite},
+                evaluation: {result: Schema.Finite, expected: Schema.Finite},
+            };
+            const suite = {
+                name: 'invalid-label',
+                schemas,
+                testCases: [{input: 1, expected: 1}],
+                program: (input: number) => Effect.succeed(input),
+                evaluate: (result: number, expected: number) =>
+                    [{key: 'answer', result, expected, label}] as const,
+            };
+            const executionError = yield* Test.all(suite).pipe(
+                Stream.runDrain,
+                Effect.flip,
+            );
+            const repository = yield* TestRepository;
+            const writeError = yield* repository
+                .withTestRun({name: suite.name, variant: 'default'}, run =>
+                    repository.insertTestResult(
+                        {
+                            id: 'invalid',
+                            hashTestCase: 'case',
+                            key: 'answer',
+                            ordering: 0,
+                            resultOrdering: 0,
+                            input: 1,
+                            result: 1,
+                            expected: 1,
+                            label,
+                            tags: [],
+                            timeMillis: 1,
+                        },
+                        run,
+                        schemas,
+                    ),
+                )
+                .pipe(Effect.flip);
+            expect([executionError, writeError]).toMatchObject(
+                Array.from({length: 2}, () => ({
+                    _tag: 'TestValueError',
+                    suite: suite.name,
+                    caseNumber: 1,
+                    key: 'answer',
+                    field: 'evaluation.label',
+                    operation: 'encode',
+                    cause: {_tag: 'SchemaError'},
+                })),
+            );
+            expect(yield* getAllTestResults).toEqual([]);
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
 it.effect(
     'keeps original case values and stores only the evaluated output',
     () =>

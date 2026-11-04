@@ -32,7 +32,7 @@ export const showBorder = (
         bottom: cfg.cornerBottom,
     };
 
-    return `${colors.gray(
+    const border = `${colors.gray(
         l[position] +
             columnWidths.reduce(
                 (s, w, i, xs) =>
@@ -45,6 +45,7 @@ export const showBorder = (
             ) +
             r[position],
     )}\n`;
+    return cfg.colorize ? border : colors.unstyle(border);
 };
 
 export const showHeader = (
@@ -52,7 +53,7 @@ export const showHeader = (
     columnWidths: number[],
     columns: {label: string}[],
 ): string => {
-    return `${
+    const header = `${
         columns
             .map(
                 ({label}, i) =>
@@ -60,6 +61,7 @@ export const showHeader = (
             )
             .join('') + colors.gray(cfg.vertical)
     }\n`;
+    return cfg.colorize ? header : colors.unstyle(header);
 };
 
 export const showTitle = (
@@ -68,7 +70,7 @@ export const showTitle = (
     title: string,
 ): string => {
     const diff = title.length - colors.stripColor(title).length;
-    return `${
+    const heading = `${
         showBorder(cfg, columnWidths, 'top-title') +
         colors.gray(cfg.vertical) +
         title
@@ -78,6 +80,7 @@ export const showTitle = (
             ) +
         colors.gray(cfg.vertical)
     }\n${showBorder(cfg, columnWidths, 'bottom-title')}`;
+    return cfg.colorize ? heading : colors.unstyle(heading);
 };
 
 export const showRow = (
@@ -98,11 +101,8 @@ export const showRow = (
         }
         s += `${colors.gray(cfg.vertical)}\n`;
     }
-    return s;
+    return cfg.colorize ? s : colors.unstyle(s);
 };
 
 export const colorPositive = (n: number) =>
-    n < 0 ? colors.red : n > 0 ? colors.green : colors.white;
-
-export const colorNegative = (n: number) =>
-    n > 0 ? colors.red : n < 0 ? colors.green : colors.white;
+    n < 0 ? colors.red : n > 0 ? colors.green : (text: string) => text;

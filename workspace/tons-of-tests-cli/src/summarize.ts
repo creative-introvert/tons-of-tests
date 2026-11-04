@@ -45,7 +45,7 @@ export const summarize = <
                             );
                         }
                         yield* Console.log(
-                            `\n${PT.Show.stats({testRun: report})}`,
+                            `\n${PT.Show.stats({testRun: report, displayConfig: config.displayConfig})}`,
                         );
                     }).pipe(Effect.scoped);
                 }

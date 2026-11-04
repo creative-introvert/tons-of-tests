@@ -584,7 +584,7 @@ t.describe('all', () => {
                 t.expect(collected.stats).toMatchObject({
                     total: 8,
                     testCases: 2,
-                    TP: 8,
+                    counts: {TP: 8},
                 });
             }),
     );
@@ -681,6 +681,61 @@ t.describe('all', () => {
             t.expect(evaluations).toBe(0);
         }),
     );
+
+    t.it.effect(
+        'evaluates an output returned by the user after handling a tagged error',
+        () =>
+            Effect.gen(function* () {
+                class TimedOut extends Schema.TaggedError<
+                    TimedOut,
+                    {readonly brand: unique symbol}
+                >()('TimedOut', {}) {}
+                const Output = Schema.Union([
+                    Schema.TaggedStruct('Answer', {value: Schema.Finite}),
+                    Schema.TaggedStruct('Timeout', {}),
+                ]);
+                const output = {_tag: 'Timeout'} as const;
+                const evaluated: (typeof Output.Type)[] = [];
+                const results = yield* Test.all({
+                    name: 'handled-error',
+                    schemas: {
+                        testCase: {
+                            input: Schema.Finite,
+                            expected: Schema.Finite,
+                        },
+                        evaluation: {result: Output, expected: Schema.Finite},
+                    },
+                    testCases: [{input: 1, expected: 1}],
+                    program: (_input: number) =>
+                        Effect.fail(new TimedOut()).pipe(
+                            Effect.catchTag('TimedOut', () =>
+                                Effect.succeed(output),
+                            ),
+                        ),
+                    evaluate: (result, expected) => {
+                        evaluated.push(result);
+                        return [
+                            {
+                                key: 'answer',
+                                result,
+                                expected,
+                                label: 'failure-timeout',
+                            },
+                        ];
+                    },
+                }).pipe(Stream.runCollect);
+                t.expect({
+                    evaluated,
+                    results: results.map(({result, label}) => ({
+                        result,
+                        label,
+                    })),
+                }).toEqual({
+                    evaluated: [output],
+                    results: [{result: output, label: 'failure-timeout'}],
+                });
+            }),
+    );
 });
 
 t.describe('runCollectRecord', () => {
@@ -761,10 +816,10 @@ t.describe('runCollectRecord', () => {
                     mkTN({input: 5, timeMillis: 50}),
                 ];
                 const out = yield* collect(results);
-                t.expect(out.stats.TP).toBe(2);
-                t.expect(out.stats.FP).toBe(1);
-                t.expect(out.stats.FN).toBe(1);
-                t.expect(out.stats.TN).toBe(1);
+                t.expect(out.stats.counts.TP).toBe(2);
+                t.expect(out.stats.counts.FP).toBe(1);
+                t.expect(out.stats.counts.FN).toBe(1);
+                t.expect(out.stats.counts.TN).toBe(1);
                 t.expect(out.stats.total).toBe(5);
                 t.expect(out.stats.precision).toBeCloseTo(2 / 3);
                 t.expect(out.stats.recall).toBeCloseTo(2 / 3);
@@ -843,8 +898,8 @@ t.describe('runCollectRecord', () => {
                     [allResults, budget, failures, empty].map(({stats}) => ({
                         total: stats.total,
                         cases: stats.testCases,
-                        TP: stats.TP,
-                        FP: stats.FP,
+                        TP: stats.counts.TP,
+                        FP: stats.counts.FP,
                         mean: Option.getOrNull(stats.timeMean),
                         median: Option.getOrNull(stats.timeMedian),
                     })),
@@ -884,12 +939,13 @@ t.describe('Test.diff', () => {
         {
             description: 'no previous run -> returns raw stats',
             previous: Option.none<ReturnType<typeof mkRunResults>>(),
-            current: mkStats({TP: 3, FP: 1, precision: 0.75, recall: 0.5}),
+            current: mkStats({
+                counts: {TP: 3, FP: 1, TN: 0, FN: 0},
+                precision: 0.75,
+                recall: 0.5,
+            }),
             expected: {
-                TP: 3,
-                FP: 1,
-                TN: 0,
-                FN: 0,
+                counts: {TP: 3, FP: 1, TN: 0, FN: 0},
                 precision: 0.75,
                 recall: 0.5,
             },
@@ -899,28 +955,19 @@ t.describe('Test.diff', () => {
             previous: Option.some(
                 mkRunResults(
                     mkStats({
-                        TP: 1,
-                        FP: 1,
-                        TN: 1,
-                        FN: 1,
+                        counts: {TP: 1, FP: 1, TN: 1, FN: 1},
                         precision: 0.5,
                         recall: 0.5,
                     }),
                 ),
             ),
             current: mkStats({
-                TP: 3,
-                FP: 0,
-                TN: 2,
-                FN: 1,
+                counts: {TP: 3, FP: 0, TN: 2, FN: 1},
                 precision: 1,
                 recall: 0.75,
             }),
             expected: {
-                TP: 2,
-                FP: -1,
-                TN: 1,
-                FN: 0,
+                counts: {TP: 2, FP: -1, TN: 1, FN: 0},
                 precision: 0.5,
                 recall: 0.25,
             },
@@ -1179,8 +1226,8 @@ t.it.effect(
                 comparisons,
                 summaries: summaries.map(({run, stats}) => ({
                     store: run.store,
-                    TP: stats.TP,
-                    FP: stats.FP,
+                    TP: stats.counts.TP,
+                    FP: stats.counts.FP,
                     timeMean: stats.timeMean,
                 })),
             }).toEqual({
@@ -1257,10 +1304,7 @@ t.describe('saved run summaries', () => {
                     {
                         run,
                         stats: new Stats({
-                            TP: 60,
-                            TN: 0,
-                            FP: 30,
-                            FN: 0,
+                            counts: {TP: 60, TN: 0, FP: 30, FN: 0},
                             total: 90,
                             testCases: 60,
                             precision: 2 / 3,
@@ -1274,10 +1318,7 @@ t.describe('saved run summaries', () => {
                     {
                         run,
                         stats: new Stats({
-                            TP: 0,
-                            TN: 0,
-                            FP: 30,
-                            FN: 0,
+                            counts: {TP: 0, TN: 0, FP: 30, FN: 0},
                             total: 30,
                             testCases: 30,
                             precision: 0,
@@ -1379,3 +1420,218 @@ t.describe('saved run summaries', () => {
             }).pipe(Effect.provide(TestRepository.TestLayer)),
     );
 });
+
+const labelCountScenarios: ReadonlyArray<{
+    selection: 'all' | 'custom' | 'empty';
+    total: number;
+    cases: number;
+    counts: Stats['counts'];
+    precision: number;
+    recall: number;
+}> = [
+    {
+        selection: 'all',
+        total: 540,
+        cases: 60,
+        counts: {
+            TP: 60,
+            TN: 60,
+            FP: 60,
+            FN: 60,
+            total: 60,
+            precision: 60,
+            constructor: 60,
+            ['__proto__']: 60,
+            'failure-timeout': 60,
+        },
+        precision: 0.5,
+        recall: 0.5,
+    },
+    {
+        selection: 'custom',
+        total: 300,
+        cases: 60,
+        counts: {
+            TP: 0,
+            TN: 0,
+            FP: 0,
+            FN: 0,
+            total: 60,
+            precision: 60,
+            constructor: 60,
+            ['__proto__']: 60,
+            'failure-timeout': 60,
+        },
+        precision: 0,
+        recall: 0,
+    },
+    {
+        selection: 'empty',
+        total: 0,
+        cases: 0,
+        counts: {TP: 0, TN: 0, FP: 0, FN: 0},
+        precision: 0,
+        recall: 0,
+    },
+];
+
+t.it.effect.each(labelCountScenarios)(
+    'counts $selection labels across batches without collisions or repeated case timing',
+    scenario =>
+        Effect.gen(function* () {
+            const labels = [
+                'TP',
+                'TN',
+                'FP',
+                'FN',
+                'total',
+                'precision',
+                'constructor',
+                '__proto__',
+                'failure-timeout',
+            ];
+            const results = Array.from({length: 60}, (_, index) =>
+                labels.map((label, resultOrdering) =>
+                    mkResult({
+                        input: index,
+                        expected: index,
+                        result: index,
+                        label,
+                        key: label,
+                        timeMillis: index + 1,
+                        ordering: index,
+                        resultOrdering,
+                    }),
+                ),
+            ).flat();
+            const saved = yield* saveRun(
+                {name: 'all-label-counts', variant: 'A'},
+                results,
+                numberSchemas,
+            );
+            const collected = yield* Stream.fromIterable(results).pipe(
+                Test.runCollectRecord(saved),
+            );
+            const predicate = (result: TestResult) =>
+                scenario.selection === 'all' ||
+                (scenario.selection === 'custom' &&
+                    !['TP', 'TN', 'FP', 'FN'].includes(result.label));
+            const filtered = Test.filterResults(collected, predicate);
+            const summary = yield* Test.summarizeRun({
+                run: saved,
+                schemas: numberSchemas,
+                predicate,
+            });
+            const expected = new Stats({
+                counts: scenario.counts,
+                total: scenario.total,
+                testCases: scenario.cases,
+                precision: scenario.precision,
+                recall: scenario.recall,
+                timeMin: scenario.cases === 0 ? Option.none() : Option.some(1),
+                timeMax: scenario.cases === 0 ? Option.none() : Option.some(60),
+                timeMean:
+                    scenario.cases === 0 ? Option.none() : Option.some(30.5),
+                timeMedian:
+                    scenario.cases === 0 ? Option.none() : Option.some(30.5),
+            });
+            t.expect([filtered.stats, summary.stats]).toEqual([
+                expected,
+                expected,
+            ]);
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);
+
+t.it('diffs the union of labels with own-property counts', () => {
+    const before = Object.assign(Stats.empty(), {
+        counts: {TP: 1, ['__proto__']: 2, old: 3},
+    });
+    const after = Object.assign(Stats.empty(), {
+        counts: {TP: 2, constructor: 2, new: 4},
+    });
+    t.expect(
+        Test.diff({
+            testRun: {stats: after},
+            previousTestRun: Option.some({stats: before}),
+        }),
+    ).toEqual({
+        counts: {TP: 1, ['__proto__']: -2, old: -3, constructor: 2, new: 4},
+        precision: 0,
+        recall: 0,
+    });
+});
+
+t.it.effect.each([
+    {before: 'failure-timeout', after: 'failure-timeout', changed: false},
+    {before: 'TP', after: 'failure-timeout', changed: true},
+    {before: 'failure-timeout', after: 'failure-unavailable', changed: true},
+])(
+    'compares $before to $after by label and keeps label changes in result IDs',
+    ({before, after, changed}) =>
+        Effect.gen(function* () {
+            const repository = yield* TestRepository;
+            const save = (label: string, variant: string) =>
+                repository.withTestRun(
+                    {name: 'label-comparison', variant},
+                    run =>
+                        Test.all({
+                            name: 'label-comparison',
+                            schemas: numberSchemas,
+                            testCases: [{input: 1, expected: 1}],
+                            program: (input: number) => Effect.succeed(input),
+                            evaluate: (result, expected) => [
+                                {key: 'answer', result, expected, label},
+                            ],
+                        }).pipe(
+                            Stream.runCollect,
+                            Effect.flatMap(results =>
+                                repository.insertTestResults(
+                                    results,
+                                    run,
+                                    numberSchemas,
+                                ),
+                            ),
+                        ),
+                );
+            const first = yield* save(before, 'A');
+            const second = yield* save(after, 'B');
+            const [from, to] = yield* repository.commitTestRuns([
+                first.run,
+                second.run,
+            ]);
+            const rows = yield* Test.compareRuns({
+                from,
+                to,
+                schemas: numberSchemas,
+            }).pipe(Stream.runCollect);
+            t.expect(
+                rows.map(row =>
+                    row._tag === 'Matched'
+                        ? {
+                              before: row.from.label,
+                              after: row.to.label,
+                              changed: row.changed,
+                              idChanged: row.from.id !== row.to.id,
+                          }
+                        : row._tag,
+                ),
+            ).toEqual([{before, after, changed, idChanged: changed}]);
+            const previous = yield* Test.summarizeRun({
+                run: from,
+                schemas: numberSchemas,
+            });
+            const current = yield* Test.summarizeRun({
+                run: to,
+                schemas: numberSchemas,
+            });
+            const delta = Test.diff({
+                testRun: current,
+                previousTestRun: Option.some(previous),
+            });
+            t.expect(delta.counts).toEqual(
+                changed
+                    ? {...Stats.empty().counts, [before]: -1, [after]: 1}
+                    : {...Stats.empty().counts, [before]: 0},
+            );
+        }).pipe(Effect.provide(TestRepository.TestLayer)),
+);

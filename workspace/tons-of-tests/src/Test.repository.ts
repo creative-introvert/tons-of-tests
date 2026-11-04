@@ -65,7 +65,10 @@ export type TestRepositoryShape = {
         /** Match at most 50 case/key pairs per call. Results keep their stored order. */
         matching?: ReadonlyArray<Pick<TestResult, 'hashTestCase' | 'key'>>,
     ) => Stream.Stream<TestResult<I, O, T>, RepositoryError>;
-    /** Calculate exact statistics in temporary cache tables, then release those tables. */
+    /**
+     * Count each exact label and each case's duration once. Precision and recall
+     * use only TP/FP/FN. Release the temporary timing tables after the callback.
+     */
     withStats: <A, E, R>(
         use: (collector: StatsCollector) => Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E | RepositoryError, R>;

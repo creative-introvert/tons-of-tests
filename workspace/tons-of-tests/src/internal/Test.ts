@@ -31,7 +31,7 @@ import {
     makeValueCodec,
     stringifyJson,
 } from './Test.serialization.js';
-import {makeClassify, median, precision, recall} from './Classify.js';
+import {count, makeClassify, median, precision, recall} from './Classify.js';
 
 /** Hash already encoded JSON. Object key order does not affect identity. */
 export const makeSha256 = (input: Schema.Json): string =>
@@ -371,20 +371,14 @@ type FoldAcc<I, O, T> = {
     testResultsByKey: Record<string, TestResult<I, O, T>>;
     testResultKeys: string[];
     timesByTestCaseHash: Map<string, number>;
-    TP: number;
-    TN: number;
-    FP: number;
-    FN: number;
+    counts: Map<string, number>;
 };
 
 const emptyAcc = <I, O, T>(): FoldAcc<I, O, T> => ({
     testResultsByKey: {},
     testResultKeys: [],
     timesByTestCaseHash: new Map(),
-    TP: 0,
-    TN: 0,
-    FP: 0,
-    FN: 0,
+    counts: new Map(Object.entries(Stats.empty().counts)),
 });
 
 const appendResult = <I, O, T>(
@@ -397,10 +391,7 @@ const appendResult = <I, O, T>(
     if (!acc.timesByTestCaseHash.has(r.hashTestCase)) {
         acc.timesByTestCaseHash.set(r.hashTestCase, r.timeMillis);
     }
-    if (r.label === 'TP') acc.TP++;
-    else if (r.label === 'TN') acc.TN++;
-    else if (r.label === 'FP') acc.FP++;
-    else acc.FN++;
+    acc.counts.set(r.label, (acc.counts.get(r.label) ?? 0) + 1);
     return acc;
 };
 
@@ -417,15 +408,13 @@ const finish = <I, O, T>(
         if (time < timeMin) timeMin = time;
         if (time > timeMax) timeMax = time;
     }
+    const counts = Object.fromEntries(acc.counts);
     const stats = new Stats({
-        TP: acc.TP,
-        TN: acc.TN,
-        FP: acc.FP,
-        FN: acc.FN,
-        total: acc.testResultKeys.length,
+        counts,
+        total: Object.values(counts).reduce((sum, n) => sum + n, 0),
         testCases: acc.timesByTestCaseHash.size,
-        precision: precision({TP: acc.TP, FP: acc.FP}),
-        recall: recall({TP: acc.TP, FN: acc.FN}),
+        precision: precision(counts),
+        recall: recall(counts),
         timeMean:
             times.length > 0
                 ? Option.some(timeSum / times.length)
@@ -476,10 +465,18 @@ export const diff = ({
         Option.match({
             onNone: () => stats,
             onSome: ({stats: previousStats}) => ({
-                TP: stats.TP - previousStats.TP,
-                TN: stats.TN - previousStats.TN,
-                FP: stats.FP - previousStats.FP,
-                FN: stats.FN - previousStats.FN,
+                counts: Object.fromEntries(
+                    [
+                        ...new Set([
+                            ...Object.keys(previousStats.counts),
+                            ...Object.keys(stats.counts),
+                        ]),
+                    ].map(label => [
+                        label,
+                        count(stats.counts, label) -
+                            count(previousStats.counts, label),
+                    ]),
+                ),
                 precision: stats.precision - previousStats.precision,
                 recall: stats.recall - previousStats.recall,
             }),

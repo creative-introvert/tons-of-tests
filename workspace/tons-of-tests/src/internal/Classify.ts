@@ -1,6 +1,6 @@
 import {Option, Schema} from 'effect';
 
-import type {Classify as TClassify} from '../Classify.js';
+import type {ConfusionLabel} from '../Classify.js';
 
 export const values = {
     TN: 'TN',
@@ -9,7 +9,14 @@ export const values = {
     FN: 'FN',
 } as const;
 
-export const LabelSchema = Schema.Literals(['TP', 'TN', 'FP', 'FN']);
+export const ConfusionLabelSchema = Schema.Literals(['TP', 'TN', 'FP', 'FN']);
+
+export const LabelSchema = Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isTrimmed(),
+    // oxlint-disable-next-line no-control-regex -- Label names must exclude ASCII control characters.
+    Schema.isPattern(/^[^,\u0000-\u001F\u007F]+$/u),
+);
 
 export const defaultIsNil = <I>(x: I): boolean => x === null || x === undefined;
 
@@ -27,7 +34,7 @@ export const makeClassify =
         isEqual: (output: O, expected: T) => boolean;
         isOutputNil?: (output: O) => boolean;
         isExpectedNil?: (expected: T) => boolean;
-    }): TClassify<O, T> =>
+    }): ((output: O, expected: T) => ConfusionLabel) =>
     (output, expected) => {
         const oNil = isOutputNil(output);
         const eNil = isExpectedNil(expected);
@@ -47,13 +54,20 @@ export const makeClassify =
         return values.FN;
     };
 
-export const precision = (m: {TP: number; FP: number}): number => {
-    const r = m.TP / (m.TP + m.FP);
+export const count = (
+    counts: Readonly<Record<string, number>>,
+    label: string,
+): number => (Object.hasOwn(counts, label) ? counts[label] : 0);
+
+export const precision = (counts: Readonly<Record<string, number>>): number => {
+    const tp = count(counts, 'TP');
+    const r = tp / (tp + count(counts, 'FP'));
     return Number.isNaN(r) ? 0 : r;
 };
 
-export const recall = (m: {TP: number; FN: number}): number => {
-    const r = m.TP / (m.TP + m.FN);
+export const recall = (counts: Readonly<Record<string, number>>): number => {
+    const tp = count(counts, 'TP');
+    const r = tp / (tp + count(counts, 'FN'));
     return Number.isNaN(r) ? 0 : r;
 };
 

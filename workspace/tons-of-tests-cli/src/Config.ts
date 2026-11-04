@@ -30,6 +30,7 @@ export type AppConfigShape<
      * File paths must refer to different cache and snapshot files.
      */
     cachePath?: string | undefined;
+    /** Current colors and label valence apply to fresh, cached, and committed reports. */
     displayConfig?: Partial<PT.DisplayConfig.DisplayConfig> | undefined;
     concurrency?: number | undefined;
 };

@@ -1,4 +1,4 @@
-import {Effect, Option, Ref, Schema} from 'effect';
+import {Effect, Option, Schema} from 'effect';
 import {SqlClient} from 'effect/sql';
 
 import {Stats} from '../Classify.js';
@@ -35,13 +35,7 @@ export const withStats = Effect.fnUntraced(function* <A, E, R>(
         () =>
             Effect.gen(function* () {
                 yield* sql`CREATE INDEX ${sql(`${name}_time`)} ON ${sql(name)} (timeMillis);`;
-                const counts = yield* Ref.make({
-                    TP: 0,
-                    TN: 0,
-                    FP: 0,
-                    FN: 0,
-                    total: 0,
-                });
+                const counts = new Map(Object.entries(Stats.empty().counts));
                 const add: Collector['add'] = Effect.fnUntraced(
                     function* (results) {
                         for (
@@ -54,19 +48,17 @@ export const withStats = Effect.fnUntraced(function* <A, E, R>(
                             INSERT INTO ${sql(name)} ${sql.insert(batch.map(({hashTestCase, timeMillis}) => ({hashTestCase, timeMillis})))}
                             ON CONFLICT(hashTestCase) DO NOTHING;
                         `;
-                            yield* Ref.update(counts, previous => {
-                                const next = {...previous};
-                                for (const result of batch) {
-                                    next[result.label]++;
-                                    next.total++;
-                                }
-                                return next;
-                            });
+                            for (const result of batch) {
+                                counts.set(
+                                    result.label,
+                                    (counts.get(result.label) ?? 0) + 1,
+                                );
+                            }
                         }
                     },
                 );
                 const stats = Effect.gen(function* () {
-                    const totals = yield* Ref.get(counts);
+                    const totals = Object.fromEntries(counts);
                     const [times] = yield* decodeTimes(
                         yield* sql`
                         SELECT COUNT(*) AS count, AVG(timeMillis) AS mean,
@@ -83,7 +75,11 @@ export const withStats = Effect.fnUntraced(function* <A, E, R>(
                     `,
                               );
                     return new Stats({
-                        ...totals,
+                        counts: totals,
+                        total: Object.values(totals).reduce(
+                            (sum, n) => sum + n,
+                            0,
+                        ),
                         testCases: times.count,
                         precision: precision(totals),
                         recall: recall(totals),

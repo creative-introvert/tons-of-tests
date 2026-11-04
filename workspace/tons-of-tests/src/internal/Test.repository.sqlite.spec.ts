@@ -311,10 +311,21 @@ it.effect.each(['success', 'failure', 'defect'] as const)(
             if (Exit.isFailure(exit)) {
                 const reasons = exit.cause.reasons;
                 expect(reasons).toContainEqual(
-                    expect.objectContaining({
-                        _tag: 'Fail',
-                        error: expect.objectContaining({_tag: 'SqlError'}),
-                    }),
+                    expect.objectContaining(
+                        outcome === 'defect'
+                            ? {
+                                  _tag: 'Die',
+                                  defect: expect.objectContaining({
+                                      _tag: 'SqlError',
+                                  }),
+                              }
+                            : {
+                                  _tag: 'Fail',
+                                  error: expect.objectContaining({
+                                      _tag: 'SqlError',
+                                  }),
+                              },
+                    ),
                 );
                 expect(reasons).toHaveLength(outcome === 'success' ? 1 : 2);
                 if (outcome !== 'success') {
@@ -450,7 +461,12 @@ it.effect(
                         repository
                             .withTestRun({name: 'history', variant}, run =>
                                 repository.insertTestResult(
-                                    result(index),
+                                    result(index, {
+                                        label:
+                                            index % 2 === 0
+                                                ? 'failure-timeout'
+                                                : '__proto__',
+                                    }),
                                     run,
                                     numberSchemas,
                                 ),
@@ -489,7 +505,14 @@ it.effect(
                         {variant: 'C', baseline: Option.some(snapshots[2])},
                     ],
                     history: snapshots.toReversed(),
-                    results: snapshots.map((_, index) => [result(index)]),
+                    results: snapshots.map((_, index) => [
+                        result(index, {
+                            label:
+                                index % 2 === 0
+                                    ? 'failure-timeout'
+                                    : '__proto__',
+                        }),
+                    ]),
                 });
             }).pipe(Effect.provide(TestRepository.layer(options)));
         }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
@@ -902,7 +925,7 @@ it.effect('malformed saved labels fail with SchemaError', () =>
             {name: 'bad-label', variant: 'A'},
             run => repository.insertTestResult(result(1), run, numberSchemas),
         );
-        yield* sql`UPDATE ${sql(tables.testResults)} SET label = 'NOT_A_LABEL';`;
+        yield* sql`UPDATE ${sql(tables.testResults)} SET label = '';`;
         const exit = yield* repository
             .getTestResultsStream(run, numberSchemas)
             .pipe(Stream.runDrain, Effect.exit);
@@ -948,10 +971,7 @@ it.effect(
                 tables: yield* sql`SELECT name FROM sqlite_temp_master WHERE name LIKE 'tots_stats_%';`,
             }).toEqual({
                 stats: new Stats({
-                    TP: 102,
-                    TN: 0,
-                    FP: 0,
-                    FN: 102,
+                    counts: {TP: 102, TN: 0, FP: 0, FN: 102},
                     total: 204,
                     testCases: 102,
                     precision: 1,
@@ -1017,6 +1037,7 @@ it.effect('commit preserves encoded bytes and never invokes value codecs', () =>
             run =>
                 repository.insertTestResult(
                     result(1, {
+                        label: 'failure-timeout',
                         tags: ['a,b', '', '日本語'],
                         ordering: 5,
                         resultOrdering: 2,
@@ -1034,7 +1055,7 @@ it.effect('commit preserves encoded bytes and never invokes value codecs', () =>
             repeated: yield* repository.commitTestRuns([run.run]),
             cache: yield* repository.getLatestTestRun(run.run),
             bytes: yield* sql`
-                SELECT input, result, expected, tags, ordering, resultOrdering, timeMillis
+                SELECT input, result, expected, label, tags, ordering, resultOrdering, timeMillis
                 FROM ${sql(tables.testResults)} JOIN ${sql(tables.testRunResults)} ON id = testResult;
             `,
         }).toEqual({
@@ -1042,6 +1063,7 @@ it.effect('commit preserves encoded bytes and never invokes value codecs', () =>
             cache: Option.some(run.run),
             bytes: [
                 {
+                    label: 'failure-timeout',
                     input: ' 1 ',
                     result: '1.0',
                     expected: '1e0',

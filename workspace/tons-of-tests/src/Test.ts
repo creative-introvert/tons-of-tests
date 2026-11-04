@@ -26,6 +26,7 @@ export type EvaluationResult<A, B> = {
     readonly key: string;
     readonly result: A;
     readonly expected: B;
+    /** Built-in or custom name following `Classify.LabelSchema` rules. */
     readonly label: Label;
 };
 
@@ -33,6 +34,8 @@ export type EvaluationResult<A, B> = {
  * Returns the results to track for one completed output. Keep this function pure.
  * Return at least one result, in display order. Each key must be non-empty and
  * unique within the case.
+ * Program errors stay in the Effect error channel. To classify an error, catch
+ * it in your program and return an output value for this callback to evaluate.
  */
 export type Evaluate<O, T, A = O, B = T> = (
     output: O,
@@ -173,7 +176,9 @@ export type TestRunResults<I = unknown, O = unknown, T = unknown> = TestRun & {
     stats: Stats;
 };
 
-export type Diff = Record<Label, number> & {
+export type Diff = {
+    /** Counts after minus counts before. An absent label counts as zero. */
+    counts: Readonly<Record<Label, number>>;
     precision: number;
     recall: number;
 };

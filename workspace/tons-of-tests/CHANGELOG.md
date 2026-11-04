@@ -1,5 +1,11 @@
 # @creative-introvert/tons-of-tests
 
+## 3.0.0-rc.3
+
+### Patch Changes
+
+- Feat: Custom labels.
+
 ## 3.0.0-rc.2
 
 ### Patch Changes

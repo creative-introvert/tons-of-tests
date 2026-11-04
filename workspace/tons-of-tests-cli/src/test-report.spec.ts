@@ -1,7 +1,9 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {NodeServices} from '@effect/platform-node';
 import {expect, it} from '@effect/vitest';
+import colors from 'ansi-colors';
 import {
+    Console,
     Effect,
     FileSystem,
     Layer,
@@ -9,6 +11,8 @@ import {
     PlatformError,
     Schema,
     SchemaTransformation,
+    Sink,
+    Stdio,
     Stream,
 } from 'effect';
 import {SqlClient} from 'effect/sql';
@@ -89,9 +93,9 @@ it.effect(
             });
             expect({
                 calls,
-                passing: first.stats.TP,
+                passing: first.stats.counts.TP,
                 unchanged: unchanged.count,
-                changed: [fresh.count, fresh.stats.FP],
+                changed: [fresh.count, fresh.stats.counts.FP],
                 cachedStats: cached.stats,
                 cachedOutput: yield* cached.chunks.pipe(Stream.runCollect),
             }).toEqual({
@@ -297,7 +301,7 @@ it.effect('fresh and cached reports use both directions of custom codecs', () =>
             config,
             cached: false,
         });
-        expect({count: report.count, passing: report.stats.TP}).toEqual({
+        expect({count: report.count, passing: report.stats.counts.TP}).toEqual({
             count: 1,
             passing: 1,
         });
@@ -440,4 +444,277 @@ it.effect(
                 state: 'Complete',
             });
         }).pipe(Effect.provide(services)),
+);
+
+it.effect.each([
+    {
+        labels: 'TP,failure-timeout',
+        visible: ['row-1', 'row-2'],
+        absent: ['row-3'],
+        counts: {TP: '1', 'failure-timeout': '1'},
+        total: '2',
+    },
+    {
+        labels: 'failure-timeout',
+        visible: ['row-2'],
+        absent: ['row-1', 'row-3'],
+        counts: {TP: '0', 'failure-timeout': '1'},
+        total: '1',
+    },
+    {
+        labels: 'not-recorded',
+        visible: [],
+        absent: ['row-1', 'row-2', 'row-3'],
+        counts: {TP: '0'},
+        total: '0',
+    },
+])(
+    'CLI filters $labels and recalculates statistics while keeping the whole cache',
+    scenario =>
+        Effect.gen(function* () {
+            let calls = 0;
+            const config = {
+                dbPath: ':memory:',
+                displayConfig: {colorize: false},
+                testSuite: {
+                    name: 'custom-filter',
+                    schemas: numberSchemas,
+                    testCases: [1, 2, 3].map(input => ({
+                        input,
+                        expected: input,
+                    })),
+                    program: (input: number) =>
+                        Effect.sync(() => {
+                            calls++;
+                            return input;
+                        }),
+                    evaluate: (result: number, expected: number) =>
+                        [
+                            {
+                                key: `row-${result}`,
+                                result,
+                                expected,
+                                label:
+                                    result === 1
+                                        ? 'TP'
+                                        : result === 2
+                                          ? 'failure-timeout'
+                                          : 'inconclusive',
+                            },
+                        ] as const,
+                },
+            };
+            const output: string[] = [];
+            const console = yield* Console.Console;
+            yield* effectNoDeps(config, [
+                'node',
+                'suite',
+                'summarize',
+                '--labels',
+                scenario.labels,
+            ]).pipe(
+                Effect.provideService(
+                    Console.Console,
+                    new Proxy(console, {
+                        get: (target, key, receiver) =>
+                            key === 'log'
+                                ? (...args: readonly unknown[]) => {
+                                      output.push(args.map(String).join(' '));
+                                  }
+                                : Reflect.get(target, key, receiver),
+                    }),
+                ),
+                Effect.provide(
+                    Stdio.layerTest({
+                        stdout: () =>
+                            Sink.forEach(chunk =>
+                                Effect.sync(() => {
+                                    output.push(String(chunk));
+                                }),
+                            ),
+                    }),
+                ),
+            );
+            const text = output.join('\n');
+            expect(text).toBe(colors.unstyle(text));
+            for (const key of scenario.visible) expect(text).toContain(key);
+            for (const key of scenario.absent) expect(text).not.toContain(key);
+            const statsRows = text
+                .split('STATS')[1]
+                .split('\n')
+                .filter(line => line.startsWith('│'))
+                .map(line =>
+                    line
+                        .split('│')
+                        .slice(1, -1)
+                        .map(cell => cell.trim()),
+                );
+            expect(
+                Object.fromEntries(
+                    statsRows[0].map((header, index) => [
+                        header,
+                        statsRows[1][index],
+                    ]),
+                ),
+            ).toMatchObject({
+                cases: scenario.total,
+                results: scenario.total,
+                ...scenario.counts,
+            });
+            const repository = yield* PT.TestRepository.TestRepository;
+            const saved = Option.getOrThrow(
+                yield* repository.getLatestTestRun({
+                    name: config.testSuite.name,
+                    variant: 'default',
+                }),
+            );
+            expect({
+                calls,
+                labels: (yield* repository
+                    .getTestResultsStream(saved, numberSchemas)
+                    .pipe(Stream.runCollect)).map(row => row.label),
+            }).toEqual({
+                calls: 3,
+                labels: ['TP', 'failure-timeout', 'inconclusive'],
+            });
+        }).pipe(Effect.provide(services)),
+);
+
+it.effect.each(['', ' TP', 'TP,', 'failure\ntimeout'])(
+    'CLI rejects malformed label filter %j before running tests',
+    labels =>
+        Effect.gen(function* () {
+            let calls = 0;
+            const config = {
+                dbPath: ':memory:',
+                testSuite: {
+                    name: 'invalid-label-filter',
+                    schemas: numberSchemas,
+                    testCases: [{input: 1, expected: 1}],
+                    program: (input: number) =>
+                        Effect.sync(() => {
+                            calls++;
+                            return input;
+                        }),
+                },
+            };
+            const error = yield* effectNoDeps(config, [
+                'node',
+                'suite',
+                'summarize',
+                '--labels',
+                labels,
+            ]).pipe(Effect.flip);
+            expect({tag: error._tag, calls}).toEqual({
+                tag: 'ShowHelp',
+                calls: 0,
+            });
+        }).pipe(Effect.provide(services)),
+);
+
+it.effect(
+    'fresh and cached summaries style current and previous custom labels using the current settings',
+    () =>
+        Effect.gen(function* () {
+            let calls = 0;
+            let label = 'failure-timeout';
+            const config = {
+                dbPath: ':memory:',
+                displayConfig: {
+                    labels: {
+                        'failure-timeout': {
+                            color: 'magenta',
+                            valence: 'negative',
+                        },
+                        recovered: {color: 'cyan', valence: 'positive'},
+                    },
+                } satisfies Partial<PT.DisplayConfig.DisplayConfig>,
+                testSuite: {
+                    name: 'custom-style',
+                    schemas: numberSchemas,
+                    testCases: [{input: 1, expected: 1}],
+                    program: (input: number) =>
+                        Effect.sync(() => {
+                            calls++;
+                            return input;
+                        }),
+                    evaluate: (result: number, expected: number) =>
+                        [{key: 'answer', result, expected, label}] as const,
+                },
+            };
+            const first = yield* prepareReport({
+                mode: 'summarize',
+                config,
+                cached: false,
+            });
+            expect(
+                (yield* first.chunks.pipe(Stream.runCollect)).join(''),
+            ).toContain(colors.magenta('failure-timeout'));
+            const repository = yield* PT.TestRepository.TestRepository;
+            yield* repository.commitTestRuns([first.run]);
+            label = 'recovered';
+            const fresh = yield* prepareReport({
+                mode: 'summarize',
+                config,
+                cached: false,
+            });
+            const cached = yield* prepareReport({
+                mode: 'summarize',
+                config,
+                cached: true,
+            });
+            const output = (yield* fresh.chunks.pipe(Stream.runCollect)).join(
+                '',
+            );
+            expect(output).toContain(colors.cyan('recovered'));
+            expect(output).toContain(colors.magenta('failure-timeout'));
+            expect({
+                calls,
+                counts: fresh.stats.counts,
+                cached: (yield* cached.chunks.pipe(Stream.runCollect)).join(''),
+            }).toEqual({
+                calls: 2,
+                counts: {TP: 0, TN: 0, FP: 0, FN: 0, recovered: 1},
+                cached: output,
+            });
+            const neutral = yield* prepareReport({
+                mode: 'summarize',
+                config: {...config, displayConfig: {labels: {}}},
+                cached: true,
+            });
+            const neutralOutput = (yield* neutral.chunks.pipe(
+                Stream.runCollect,
+            )).join('');
+            expect(neutralOutput).toContain(' failure-timeout ');
+            expect(neutralOutput).toContain(' recovered ');
+            const plain = yield* prepareReport({
+                mode: 'summarize',
+                config: {
+                    ...config,
+                    displayConfig: {...config.displayConfig, colorize: false},
+                },
+                cached: true,
+            });
+            const plainOutput = (yield* plain.chunks.pipe(
+                Stream.runCollect,
+            )).join('');
+            expect(plainOutput).toBe(colors.unstyle(output));
+            const run = yield* repository
+                .getTestResultsStream(cached.run, numberSchemas)
+                .pipe(PT.Test.runCollectRecord(cached.run));
+            const previousRun = Option.getOrThrow(
+                yield* repository.getBaselineTestRun(cached.run),
+            );
+            const previous = yield* repository
+                .getTestResultsStream(previousRun, numberSchemas)
+                .pipe(PT.Test.runCollectRecord(previousRun));
+            expect(
+                yield* PT.Show.summarize({
+                    testRun: run,
+                    previousTestRun: Option.some(previous),
+                    schemas: numberSchemas,
+                    displayConfig: config.displayConfig,
+                }),
+            ).toBe(output);
+        }).pipe(Effect.scoped, Effect.provide(services)),
 );

@@ -13,6 +13,7 @@ export class TestValueError extends Schema.TaggedError<
         'testCase.expected',
         'evaluation.result',
         'evaluation.expected',
+        'evaluation.label',
     ]),
     operation: Schema.Literals(['encode', 'decode', 'roundTrip']),
     cause: Schema.instanceOf(Schema.SchemaError),

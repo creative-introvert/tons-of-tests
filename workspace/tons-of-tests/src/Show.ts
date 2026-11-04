@@ -18,13 +18,8 @@ export type DiffContext = {
     diff: Diff;
 };
 
-export type DiffColumnNames =
-    | 'TP'
-    | 'TN'
-    | 'FP'
-    | 'FN'
-    | 'precision'
-    | 'recall';
+/** Select a label with `count:<label>`; precision and recall use only TP/FP/FN. */
+export type DiffColumnNames = `count:${string}` | 'precision' | 'recall';
 
 export type DiffColumn = {
     name: DiffColumnNames;
@@ -36,13 +31,11 @@ export type StatsContext = {
     stats: Stats;
 };
 
+/** Use `count:<label>` for counts, including unused labels as zero. Metric names select metrics. */
 export type StatsColumnNames =
     | 'total'
     | 'testCases'
-    | 'TP'
-    | 'TN'
-    | 'FP'
-    | 'FN'
+    | `count:${string}`
     | 'precision'
     | 'recall'
     | 'timeMin'

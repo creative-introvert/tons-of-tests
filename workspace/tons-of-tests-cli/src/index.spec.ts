@@ -199,7 +199,7 @@ t.describe('CLI.effect', () => {
     );
 
     t.it.effect.each([
-        {description: 'unknown label', input: ['--labels', 'invalid']},
+        {description: 'padded label', input: ['--labels', ' invalid']},
         {description: 'empty label', input: ['--labels', '']},
         {description: 'missing label value', input: ['--labels']},
     ])('rejects $description before running tests', ({input}) =>
