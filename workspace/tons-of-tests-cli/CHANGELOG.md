@@ -1,5 +1,13 @@
 # @creative-introvert/tons-of-tests-cli
 
+## 3.0.0-rc.4
+
+### Patch Changes
+
+- Chore: Update effect.
+- Updated dependencies
+  - @creative-introvert/tons-of-tests@3.0.0-rc.4
+
 ## 3.0.0-rc.3
 
 ### Patch Changes
