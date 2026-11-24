@@ -1,4 +1,4 @@
-import {NodeServices} from '@effect/platform-node';
+import {NodeCrypto, NodeServices} from '@effect/platform-node';
 import {
     Context,
     Effect,
@@ -163,7 +163,8 @@ export class TestRepository extends Context.Service<
      * Keep cache rows separate by `snapshotIdentity`, even when repositories share a
      * cache filename. Cache and snapshot paths must refer to different files.
      * With `:memory:`, each store lasts for this layer's lifetime.
-     * The caller supplies platform services; `CLI.buildLayer` also resolves paths.
+     * The caller supplies platform services and `SecureRandom`.
+     * `CLI.buildLayer` supplies both and resolves paths.
      */
     static layer(options: {
         readonly dbPath: string;
@@ -191,5 +192,5 @@ export class TestRepository extends Context.Service<
                 Context.add(TestRepositoryStorage, {snapshot: stores.snapshot}),
             );
         }),
-    ).pipe(Layer.provide(NodeServices.layer));
+    ).pipe(Layer.provide([NodeServices.layer, NodeCrypto.layerSecureRandom]));
 }

@@ -1,4 +1,4 @@
-import {NodeServices} from '@effect/platform-node';
+import {NodeCrypto, NodeServices} from '@effect/platform-node';
 import * as Sqlite from '@effect/sql-sqlite-node';
 import {expect, it} from '@effect/vitest';
 import {
@@ -8,6 +8,7 @@ import {
     Exit,
     Fiber,
     FileSystem,
+    Layer,
     Option,
     Schema,
     Stream,
@@ -24,6 +25,11 @@ import {
     getAllTestRunResults,
     getAllTestRuns,
 } from './test-repository-fixtures.js';
+
+const repositoryServices = Layer.merge(
+    NodeServices.layer,
+    NodeCrypto.layerSecureRandom,
+);
 
 const numberSchemas = {
     testCase: {input: Schema.Finite},
@@ -515,7 +521,7 @@ it.effect(
                     ]),
                 });
             }).pipe(Effect.provide(TestRepository.layer(options)));
-        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+        }).pipe(Effect.scoped, Effect.provide(repositoryServices)),
 );
 
 it.effect.each(['Complete', 'Failed'] as const)(
@@ -1157,7 +1163,7 @@ it.effect(
                     files: [],
                 });
             }).pipe(Effect.provide(TestRepository.layer(options)));
-        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+        }).pipe(Effect.scoped, Effect.provide(repositoryServices)),
 );
 
 it.effect(
@@ -1194,7 +1200,7 @@ it.effect(
                 error: 'RepositoryPathConflict',
                 bytes: before,
             });
-        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+        }).pipe(Effect.scoped, Effect.provide(repositoryServices)),
 );
 
 it.effect(
@@ -1247,7 +1253,7 @@ it.effect(
                     name.startsWith('snapshot.sqlite-'),
                 ),
             }).toEqual({bytes: before, sidecars: []});
-        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+        }).pipe(Effect.scoped, Effect.provide(repositoryServices)),
 );
 
 it.effect(
@@ -1294,7 +1300,7 @@ it.effect(
                 });
             }).pipe(Effect.provide(TestRepository.layer(options)));
             expect(yield* fs.readFile(options.dbPath)).toEqual(before);
-        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+        }).pipe(Effect.scoped, Effect.provide(repositoryServices)),
 );
 
 it.effect(
@@ -1350,7 +1356,7 @@ it.effect(
                     }),
                 ),
             );
-        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+        }).pipe(Effect.scoped, Effect.provide(repositoryServices)),
 );
 
 it.effect(
@@ -1418,7 +1424,7 @@ it.effect(
                     staleRead: 'TestRunNotFound',
                 });
             }).pipe(Effect.provide(TestRepository.layer(options)));
-        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+        }).pipe(Effect.scoped, Effect.provide(repositoryServices)),
 );
 
 it.effect(
@@ -1543,5 +1549,5 @@ it.effect(
                 error: 'RepositoryFormatError',
                 bytes: before,
             });
-        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+        }).pipe(Effect.scoped, Effect.provide(repositoryServices)),
 );

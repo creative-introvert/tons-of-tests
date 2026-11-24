@@ -1,8 +1,8 @@
 import * as PT from '@creative-introvert/tons-of-tests';
 import {Command} from 'effect/cli';
-import {NodeServices, NodeRuntime} from '@effect/platform-node';
-import {Crypto, Effect, Layer, Option, Path, References, Schema} from 'effect';
-import * as Hex from 'effect/encoding/Hex';
+import {NodeCrypto, NodeServices, NodeRuntime} from '@effect/platform-node';
+import {Effect, Layer, Option, Path, References, Schema} from 'effect';
+import {Digest} from 'effect/crypto';
 
 import type {AppConfigShape} from './Config.js';
 import {commit} from './commit.js';
@@ -35,7 +35,7 @@ export const buildLayer = <I, O, T, A, B, S>(
         Layer.unwrap(
             Effect.gen(function* () {
                 const path = yield* Path.Path;
-                const crypto = yield* Crypto.Crypto;
+                const digest = yield* Digest.Digest;
                 const workingDirectory = path.resolve('.');
                 const dbPath =
                     config.dbPath === ':memory:'
@@ -53,13 +53,9 @@ export const buildLayer = <I, O, T, A, B, S>(
                                 workingDirectory,
                                 '.cache',
                                 'tons-of-tests',
-                                `${Hex.encode(
-                                    yield* crypto.digest(
-                                        'SHA-256',
-                                        new TextEncoder().encode(
-                                            snapshotIdentity,
-                                        ),
-                                    ),
+                                `${yield* digest.digestHex(
+                                    Digest.sha256,
+                                    new TextEncoder().encode(snapshotIdentity),
                                 )}.sqlite`,
                             )
                           : path.resolve(workingDirectory, config.cachePath);
@@ -71,7 +67,11 @@ export const buildLayer = <I, O, T, A, B, S>(
                 });
             }),
         ),
-        NodeServices.layer,
+        Layer.mergeAll(
+            NodeServices.layer,
+            NodeCrypto.layerDigest,
+            NodeCrypto.layerSecureRandom,
+        ),
     );
 
 /**

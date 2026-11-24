@@ -1,4 +1,4 @@
-import {Effect, Option, Schema} from 'effect';
+import {Array as A, Effect, Option, Schema} from 'effect';
 import {SqlClient} from 'effect/sql';
 
 import {Stats} from '../Classify.js';
@@ -44,8 +44,16 @@ export const withStats = Effect.fnUntraced(function* <A, E, R>(
                             offset += 50
                         ) {
                             const batch = results.slice(offset, offset + 50);
+                            if (!A.isReadonlyArrayNonEmpty(batch)) break;
+                            const caseTimes = A.map(
+                                batch,
+                                ({hashTestCase, timeMillis}) => ({
+                                    hashTestCase,
+                                    timeMillis,
+                                }),
+                            );
                             yield* sql`
-                            INSERT INTO ${sql(name)} ${sql.insert(batch.map(({hashTestCase, timeMillis}) => ({hashTestCase, timeMillis})))}
+                            INSERT INTO ${sql(name)} ${sql.insert(caseTimes)}
                             ON CONFLICT(hashTestCase) DO NOTHING;
                         `;
                             for (const result of batch) {

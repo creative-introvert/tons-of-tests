@@ -1,5 +1,5 @@
 import * as PT from '@creative-introvert/tons-of-tests';
-import {NodeServices} from '@effect/platform-node';
+import {NodeCrypto, NodeServices} from '@effect/platform-node';
 import {expect, it} from '@effect/vitest';
 import colors from 'ansi-colors';
 import {
@@ -637,5 +637,8 @@ it.effect(
                 Effect.provide(PT.TestRepository.TestRepository.layer(options)),
             );
             expect(yield* fs.readFile(options.dbPath)).toEqual(bytes);
-        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+        }).pipe(
+            Effect.scoped,
+            Effect.provide([NodeServices.layer, NodeCrypto.layerSecureRandom]),
+        ),
 );

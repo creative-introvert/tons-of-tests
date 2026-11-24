@@ -2,7 +2,6 @@ import * as Sqlite from '@effect/sql-sqlite-node';
 import {
     Array as A,
     Context,
-    Crypto,
     Effect,
     Exit,
     FileSystem,
@@ -16,6 +15,7 @@ import {
     Stream,
     TxReentrantLock,
 } from 'effect';
+import {SecureRandom} from 'effect/crypto';
 import {SqlClient} from 'effect/sql';
 import type {PlatformError} from 'effect/PlatformError';
 
@@ -118,7 +118,7 @@ export const makeTestRepository = Effect.fnUntraced(function* (
 ) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const crypto = yield* Crypto.Crypto;
+    const secureRandom = yield* SecureRandom.SecureRandom;
     const lifetime = yield* Effect.scope;
     const memoryLock = yield* TxReentrantLock.make();
     const snapshotLock = yield* Semaphore.make(1);
@@ -326,10 +326,10 @@ export const makeTestRepository = Effect.fnUntraced(function* (
         runId: number,
         rows: ReadonlyArray<typeof RawResult.Type>,
     ) {
-        if (rows.length === 0) return;
+        if (!A.isReadonlyArrayNonEmpty(rows)) return;
         yield* sql`
             INSERT INTO ${sql(tables.testResults)} ${sql.insert(
-                rows.map(row => ({
+                A.map(rows, row => ({
                     id: row.id,
                     hashTestCase: row.hashTestCase,
                     key: row.key,
@@ -342,7 +342,7 @@ export const makeTestRepository = Effect.fnUntraced(function* (
         `;
         yield* sql`
             INSERT INTO ${sql(tables.testRunResults)} ${sql.insert(
-                rows.map(row => ({
+                A.map(rows, row => ({
                     testRun: runId,
                     testResult: row.id,
                     ordering: row.ordering,
@@ -527,7 +527,7 @@ export const makeTestRepository = Effect.fnUntraced(function* (
         name: string;
         variant: string;
     }) {
-        const executionId = yield* crypto.randomUUIDv4();
+        const executionId = yield* secureRandom.uuidV4();
         return yield* writeCache(
             Effect.gen(function* () {
                 yield* cache`
